@@ -160,6 +160,8 @@ export default function App({ user, onLogout }) {
   const [filterLoja,    setFilterLoja]    = useState("all");
   const [filterPrazo,   setFilterPrazo]   = useState("all");
   const [filterInterno, setFilterInterno] = useState("all");
+  const [filterProduto,  setFilterProduto]  = useState("all");
+  const tableRef = useRef(null);
   const [selected,      setSelected]      = useState(new Set());
   const [copied,        setCopied]        = useState(false);
   const [revisaoModal,  setRevisaoModal]  = useState(null); // order object
@@ -222,6 +224,14 @@ export default function App({ user, onLogout }) {
 
   // ── Filters ───────────────────────────────────────────────────────────────
   const lojas = ["all", ...new Set(orders.map(r=>r.loja).filter(Boolean))];
+
+  // Product list with counts (based on current non-removed orders)
+  const activeOrders = orders.filter(r=>r._status!=="removed");
+  const produtoMap = activeOrders.reduce((acc,r)=>{
+    if(r.produto){ acc[r.produto]=(acc[r.produto]||0)+1; }
+    return acc;
+  },{});
+  const produtos = Object.entries(produtoMap).sort((a,b)=>b[1]-a[1]); // sorted by count desc
   const filtered = orders.filter(r => {
     const dl = deadlineInfo(r.prazoEnvio);
     const matchSearch = !search || r.idPlataforma.toLowerCase().includes(search.toLowerCase()) || r.produto.toLowerCase().includes(search.toLowerCase()) || r.loja.toLowerCase().includes(search.toLowerCase());
@@ -231,6 +241,7 @@ export default function App({ user, onLogout }) {
       (filterLoja==="all"   || r.loja===filterLoja) &&
       (filterPrazo==="all"  || (dl && dl.tier===filterPrazo)) &&
       (filterInterno==="all"|| r.statusInterno===filterInterno) &&
+      (filterProduto==="all" || r.produto===filterProduto) &&
       matchSearch
     );
   });
@@ -296,25 +307,119 @@ export default function App({ user, onLogout }) {
           </div>
         </div>
 
-        {/* ── Stats ── */}
+        {/* ── Stats (clickable) ── */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12,marginBottom:20}}>
           {[
-            {label:"Total de Pedidos", value:orders.filter(r=>r._status!=="removed").length, color:"#1d4ed8", icon:"📦"},
-            {label:"Novos (última carga)", value:mergeStats?.added??0, color:"#7c3aed", icon:"✨"},
-            {label:"Feitos", value:feitoCount, color:"#059669", icon:"✅"},
-            {label:"Em Revisão", value:revisaoCount, color:"#f59e0b", icon:"📋"},
-            {label:"Urgentes (≤1 dia)", value:urgentCount, color:"#ef4444", icon:"🔴"},
+            {label:"Total de Pedidos", value:activeOrders.length, color:"#1d4ed8", icon:"📦", action:()=>{setFilterInterno("all");setFilterPrazo("all");setFilterProduto("all");setSearch("");}},
+            {label:"Novos (última carga)", value:mergeStats?.added??0, color:"#7c3aed", icon:"✨", action:()=>{setFilterInterno("all");setFilterPrazo("all");setFilterProduto("all");setFilterStatus("new");}},
+            {label:"Feitos", value:feitoCount, color:"#059669", icon:"✅", action:()=>{setFilterInterno("feito");setFilterPrazo("all");setFilterProduto("all");setSearch("");}},
+            {label:"Em Revisão", value:revisaoCount, color:"#f59e0b", icon:"📋", action:()=>{setFilterInterno("revisao");setFilterPrazo("all");setFilterProduto("all");setSearch("");}},
+            {label:"Urgentes (≤1 dia)", value:urgentCount, color:"#ef4444", icon:"🔴", action:()=>{setFilterInterno("all");setFilterPrazo("red");setFilterProduto("all");setSearch("");}},
           ].map(s=>(
-            <div key={s.label} style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",borderLeft:`4px solid ${s.color}`}}>
+            <div key={s.label} onClick={()=>{s.action();tableRef.current?.scrollIntoView({behavior:"smooth"});}} style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",borderLeft:`4px solid ${s.color}`,cursor:"pointer",transition:"transform 0.15s,box-shadow 0.15s"}}
+              onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow="0 6px 20px rgba(0,0,0,0.12)";}}
+              onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.boxShadow="0 1px 3px rgba(0,0,0,0.07)";}}>
               <div style={{fontSize:18,marginBottom:2}}>{s.icon}</div>
               <div style={{fontSize:24,fontWeight:800,color:s.color}}>{s.value}</div>
               <div style={{fontSize:11,color:"#64748b",fontWeight:500}}>{s.label}</div>
+              <div style={{fontSize:10,color:s.color,marginTop:3,opacity:0.7}}>clique para filtrar →</div>
             </div>
           ))}
         </div>
 
+        {/* ── Product Panel ── */}
+        <div style={{background:"#fff",borderRadius:20,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20,overflow:"hidden"}}>
+          <div style={{padding:"14px 20px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:14,fontWeight:700,color:"#1e293b"}}>📦 Filtrar por Produto</span>
+            <span style={{fontSize:11,color:"#94a3b8"}}>{produtos.length} produto{produtos.length!==1?"s":""} encontrado{produtos.length!==1?"s":""}</span>
+            {filterProduto!=="all" && (
+              <button onClick={()=>setFilterProduto("all")} style={{marginLeft:"auto",background:"none",border:"1px solid #7c3aed",color:"#7c3aed",borderRadius:8,padding:"3px 12px",fontSize:11,cursor:"pointer",fontWeight:600}}>
+                ✕ Limpar filtro
+              </button>
+            )}
+          </div>
+          <div style={{padding:"14px 20px",display:"flex",flexWrap:"wrap",gap:8}}>
+            {produtos.map(([nome,qtd])=>{
+              const isActive = filterProduto===nome;
+              const short = nome.length>55 ? nome.slice(0,55)+"..." : nome;
+              return (
+                <button
+                  key={nome}
+                  onClick={()=>{ setFilterProduto(isActive?"all":nome); tableRef.current?.scrollIntoView({behavior:"smooth"}); }}
+                  title={nome}
+                  style={{
+                    display:"flex", alignItems:"center", gap:6,
+                    background: isActive ? "#7c3aed" : "#f8fafc",
+                    color: isActive ? "#fff" : "#374151",
+                    border: isActive ? "1.5px solid #7c3aed" : "1.5px solid #e2e8f0",
+                    borderRadius:10, padding:"7px 12px",
+                    fontSize:12, fontWeight: isActive?700:500,
+                    cursor:"pointer", transition:"all 0.15s",
+                    textAlign:"left",
+                  }}
+                  onMouseEnter={e=>{ if(!isActive){ e.currentTarget.style.borderColor="#7c3aed"; e.currentTarget.style.color="#7c3aed"; }}}
+                  onMouseLeave={e=>{ if(!isActive){ e.currentTarget.style.borderColor="#e2e8f0"; e.currentTarget.style.color="#374151"; }}}
+                >
+                  <span style={{
+                    background: isActive?"rgba(255,255,255,0.25)":"#7c3aed",
+                    color:"#fff", borderRadius:20,
+                    padding:"1px 7px", fontSize:11, fontWeight:700, flexShrink:0,
+                  }}>{qtd}</span>
+                  {short}
+                </button>
+              );
+            })}
+            {produtos.length===0 && (
+              <span style={{fontSize:12,color:"#94a3b8",padding:"8px 0"}}>Nenhum pedido carregado ainda.</span>
+            )}
+          </div>
+
+          {/* When a product is selected — show the order list for that product */}
+          {filterProduto!=="all" && (
+            <div style={{borderTop:"1px solid #f1f5f9",padding:"0 20px 16px"}}>
+              <div style={{padding:"12px 0 10px",display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:13,fontWeight:700,color:"#5b21b6"}}>📋 Pedidos de:</span>
+                <span style={{fontSize:12,color:"#4c1d95",fontStyle:"italic",flex:1}}>{filterProduto}</span>
+                <span style={{background:"#7c3aed",color:"#fff",borderRadius:20,padding:"3px 14px",fontSize:12,fontWeight:700}}>
+                  {orders.filter(r=>r.produto===filterProduto&&r._status!=="removed").length} pedido{orders.filter(r=>r.produto===filterProduto&&r._status!=="removed").length!==1?"s":""}
+                </span>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {orders.filter(r=>r.produto===filterProduto&&r._status!=="removed").map((r,i)=>{
+                  const dl = deadlineInfo(r.prazoEnvio);
+                  const si = r.statusInterno;
+                  return (
+                    <div key={r.idPlataforma} style={{
+                      display:"flex", alignItems:"center", gap:10, flexWrap:"wrap",
+                      background: si==="feito"?"#f0fdf4":si==="revisao"?"#fffbeb":i%2===0?"#f8fafc":"#fff",
+                      borderRadius:10, padding:"9px 14px",
+                      border:"1px solid",
+                      borderColor: si==="feito"?"#86efac":si==="revisao"?"#fde68a":"#f1f5f9",
+                    }}>
+                      <input type="checkbox" checked={selected.has(r.idPlataforma)} onChange={()=>toggleSelect(r.idPlataforma)}
+                        style={{cursor:"pointer",width:14,height:14,flexShrink:0}} />
+                      <span style={{fontFamily:"monospace",fontSize:12,fontWeight:700,color:"#1d4ed8",flexShrink:0}}>{r.idPlataforma}</span>
+                      <span style={{fontSize:11,color:"#64748b",flexShrink:0}}>Loja: <strong>{r.loja||"—"}</strong></span>
+                      <span style={{fontSize:11,color:"#64748b",flexShrink:0}}>Qtd: <strong>{r.quantidade||"—"}</strong></span>
+                      <span style={{fontSize:11,color:"#64748b",flex:1}}>{r.variacao||""}</span>
+                      {dl && (
+                        <span style={{background:dl.bg,color:dl.text,border:`1px solid ${dl.border}`,borderRadius:8,padding:"2px 8px",fontSize:11,fontWeight:600,flexShrink:0}}>
+                          {dl.icon} {dl.label}
+                        </span>
+                      )}
+                      {si==="feito" && <span style={{background:"#d1fae5",color:"#065f46",borderRadius:20,padding:"2px 8px",fontSize:11,fontWeight:700,flexShrink:0}}>✅ Feito</span>}
+                      {si==="revisao" && <span style={{background:"#fef3c7",color:"#92400e",borderRadius:20,padding:"2px 8px",fontSize:11,fontWeight:700,flexShrink:0}}>📋 Revisão</span>}
+                      {!si && <span style={{background:"#f1f5f9",color:"#64748b",borderRadius:20,padding:"2px 8px",fontSize:11,flexShrink:0}}>⏳ Pendente</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* ── Filters & Table ── */}
-        <div style={{background:"#fff",borderRadius:20,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden"}}>
+        <div ref={tableRef} style={{background:"#fff",borderRadius:20,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden"}}>
           {/* Filter bar */}
           <div style={{padding:"16px 20px",borderBottom:"1px solid #f1f5f9",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
             <input placeholder="🔍 Buscar por ID, produto, loja..." value={search} onChange={e=>setSearch(e.target.value)}
@@ -337,6 +442,7 @@ export default function App({ user, onLogout }) {
               <option value="yellow">🟡 Atenção (2 dias)</option>
               <option value="green">🟢 OK (3+ dias)</option>
             </select>
+{/* produto filter handled by panel below */}
           </div>
 
           {/* Selection bar */}
