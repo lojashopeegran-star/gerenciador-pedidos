@@ -79,6 +79,44 @@ function DropZone({label, sublabel, onFile, file, color, disabled}) {
   );
 }
 
+
+function StyledCheckbox({checked, onChange}) {
+  return (
+    <div onClick={onChange} style={{
+      width:18, height:18, borderRadius:5, border:`2px solid ${checked?"#1d4ed8":"#cbd5e1"}`,
+      background: checked?"#1d4ed8":"#fff",
+      display:"flex", alignItems:"center", justifyContent:"center",
+      cursor:"pointer", transition:"all 0.15s", flexShrink:0,
+    }}>
+      {checked && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+    </div>
+  );
+}
+
+function ExpandCell({value}) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = value && value.length > 18;
+  return (
+    <div style={{display:"flex", alignItems:"flex-start", gap:4, maxWidth:160}}>
+      <span style={{
+        fontSize:12, color:"#374151", lineHeight:1.4,
+        whiteSpace: expanded?"normal":"nowrap",
+        overflow: expanded?"visible":"hidden",
+        textOverflow: expanded?"clip":"ellipsis",
+        flex:1,
+      }}>{value}</span>
+      {isLong && (
+        <button onClick={()=>setExpanded(v=>!v)} style={{
+          background:"none", border:"none", cursor:"pointer",
+          color:"#94a3b8", fontSize:14, padding:0, flexShrink:0, lineHeight:1,
+        }} title={expanded?"Recolher":"Expandir"}>
+          {expanded?"▲":"▼"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Toast({msg,color}) {
   if(!msg) return null;
   return <div style={{position:"fixed",bottom:24,right:24,zIndex:9999,background:color||"#1e293b",color:"#fff",borderRadius:12,padding:"12px 20px",fontSize:13,fontWeight:600,boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}>{msg}</div>;
@@ -202,7 +240,7 @@ export default function App({user, onLogout}) {
 
   const filtered = activeOrders.filter(r=>{
     const dl = deadlineInfo(r.dataEnvio);
-    const matchSearch = !search || r.idPedido.toLowerCase().includes(search.toLowerCase())||r.produto.toLowerCase().includes(search.toLowerCase())||r.destinatario.toLowerCase().includes(search.toLowerCase());
+    const q = search.toLowerCase(); const matchSearch = !search || r.idPedido.toLowerCase().includes(q)||r.produto.toLowerCase().includes(q)||r.destinatario.toLowerCase().includes(q)||r.loja.toLowerCase().includes(q)||r.variacao.toLowerCase().includes(q);
     return (
       (filterLoja==="all"   ||r.loja===filterLoja)&&
       (filterPrazo==="all"  ||(dl&&dl.tier===filterPrazo))&&
@@ -210,6 +248,17 @@ export default function App({user, onLogout}) {
       (filterProduto==="all"||r.produto===filterProduto)&&
       matchSearch
     );
+  }).sort((a,b)=>{
+    // sort by deadline: expired/closest first, no deadline last
+    const getDay = r => {
+      if(!r.dataEnvio) return 9999;
+      const d = new Date(r.dataEnvio.replace(" ","T"));
+      if(isNaN(d)) return 9999;
+      const today = new Date(); today.setHours(0,0,0,0);
+      const dd = new Date(d); dd.setHours(0,0,0,0);
+      return Math.round((dd-today)/86400000);
+    };
+    return getDay(a)-getDay(b);
   });
 
   const urgentCount  = activeOrders.filter(r=>deadlineInfo(r.dataEnvio)?.tier==="red").length;
@@ -218,10 +267,32 @@ export default function App({user, onLogout}) {
   const totalPreco   = activeOrders.reduce((s,r)=>s+(parseFloat(r.preco)||0),0);
 
   // ── Chart data ─────────────────────────────────────────────────────────────
+  // Build chart data with faturamento + ticket médio
+  // count pedidos per month+loja from orders+enviados for ticket calc
+  const allOrders = [...orders, ...enviados];
+  const pedidosByMesLoja = allOrders.reduce((acc,r)=>{
+    if(!r.horaPagamento && !r.dataEnvio) return acc;
+    const raw = r.horaPagamento || r.dataEnvio || "";
+    const mes = raw.slice(0,7); // "YYYY-MM"
+    if(!mes || mes.length<7) return acc;
+    const key = `${mes}__${r.loja}`;
+    acc[key] = (acc[key]||0)+1;
+    return acc;
+  },{});
+
   const chartData = faturamento.reduce((acc,f)=>{
     const ex = acc.find(a=>a.mes===f.mes);
-    if(ex) ex[f.loja]=(ex[f.loja]||0)+Number(f.valor);
-    else { const n={mes:f.mes}; n[f.loja]=Number(f.valor); acc.push(n); }
+    const count = pedidosByMesLoja[`${f.mes}__${f.loja}`] || 1;
+    const ticket = Number(f.valor) / count;
+    if(ex){
+      ex[f.loja]=(ex[f.loja]||0)+Number(f.valor);
+      ex[`ticket_${f.loja}`]=ticket;
+    } else {
+      const n={mes:f.mes};
+      n[f.loja]=Number(f.valor);
+      n[`ticket_${f.loja}`]=ticket;
+      acc.push(n);
+    }
     return acc;
   },[]).sort((a,b)=>a.mes.localeCompare(b.mes));
 
@@ -308,18 +379,68 @@ export default function App({user, onLogout}) {
         {/* ── Faturamento Chart ── */}
         {chartData.length>0 && (
           <div style={{background:"#fff",borderRadius:18,padding:20,marginBottom:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
-            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,flexWrap:"wrap"}}>
               <div style={{fontSize:14,fontWeight:700,color:"#1e293b"}}>💰 Faturamento Mensal por Loja</div>
-              <div style={{marginLeft:"auto",fontSize:12,color:"#64748b"}}>Acumulado: <strong style={{color:"#0891b2"}}>{fmtBRL(faturamento.reduce((s,f)=>s+Number(f.valor),0))}</strong></div>
+              <div style={{marginLeft:"auto",fontSize:12,color:"#64748b"}}>Total acumulado: <strong style={{color:"#0891b2"}}>{fmtBRL(faturamento.reduce((s,f)=>s+Number(f.valor),0))}</strong></div>
             </div>
-            <ResponsiveContainer width="100%" height={220}>
+            {/* Ticket médio summary cards */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10,marginBottom:16}}>
+              {LOJAS.map(loja=>{
+                const totalFat = faturamento.filter(f=>f.loja===loja).reduce((s,f)=>s+Number(f.valor),0);
+                const totalPed = allOrders.filter(r=>r.loja===loja).length || 1;
+                const ticket = totalFat / totalPed;
+                const lastMes = chartData[chartData.length-1];
+                const mesFat = lastMes?.[loja] || 0;
+                return (
+                  <div key={loja} style={{background:"#f8fafc",borderRadius:12,padding:"12px 14px",border:"1px solid #e2e8f0"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:6,textTransform:"uppercase",letterSpacing:0.5}}>{loja}</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <span style={{fontSize:11,color:"#94a3b8"}}>Total acum.</span>
+                        <span style={{fontSize:13,fontWeight:800,color:"#1d4ed8"}}>{fmtBRL(totalFat)}</span>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <span style={{fontSize:11,color:"#94a3b8"}}>Pedidos</span>
+                        <span style={{fontSize:13,fontWeight:700,color:"#374151"}}>{allOrders.filter(r=>r.loja===loja).length}</span>
+                      </div>
+                      <div style={{height:1,background:"#e2e8f0",margin:"2px 0"}} />
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <span style={{fontSize:11,color:"#94a3b8"}}>🎯 Ticket Médio</span>
+                        <span style={{fontSize:13,fontWeight:800,color:"#059669"}}>{fmtBRL(ticket)}</span>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <span style={{fontSize:11,color:"#94a3b8"}}>Mês atual</span>
+                        <span style={{fontSize:12,fontWeight:700,color:"#7c3aed"}}>{fmtBRL(mesFat)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div style={{background:"#eff6ff",borderRadius:12,padding:"12px 14px",border:"1px solid #bfdbfe"}}>
+                <div style={{fontSize:20,marginBottom:4}}>💰</div>
+                <div style={{fontSize:18,fontWeight:800,color:"#0891b2"}}>{fmtBRL(faturamento.reduce((s,f)=>s+Number(f.valor),0))}</div>
+                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginTop:2}}>Total Geral</div>
+              </div>
+              <div style={{background:"#f0fdf4",borderRadius:12,padding:"12px 14px",border:"1px solid #86efac"}}>
+                <div style={{fontSize:20,marginBottom:4}}>🎯</div>
+                <div style={{fontSize:18,fontWeight:800,color:"#059669"}}>{fmtBRL(faturamento.reduce((s,f)=>s+Number(f.valor),0)/(allOrders.length||1))}</div>
+                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginTop:2}}>Ticket Médio Geral</div>
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={240}>
               <BarChart data={chartData} margin={{top:0,right:10,left:10,bottom:0}}>
                 <XAxis dataKey="mes" tick={{fontSize:11}} />
-                <YAxis tick={{fontSize:11}} tickFormatter={v=>v>=1000?`R$${(v/1000).toFixed(1)}k`:`R$${v}`} />
-                <Tooltip formatter={(v,n)=>[fmtBRL(v),n]} />
+                <YAxis yAxisId="fat" tick={{fontSize:11}} tickFormatter={v=>v>=1000?`R$${(v/1000).toFixed(1)}k`:`R$${v}`} />
+                <YAxis yAxisId="ticket" orientation="right" tick={{fontSize:11}} tickFormatter={v=>`R$${v.toFixed(0)}`} />
+                <Tooltip formatter={(v,n)=>{
+                  if(n.startsWith("Ticket")) return [fmtBRL(v), n];
+                  return [fmtBRL(v), n];
+                }} />
                 <Legend />
-                <Bar dataKey="Gran Shop"   fill="#1d4ed8" radius={[4,4,0,0]} />
-                <Bar dataKey="Aishael Mix" fill="#7c3aed" radius={[4,4,0,0]} />
+                <Bar yAxisId="fat"    dataKey="Gran Shop"              fill="#1d4ed8" radius={[4,4,0,0]} name="Gran Shop" />
+                <Bar yAxisId="fat"    dataKey="Aishael Mix"            fill="#7c3aed" radius={[4,4,0,0]} name="Aishael Mix" />
+                <Bar yAxisId="ticket" dataKey="ticket_Gran Shop"       fill="#93c5fd" radius={[4,4,0,0]} name="Ticket Gran Shop" opacity={0.8} />
+                <Bar yAxisId="ticket" dataKey="ticket_Aishael Mix"     fill="#c4b5fd" radius={[4,4,0,0]} name="Ticket Aishael Mix" opacity={0.8} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -364,7 +485,7 @@ export default function App({user, onLogout}) {
                       const si=r.statusInterno;
                       return (
                         <div key={r.idPedido} style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",background:si==="feito"?"#f0fdf4":si==="revisao"?"#fffbeb":i%2===0?"#f8fafc":"#fff",borderRadius:10,padding:"8px 12px",border:"1px solid",borderColor:si==="feito"?"#86efac":si==="revisao"?"#fde68a":"#f1f5f9"}}>
-                          <input type="checkbox" checked={selected.has(r.idPedido)} onChange={()=>toggleSelect(r.idPedido)} style={{cursor:"pointer",width:14,height:14,flexShrink:0}} />
+                          <StyledCheckbox checked={selected.has(r.idPedido)} onChange={()=>toggleSelect(r.idPedido)} />
                           <span style={{fontFamily:"monospace",fontSize:12,fontWeight:700,color:"#1d4ed8",flexShrink:0}}>{r.idPedido}</span>
                           <span style={{fontSize:11,color:"#64748b",flexShrink:0}}>Loja: <strong>{r.loja}</strong></span>
                           <span style={{fontSize:11,color:"#64748b",flexShrink:0}}>Qtd: <strong>{r.quantidade}</strong></span>
@@ -440,17 +561,17 @@ export default function App({user, onLogout}) {
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead>
                 <tr style={{background:"#f8fafc"}}>
-                  <th style={TH}><input type="checkbox" checked={selected.size>0&&selected.size===filtered.length} onChange={toggleAll} style={{cursor:"pointer"}} /></th>
+                  <th style={TH}><StyledCheckbox checked={selected.size>0&&selected.size===filtered.length} onChange={toggleAll} /></th>
                   <th style={TH}>Ações</th>
                   <th style={TH}>Status</th>
                   <th style={TH}>ID Pedido</th>
+                  <th style={TH}>Destinatário</th>
                   <th style={TH}>Loja</th>
                   <th style={TH}>Produto</th>
                   <th style={TH}>Variação</th>
                   <th style={TH}>Qtd</th>
                   <th style={TH}>Preço</th>
                   <th style={TH}>Prazo Envio</th>
-                  <th style={TH}>Destinatário</th>
                   <th style={TH}>Pgto</th>
                 </tr>
               </thead>
@@ -461,7 +582,7 @@ export default function App({user, onLogout}) {
                   const si=row.statusInterno;
                   return (
                     <tr key={row.idPedido} style={{background:isSelected?"#eff6ff":si==="feito"?"#f0fdf4":si==="revisao"?"#fffbeb":i%2===0?"#fff":"#fafafa",borderBottom:"1px solid #f1f5f9"}}>
-                      <td style={{...TD,textAlign:"center"}}><input type="checkbox" checked={isSelected} onChange={()=>toggleSelect(row.idPedido)} style={{cursor:"pointer"}} /></td>
+                      <td style={{...TD,textAlign:"center"}}><StyledCheckbox checked={isSelected} onChange={()=>toggleSelect(row.idPedido)} /></td>
                       {/* Action buttons - LEFT */}
                       <td style={{...TD,whiteSpace:"nowrap"}}>
                         <div style={{display:"flex",gap:4}}>
@@ -476,6 +597,7 @@ export default function App({user, onLogout}) {
                         :<span style={{background:"#fde8e8",color:"#991b1b",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:700}}>A ENVIAR</span>}
                       </td>
                       <td style={{...TD,fontWeight:700,color:"#1d4ed8",fontFamily:"monospace"}}>{row.idPedido}</td>
+                      <td style={{...TD}}><ExpandCell value={row.destinatario||"—"} /></td>
                       <td style={TD}>{row.loja||"—"}</td>
                       <td style={{...TD,maxWidth:200}}><div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"normal",lineHeight:1.3}}>{row.produto||"—"}</div></td>
                       <td style={{...TD,maxWidth:140}}><div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.variacao||"—"}</div></td>
@@ -487,7 +609,6 @@ export default function App({user, onLogout}) {
                           <span style={{fontSize:9,color:dl.text,opacity:0.75}}>{row.dataEnvio?.slice(0,10)}</span>
                         </div>:<span style={{color:"#94a3b8",fontSize:11}}>—</span>}
                       </td>
-                      <td style={{...TD,maxWidth:130}}><div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.destinatario||"—"}</div></td>
                       <td style={{...TD,fontSize:11,color:"#64748b"}}>{row.horaPagamento?.slice(0,10)||"—"}</td>
                     </tr>
                   );
