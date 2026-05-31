@@ -13,19 +13,34 @@ export async function getSession() { const { data } = await supabase.auth.getSes
 // ── Pedidos ───────────────────────────────────────────────────────────────────
 export async function fetchPedidos(userId) {
   if (!supabase) return []
-  const { data, error } = await supabase.from('pedidos').select('*').eq('user_id', userId).order('criado_em', { ascending: false })
-  if (error) { console.error(error); return [] }
+  const { data, error } = await supabase
+    .from('pedidos')
+    .select('*')
+    .eq('user_id', userId)
+    .order('criado_em', { ascending: false })
+  if (error) { console.error('fetchPedidos error:', error); return [] }
   return data.map(dbToRow)
 }
 
+// Upsert in batches of 50 to avoid request size limits
 export async function upsertPedidos(rows, userId) {
   if (!supabase || !rows.length) return { count: 0 }
-  const records = rows.map(r => ({ ...rowToDb(r), user_id: userId }))
-  const { data, error } = await supabase.from('pedidos')
-    .upsert(records, { onConflict: 'user_id,id_pedido' })
-    .select()
-  if (error) { console.error(error); return { count: 0 } }
-  return { count: data?.length ?? 0 }
+  let totalCount = 0
+  const batchSize = 50
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize)
+    const records = batch.map(r => ({ ...rowToDb(r), user_id: userId }))
+    const { data, error } = await supabase
+      .from('pedidos')
+      .upsert(records, {
+        onConflict: 'user_id,id_pedido',
+        ignoreDuplicates: false  // always UPDATE existing rows with new status
+      })
+      .select('id_pedido')
+    if (error) { console.error('upsertPedidos error:', error) }
+    else totalCount += data?.length ?? 0
+  }
+  return { count: totalCount }
 }
 
 export async function updatePedidoStatus(idPedido, userId, statusInterno, nota = '') {
@@ -33,38 +48,55 @@ export async function updatePedidoStatus(idPedido, userId, statusInterno, nota =
   const { error } = await supabase.from('pedidos')
     .update({ status_interno: statusInterno, nota_revisao: nota })
     .eq('id_pedido', idPedido).eq('user_id', userId)
-  if (error) console.error(error)
+  if (error) console.error('updatePedidoStatus error:', error)
 }
 
 // ── Devoluções ────────────────────────────────────────────────────────────────
 export async function fetchDevolucoes(userId) {
   if (!supabase) return []
-  const { data, error } = await supabase.from('devolucoes').select('*').eq('user_id', userId).order('criado_em', { ascending: false })
-  if (error) { console.error(error); return [] }
+  const { data, error } = await supabase
+    .from('devolucoes')
+    .select('*')
+    .eq('user_id', userId)
+    .order('criado_em', { ascending: false })
+  if (error) { console.error('fetchDevolucoes error:', error); return [] }
   return data
 }
 
 export async function upsertDevolucoes(rows, userId) {
   if (!supabase || !rows.length) return
-  const records = rows.map(r => ({ ...r, user_id: userId }))
-  const { error } = await supabase.from('devolucoes')
-    .upsert(records, { onConflict: 'user_id,id_pedido' })
-  if (error) console.error(error)
+  const batchSize = 50
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize)
+    const records = batch.map(r => ({ ...r, user_id: userId }))
+    const { error } = await supabase
+      .from('devolucoes')
+      .upsert(records, { onConflict: 'user_id,id_pedido', ignoreDuplicates: false })
+    if (error) console.error('upsertDevolucoes error:', error)
+  }
 }
 
 // ── Faturamento ───────────────────────────────────────────────────────────────
 export async function fetchFaturamento(userId) {
   if (!supabase) return []
-  const { data, error } = await supabase.from('faturamento').select('*').eq('user_id', userId).order('mes', { ascending: true })
-  if (error) { console.error(error); return [] }
+  const { data, error } = await supabase
+    .from('faturamento')
+    .select('*')
+    .eq('user_id', userId)
+    .order('mes', { ascending: true })
+  if (error) { console.error('fetchFaturamento error:', error); return [] }
   return data
 }
 
 export async function upsertFaturamento(userId, mes, loja, valor) {
   if (!supabase) return
-  const { data: ex } = await supabase.from('faturamento').select('*').eq('user_id', userId).eq('mes', mes).eq('loja', loja).maybeSingle()
-  if (ex) await supabase.from('faturamento').update({ valor: ex.valor + valor }).eq('id', ex.id)
-  else await supabase.from('faturamento').insert({ user_id: userId, mes, loja, valor })
+  const { data: ex } = await supabase.from('faturamento')
+    .select('*').eq('user_id', userId).eq('mes', mes).eq('loja', loja).maybeSingle()
+  if (ex) {
+    await supabase.from('faturamento').update({ valor: ex.valor + valor }).eq('id', ex.id)
+  } else {
+    await supabase.from('faturamento').insert({ user_id: userId, mes, loja, valor })
+  }
 }
 
 // ── Conversões ────────────────────────────────────────────────────────────────

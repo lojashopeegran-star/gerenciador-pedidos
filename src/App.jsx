@@ -29,12 +29,15 @@ const DEVOLUCAO_COLS = {
 };
 
 // ── Status groups ─────────────────────────────────────────────────────────────
-const STATUS_ABERTO   = ["a enviar"];
-const STATUS_HISTORICO= ["enviado","entregue","cancelado"];
+const STATUS_ABERTO    = ["a enviar"];
+const STATUS_ENVIADO   = ["enviado","entregue"];
+const STATUS_CANCELADO = ["cancelado"];
 
 function normalizeStatus(s) { return (s||"").toLowerCase().trim(); }
-function isAberto(r)    { return STATUS_ABERTO.some(v => normalizeStatus(r.statusPedido) === v); }
-function isHistorico(r) { return STATUS_HISTORICO.some(v => normalizeStatus(r.statusPedido) === v); }
+function isAberto(r)    { return STATUS_ABERTO.some(v    => normalizeStatus(r.statusPedido) === v); }
+function isEnviado(r)   { return STATUS_ENVIADO.some(v   => normalizeStatus(r.statusPedido) === v); }
+function isCancelado(r) { return STATUS_CANCELADO.some(v => normalizeStatus(r.statusPedido) === v); }
+function isHistorico(r) { return isEnviado(r) || isCancelado(r); }
 
 // ── Parse sheets ──────────────────────────────────────────────────────────────
 function parseSheet(sheet, colMap, loja) {
@@ -222,6 +225,8 @@ export default function App({user,onLogout}) {
 
   // ── Pedido groups ──────────────────────────────────────────────────────────
   const pedidosAbertos   = allPedidos.filter(isAberto);
+  const pedidosEnviados  = allPedidos.filter(isEnviado);
+  const pedidosCancelados= allPedidos.filter(isCancelado);
   const pedidosHistorico = allPedidos.filter(isHistorico);
 
   // ── Load planilha (both lojas, same format) ────────────────────────────────
@@ -322,10 +327,11 @@ export default function App({user,onLogout}) {
   const valorAberto  = pedidosAbertos.reduce((s,r)=>s+(parseFloat(r.preco)||0),0);
 
   const TABS = [
-    {id:"abertos",    icon:"📋", label:"Pedidos em Aberto",  badge:pedidosAbertos.length,   color:"#1d4ed8"},
-    {id:"historico",  icon:"📦", label:"Histórico",          badge:pedidosHistorico.length, color:"#059669"},
-    {id:"devolucoes", icon:"🔄", label:"Devoluções",         badge:devolucoes.length,       color:"#ef4444"},
-    {id:"financeiro", icon:"💰", label:"Financeiro",         badge:null,                    color:"#0891b2"},
+    {id:"abertos",    icon:"📋", label:"Em Aberto",    badge:pedidosAbertos.length,    color:"#1d4ed8"},
+    {id:"enviados",   icon:"📦", label:"Enviados",     badge:pedidosEnviados.length,   color:"#059669"},
+    {id:"cancelados", icon:"❌", label:"Cancelados",   badge:pedidosCancelados.length, color:"#6b7280"},
+    {id:"devolucoes", icon:"🔄", label:"Devoluções",   badge:devolucoes.length,        color:"#ef4444"},
+    {id:"financeiro", icon:"💰", label:"Financeiro",   badge:null,                     color:"#0891b2"},
   ];
 
   if(dbLoading) return (
@@ -392,7 +398,8 @@ export default function App({user,onLogout}) {
             {label:"Feitos",       value:feitoCount,              color:"#059669",icon:"✅",tab:"abertos",sf:"feito"},
             {label:"Em Revisão",   value:revisaoCount,            color:"#f59e0b",icon:"📋",tab:"abertos",sf:"revisao"},
             {label:"Urgentes",     value:urgentCount,             color:"#ef4444",icon:"🔴",tab:"abertos",sp:"red"},
-            {label:"Histórico",    value:pedidosHistorico.length, color:"#6b7280",icon:"📦",tab:"historico"},
+            {label:"Enviados",     value:pedidosEnviados.length,   color:"#059669",icon:"📦",tab:"enviados"},
+            {label:"Cancelados",   value:pedidosCancelados.length, color:"#6b7280",icon:"❌",tab:"cancelados"},
             {label:"Devoluções",   value:devolucoes.length,       color:"#ef4444",icon:"🔄",tab:"devolucoes"},
             {label:"Valor Aberto", value:fmtBRL(valorAberto),     color:"#0891b2",icon:"💰",tab:null},
           ].map(s=>(
@@ -567,20 +574,21 @@ export default function App({user,onLogout}) {
         )}
 
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {/* TAB: HISTORICO */}
+        {/* TAB: ENVIADOS */}
         {/* ═══════════════════════════════════════════════════════════════════ */}
-        {activeTab==="historico"&&(
+        {activeTab==="enviados"&&(
           <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden"}}>
             <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-              <span style={{fontSize:13,fontWeight:700,color:"#059669"}}>📦 Histórico de Pedidos</span>
-              <span style={{background:"#059669",color:"#fff",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{pedidosHistorico.length}</span>
-              <span style={{fontSize:11,color:"#94a3b8"}}>Enviados · Entregues · Cancelados</span>
+              <span style={{fontSize:13,fontWeight:700,color:"#059669"}}>📦 Pedidos Enviados / Entregues</span>
+              <span style={{background:"#059669",color:"#fff",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{pedidosEnviados.length}</span>
+              <span style={{fontSize:11,color:"#94a3b8"}}>Enviados e Entregues</span>
+              <span style={{marginLeft:"auto",fontSize:12,fontWeight:700,color:"#059669"}}>Total: {fmtBRL(pedidosEnviados.reduce((s,r)=>s+(parseFloat(r.preco)||0),0))}</span>
             </div>
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead><tr style={{background:"#f0fdf4"}}>{["Status","ID Pedido","Destinatário","Loja","Produto","Variação","Qtd","Preço","Data Envio"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
                 <tbody>
-                  {pedidosHistorico.map((row,i)=>(
+                  {pedidosEnviados.map((row,i)=>(
                     <tr key={row.idPedido} style={{background:i%2===0?"#f8fffe":"#fff",borderBottom:"1px solid #f0fdf4"}}>
                       <td style={{...TD,textAlign:"center"}}><StatusBadge status={row.statusPedido} /></td>
                       <td style={{...TD,fontWeight:700,color:"#059669",fontFamily:"monospace",fontSize:11}}>{row.idPedido}</td>
@@ -593,7 +601,41 @@ export default function App({user,onLogout}) {
                       <td style={TD}>{row.dataEnvio?.slice(0,10)||"—"}</td>
                     </tr>
                   ))}
-                  {pedidosHistorico.length===0&&<tr><td colSpan={9} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>Nenhum pedido no histórico ainda.</td></tr>}
+                  {pedidosEnviados.length===0&&<tr><td colSpan={9} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>Nenhum pedido enviado ainda.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {/* TAB: CANCELADOS */}
+        {/* ═══════════════════════════════════════════════════════════════════ */}
+        {activeTab==="cancelados"&&(
+          <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden"}}>
+            <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <span style={{fontSize:13,fontWeight:700,color:"#6b7280"}}>❌ Pedidos Cancelados</span>
+              <span style={{background:"#6b7280",color:"#fff",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{pedidosCancelados.length}</span>
+              <span style={{marginLeft:"auto",fontSize:12,fontWeight:700,color:"#6b7280"}}>Total: {fmtBRL(pedidosCancelados.reduce((s,r)=>s+(parseFloat(r.preco)||0),0))}</span>
+            </div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead><tr style={{background:"#f9fafb"}}>{["Status","ID Pedido","Destinatário","Loja","Produto","Variação","Qtd","Preço","Data Envio"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {pedidosCancelados.map((row,i)=>(
+                    <tr key={row.idPedido} style={{background:i%2===0?"#f9fafb":"#fff",borderBottom:"1px solid #f3f4f6",opacity:0.85}}>
+                      <td style={{...TD,textAlign:"center"}}><StatusBadge status={row.statusPedido} /></td>
+                      <td style={{...TD,fontWeight:700,color:"#6b7280",fontFamily:"monospace",fontSize:11}}>{row.idPedido}</td>
+                      <td style={TD}><ExpandCell value={row.destinatario||"—"} /></td>
+                      <td style={TD}>{row.loja||"—"}</td>
+                      <td style={{...TD,maxWidth:190}}><div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"normal",lineHeight:1.3,maxWidth:190,textDecoration:"line-through",color:"#9ca3af"}}>{row.produto||"—"}</div></td>
+                      <td style={TD}><ExpandCell value={row.variacao||"—"} maxLen={20} /></td>
+                      <td style={{...TD,textAlign:"center",color:"#9ca3af"}}>{row.quantidade||"—"}</td>
+                      <td style={{...TD,fontWeight:600,color:"#9ca3af",textDecoration:"line-through"}}>{fmtBRL(row.preco)}</td>
+                      <td style={{...TD,color:"#9ca3af"}}>{row.dataEnvio?.slice(0,10)||"—"}</td>
+                    </tr>
+                  ))}
+                  {pedidosCancelados.length===0&&<tr><td colSpan={9} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>Nenhum pedido cancelado.</td></tr>}
                 </tbody>
               </table>
             </div>
