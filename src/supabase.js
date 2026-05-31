@@ -14,14 +14,32 @@ export async function getSession() { const { data } = await supabase.auth.getSes
 export async function fetchPedidos(userId) {
   if (!supabase || !userId) return []
   console.log('fetchPedidos called with userId:', userId)
-  const { data, error } = await supabase
-    .from('pedidos')
-    .select('*')
-    .eq('user_id', userId)
-    .order('criado_em', { ascending: false })
-  if (error) { console.error('fetchPedidos error:', error); return [] }
-  console.log('fetchPedidos returned:', data?.length, 'rows')
-  return (data || []).map(dbToRow)
+  
+  // Paginate to get ALL records (Supabase default limit is 1000)
+  let allData = []
+  let from = 0
+  const pageSize = 1000
+  
+  while (true) {
+    const { data, error } = await supabase
+      .from('pedidos')
+      .select('*')
+      .eq('user_id', userId)
+      .order('criado_em', { ascending: false })
+      .range(from, from + pageSize - 1)
+    
+    if (error) { console.error('fetchPedidos error:', error); break }
+    if (!data || data.length === 0) break
+    
+    allData = allData.concat(data)
+    console.log('fetchPedidos page:', from, '- got', data.length, 'rows, total so far:', allData.length)
+    
+    if (data.length < pageSize) break // last page
+    from += pageSize
+  }
+  
+  console.log('fetchPedidos total returned:', allData.length, 'rows')
+  return allData.map(dbToRow)
 }
 
 export async function upsertPedidos(rows, userId) {
@@ -53,13 +71,23 @@ export async function updatePedidoStatus(idPedido, userId, statusInterno, nota =
 // ── Devoluções ────────────────────────────────────────────────────────────────
 export async function fetchDevolucoes(userId) {
   if (!supabase || !userId) return []
-  const { data, error } = await supabase
-    .from('devolucoes')
-    .select('*')
-    .eq('user_id', userId)
-    .order('criado_em', { ascending: false })
-  if (error) { console.error('fetchDevolucoes error:', error); return [] }
-  return data || []
+  let allData = []
+  let from = 0
+  const pageSize = 1000
+  while (true) {
+    const { data, error } = await supabase
+      .from('devolucoes')
+      .select('*')
+      .eq('user_id', userId)
+      .order('criado_em', { ascending: false })
+      .range(from, from + pageSize - 1)
+    if (error) { console.error('fetchDevolucoes error:', error); break }
+    if (!data || data.length === 0) break
+    allData = allData.concat(data)
+    if (data.length < pageSize) break
+    from += pageSize
+  }
+  return allData
 }
 
 export async function upsertDevolucoes(rows, userId) {
