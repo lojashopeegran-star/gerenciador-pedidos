@@ -12,19 +12,20 @@ export async function getSession() { const { data } = await supabase.auth.getSes
 
 // ── Pedidos ───────────────────────────────────────────────────────────────────
 export async function fetchPedidos(userId) {
-  if (!supabase) return []
+  if (!supabase || !userId) return []
+  console.log('fetchPedidos called with userId:', userId)
   const { data, error } = await supabase
     .from('pedidos')
     .select('*')
     .eq('user_id', userId)
     .order('criado_em', { ascending: false })
   if (error) { console.error('fetchPedidos error:', error); return [] }
-  return data.map(dbToRow)
+  console.log('fetchPedidos returned:', data?.length, 'rows')
+  return (data || []).map(dbToRow)
 }
 
-// Upsert in batches of 50 to avoid request size limits
 export async function upsertPedidos(rows, userId) {
-  if (!supabase || !rows.length) return { count: 0 }
+  if (!supabase || !rows.length || !userId) return { count: 0 }
   let totalCount = 0
   const batchSize = 50
   for (let i = 0; i < rows.length; i += batchSize) {
@@ -32,39 +33,37 @@ export async function upsertPedidos(rows, userId) {
     const records = batch.map(r => ({ ...rowToDb(r), user_id: userId }))
     const { data, error } = await supabase
       .from('pedidos')
-      .upsert(records, {
-        onConflict: 'user_id,id_pedido',
-        ignoreDuplicates: false  // always UPDATE existing rows with new status
-      })
+      .upsert(records, { onConflict: 'user_id,id_pedido', ignoreDuplicates: false })
       .select('id_pedido')
-    if (error) { console.error('upsertPedidos error:', error) }
-    else totalCount += data?.length ?? 0
+    if (error) { console.error('upsertPedidos batch error:', error) }
+    else { totalCount += data?.length ?? 0 }
   }
   return { count: totalCount }
 }
 
 export async function updatePedidoStatus(idPedido, userId, statusInterno, nota = '') {
-  if (!supabase) return
+  if (!supabase || !userId) return
   const { error } = await supabase.from('pedidos')
     .update({ status_interno: statusInterno, nota_revisao: nota })
-    .eq('id_pedido', idPedido).eq('user_id', userId)
+    .eq('id_pedido', idPedido)
+    .eq('user_id', userId)
   if (error) console.error('updatePedidoStatus error:', error)
 }
 
 // ── Devoluções ────────────────────────────────────────────────────────────────
 export async function fetchDevolucoes(userId) {
-  if (!supabase) return []
+  if (!supabase || !userId) return []
   const { data, error } = await supabase
     .from('devolucoes')
     .select('*')
     .eq('user_id', userId)
     .order('criado_em', { ascending: false })
   if (error) { console.error('fetchDevolucoes error:', error); return [] }
-  return data
+  return data || []
 }
 
 export async function upsertDevolucoes(rows, userId) {
-  if (!supabase || !rows.length) return
+  if (!supabase || !rows.length || !userId) return
   const batchSize = 50
   for (let i = 0; i < rows.length; i += batchSize) {
     const batch = rows.slice(i, i + batchSize)
@@ -78,22 +77,22 @@ export async function upsertDevolucoes(rows, userId) {
 
 // ── Faturamento ───────────────────────────────────────────────────────────────
 export async function fetchFaturamento(userId) {
-  if (!supabase) return []
+  if (!supabase || !userId) return []
   const { data, error } = await supabase
     .from('faturamento')
     .select('*')
     .eq('user_id', userId)
     .order('mes', { ascending: true })
   if (error) { console.error('fetchFaturamento error:', error); return [] }
-  return data
+  return data || []
 }
 
 export async function upsertFaturamento(userId, mes, loja, valor) {
-  if (!supabase) return
+  if (!supabase || !userId) return
   const { data: ex } = await supabase.from('faturamento')
     .select('*').eq('user_id', userId).eq('mes', mes).eq('loja', loja).maybeSingle()
   if (ex) {
-    await supabase.from('faturamento').update({ valor: ex.valor + valor }).eq('id', ex.id)
+    await supabase.from('faturamento').update({ valor: Number(ex.valor) + Number(valor) }).eq('id', ex.id)
   } else {
     await supabase.from('faturamento').insert({ user_id: userId, mes, loja, valor })
   }
@@ -124,7 +123,7 @@ export function dbToRow(d) {
     dataEnvio:     d.data_envio     || '',
     horaPagamento: d.hora_pagamento || '',
     produto:       d.produto        || '',
-    preco:         d.preco          || 0,
+    preco:         Number(d.preco)  || 0,
     quantidade:    d.quantidade     || '',
     variacao:      d.variacao       || '',
     destinatario:  d.destinatario   || '',

@@ -8,13 +8,23 @@ export default function AppShell() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // First check existing session
     getSession().then(session => {
-      setUser(session?.user ?? null)
+      if (session?.user) {
+        setUser(session.user)
+      }
       setLoading(false)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
+
+    // Then listen for auth changes (login/logout)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        setUser(session.user)
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null)
+      }
     })
+
     return () => subscription.unsubscribe()
   }, [])
 

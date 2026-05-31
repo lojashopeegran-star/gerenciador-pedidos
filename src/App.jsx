@@ -217,11 +217,25 @@ export default function App({user,onLogout}) {
   const showToast=(msg,color,ms=3500)=>{setToast({msg,color});setTimeout(()=>setToast(null),ms);};
 
   useEffect(()=>{
-    if(!supabase||!user){setDbLoading(false);return;}
-    Promise.all([fetchPedidos(user.id),fetchDevolucoes(user.id),fetchFaturamento(user.id)]).then(([p,d,f])=>{
-      setAllPedidos(p); setDevolucoes(d); setFaturamento(f); setDbLoading(false);
+    if(!user?.id){ setDbLoading(false); return; }
+    if(!supabase){ setDbLoading(false); return; }
+    console.log("Carregando dados para user:", user.id);
+    setDbLoading(true);
+    Promise.all([
+      fetchPedidos(user.id),
+      fetchDevolucoes(user.id),
+      fetchFaturamento(user.id)
+    ]).then(([p,d,f])=>{
+      console.log("Dados carregados:", p.length, "pedidos,", d.length, "devoluções");
+      setAllPedidos(p);
+      setDevolucoes(d);
+      setFaturamento(f);
+      setDbLoading(false);
+    }).catch(err=>{
+      console.error("Erro ao carregar dados:", err);
+      setDbLoading(false);
     });
-  },[user]);
+  },[user?.id]);
 
   // ── Pedido groups ──────────────────────────────────────────────────────────
   const pedidosAbertos   = allPedidos.filter(isAberto);
