@@ -5,52 +5,85 @@ import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevoluc
 
 // ── Column maps ───────────────────────────────────────────────────────────────
 const PEDIDO_COLS = {
-  "ID do Pedido":               "idPedido",
-  "Status do Pedido":           "statusPedido",
-  "Data Prevista de Envio":     "dataEnvio",
-  "Hora do Pagamento do Pedido":"horaPagamento",
-  "Nome do Produto":            "produto",
-  "Preço Acordado":             "preco",
-  "Quantidade":                 "quantidade",
-  "Nome da Variação":           "variacao",
-  "Nome do Destinatário":       "destinatario",
+  "ID do pedido":                "idPedido",
+  "Status do pedido":            "statusPedido",
+  "Data prevista de envio":      "dataEnvio",
+  "Hora do pagamento do pedido": "horaPagamento",
+  "Nome do Produto":             "produto",
+  "Preço acordado":              "preco",
+  "Quantidade":                  "quantidade",
+  "Nome da variação":            "variacao",
+  "Nome do destinatário":        "destinatario",
+  "Observação do comprador":     "notas",
 };
 
 const DEVOLUCAO_COLS = {
-  "ID do Pedido":                        "id_pedido",
-  "Data de Criação":                     "data_criacao",
-  "Nome do Produto":                     "produto",
-  "Nome da Variação":                    "variacao",
-  "Preço da Unidade":                    "preco_unidade",
-  "Status da Devolução / Reembolso":     "status_devolucao",
-  "Quantidade":                          "quantidade",
-  "Motivo da Devolução":                 "motivo",
-  "Observações da Devolução":            "observacoes",
+  "ID do pedido":                    "id_pedido",
+  "Data de criação do pedido":       "data_criacao",
+  "Nome do Produto":                 "produto",
+  "Nome da variação":                "variacao",
+  "Preço da unidade":                "preco_unidade",
+  "Status da Devolução / Reembolso": "status_devolucao",
+  "Quantidade de Devoluções":        "quantidade",
+  "Motivo da Devolução":             "motivo",
+  "Observações da Devolução":        "observacoes",
 };
 
 // ── Status groups ─────────────────────────────────────────────────────────────
-const STATUS_ABERTO    = ["a enviar"];
-const STATUS_ENVIADO   = ["enviado","entregue"];
-const STATUS_CANCELADO = ["cancelado"];
+function normalizeStatus(s) { 
+  return (s||"").toLowerCase().trim()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,""); 
+}
 
-function normalizeStatus(s) { return (s||"").toLowerCase().trim(); }
-function isAberto(r)    { return STATUS_ABERTO.some(v    => normalizeStatus(r.statusPedido) === v); }
-function isEnviado(r)   { return STATUS_ENVIADO.some(v   => normalizeStatus(r.statusPedido) === v); }
-function isCancelado(r) { return STATUS_CANCELADO.some(v => normalizeStatus(r.statusPedido) === v); }
+// Statuses that mean "open / to send"
+function isAberto(r) {
+  const s = normalizeStatus(r.statusPedido);
+  return s === "a enviar" || s === "order received";
+}
+
+// Statuses that mean "sent / delivered / concluded"
+function isEnviado(r) {
+  const s = normalizeStatus(r.statusPedido);
+  return s === "enviado" || s === "entregue" || s === "concluido" ||
+         s.startsWith("o comprador pode pedir uma devolucao");
+}
+
+// Statuses that mean "cancelled"
+function isCancelado(r) {
+  const s = normalizeStatus(r.statusPedido);
+  return s === "cancelado" || s === "cancelamento solicitado" || s === "nao pago";
+}
+
 function isHistorico(r) { return isEnviado(r) || isCancelado(r); }
 
 // ── Parse sheets ──────────────────────────────────────────────────────────────
+function normalize(s) {
+  return (s||"").toString().trim().toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+}
+
 function parseSheet(sheet, colMap, loja) {
   const raw = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  if (!raw.length) return [];
+  
+  // Build a normalized key map of actual spreadsheet columns
+  const firstRow = raw[0];
+  const sheetKeys = Object.keys(firstRow);
+  const normalizedSheetKeys = sheetKeys.map(k => normalize(k));
+  
   return raw.map(row => {
     const m = { loja: loja || "", _status: "new" };
     for (const [orig, key] of Object.entries(colMap)) {
-      const found = Object.keys(row).find(k => k.trim().toLowerCase() === orig.trim().toLowerCase());
-      m[key] = found ? String(row[found]) : "";
+      const normOrig = normalize(orig);
+      // Find matching column (normalized, accent-insensitive)
+      const idx = normalizedSheetKeys.findIndex(k => k === normOrig);
+      const found = idx >= 0 ? sheetKeys[idx] : null;
+      m[key] = found && row[found] !== undefined && row[found] !== null ? String(row[found]) : "";
     }
     if (colMap === PEDIDO_COLS) {
       m.preco = parseFloat(String(m.preco).replace(/[^\d.,]/g,"").replace(",",".")) || 0;
-      m.statusInterno = ""; m.notaRevisao = "";
+      m.statusInterno = m.statusInterno || ""; 
+      m.notaRevisao = m.notaRevisao || "";
     } else {
       m.preco_unidade = parseFloat(String(m.preco_unidade).replace(/[^\d.,]/g,"").replace(",",".")) || 0;
     }
