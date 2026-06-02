@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, deleteAllDevolucoes, deleteAllFaturamento } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -288,6 +288,29 @@ export default function App({user,onLogout}) {
     if (supabase) { setSaving(true); await upsertDevolucoes(rows,user.id); setSaving(false); }
   };
 
+  // ── Clear all data ────────────────────────────────────────────────────────
+  const [showConfirmClear, setShowConfirmClear] = useState(false);
+
+  const handleClearAll = async () => {
+    setShowConfirmClear(false);
+    setSaving(true);
+    if (supabase) {
+      await Promise.all([
+        deleteAllPedidos(user.id),
+        deleteAllDevolucoes(user.id),
+        deleteAllFaturamento(user.id),
+      ]);
+    }
+    setAllPedidos([]);
+    setDevolucoes([]);
+    setFaturamento([]);
+    setUploadNames({});
+    setSelected(new Set());
+    setActiveTab("abertos");
+    setSaving(false);
+    showToast("🗑️ Sistema zerado com sucesso!", "#059669");
+  };
+
   // ── Status interno ─────────────────────────────────────────────────────────
   const handleStatusChange = async (order,newSt,nota="") => {
     setAllPedidos(prev=>prev.map(o=>o.idPedido===order.idPedido?{...o,statusInterno:newSt,notaRevisao:nota}:o));
@@ -371,7 +394,12 @@ export default function App({user,onLogout}) {
 
         {/* Upload */}
         <div style={{background:"#fff",borderRadius:18,padding:18,marginBottom:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
-          <div style={{fontSize:11,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:0.5,marginBottom:12}}>Carregar Planilhas</div>
+          <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:11,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:0.5}}>Carregar Planilhas</div>
+            <button onClick={()=>setShowConfirmClear(true)} style={{marginLeft:"auto",background:"#fde8e8",color:"#991b1b",border:"1px solid #fca5a5",borderRadius:10,padding:"6px 14px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+              🗑️ Zerar Sistema
+            </button>
+          </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
             {LOJAS.map(loja=>(
               <div key={`ped_${loja}`} style={{border:"1px solid #e2e8f0",borderRadius:12,padding:10}}>
@@ -727,6 +755,26 @@ export default function App({user,onLogout}) {
         )}
       </div>
 
+      {showConfirmClear&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:20,padding:32,width:"100%",maxWidth:400,boxShadow:"0 20px 60px rgba(0,0,0,0.25)",textAlign:"center"}}>
+            <div style={{fontSize:44,marginBottom:12}}>⚠️</div>
+            <h3 style={{margin:"0 0 8px",fontSize:17,fontWeight:700,color:"#1e293b"}}>Zerar o Sistema?</h3>
+            <p style={{margin:"0 0 24px",fontSize:13,color:"#64748b",lineHeight:1.6}}>
+              Isso vai apagar <strong>todos os pedidos, devoluções e faturamento</strong> salvos no banco de dados.<br/>
+              <strong style={{color:"#ef4444"}}>Essa ação não pode ser desfeita.</strong>
+            </p>
+            <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+              <button onClick={()=>setShowConfirmClear(false)} style={{padding:"10px 24px",border:"1px solid #e2e8f0",borderRadius:12,background:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",color:"#374151"}}>
+                Cancelar
+              </button>
+              <button onClick={handleClearAll} style={{padding:"10px 24px",border:"none",borderRadius:12,background:"#ef4444",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                🗑️ Sim, Zerar Tudo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showFinanceGate&&<FinanceGate onUnlock={()=>{setFinanceUnlocked(true);setActiveTab("financeiro");setShowFinanceGate(false);}} />}
       {revisaoModal&&<RevisaoModal order={revisaoModal} onConfirm={nota=>{handleStatusChange(revisaoModal,"revisao",nota);setRevisaoModal(null);}} onClose={()=>setRevisaoModal(null)} />}
       {toast&&<Toast msg={toast.msg} color={toast.color} />}

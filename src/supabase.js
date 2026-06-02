@@ -102,6 +102,25 @@ export async function upsertFaturamento(userId, mes, loja, valor) {
   else await supabase.from('faturamento').insert({ user_id: userId, mes, loja, valor })
 }
 
+// ── Delete all data for user ───────────────────────────────────────────────
+export async function deleteAllPedidos(userId) {
+  if (!supabase || !userId) return
+  const { error } = await supabase.from('pedidos').delete().eq('user_id', userId)
+  if (error) console.error('deleteAllPedidos error:', error)
+}
+
+export async function deleteAllDevolucoes(userId) {
+  if (!supabase || !userId) return
+  const { error } = await supabase.from('devolucoes').delete().eq('user_id', userId)
+  if (error) console.error('deleteAllDevolucoes error:', error)
+}
+
+export async function deleteAllFaturamento(userId) {
+  if (!supabase || !userId) return
+  const { error } = await supabase.from('faturamento').delete().eq('user_id', userId)
+  if (error) console.error('deleteAllFaturamento error:', error)
+}
+
 function rowToDb(r) {
   return {
     id_pedido:      r.idPedido      || '',
