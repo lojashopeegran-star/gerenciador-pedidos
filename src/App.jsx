@@ -61,19 +61,21 @@ function parseSheet(sheet, colMap, loja) {
 // ── Status classification — covers all Shopee status variants ────────────────
 function normStatus(s) { return norm(s||""); }
 
-function isAberto(r) {
-  const s = normStatus(r.statusPedido);
-  return s.includes("a enviar") || s.includes("order received") || s === "pendente";
-}
 function isEnviado(r) {
   const s = normStatus(r.statusPedido);
-  return s.includes("enviado") || s.includes("entregue") || s.includes("concluido") ||
-         s.includes("o comprador pode") || s.includes("completed") || s.includes("delivered");
+  return s === "enviado" || s === "entregue" || s === "concluido" ||
+         s.startsWith("o comprador pode pedir") || s === "completed" || s === "delivered";
 }
 function isCancelado(r) {
   const s = normStatus(r.statusPedido);
-  return s.includes("cancelad") || s.includes("nao pago") || s.includes("unpaid") ||
-         s.includes("cancelamento");
+  return s === "cancelado" || s === "nao pago" || s === "unpaid" ||
+         s === "cancelamento solicitado" || s.startsWith("cancelad");
+}
+function isAberto(r) {
+  // Cancelled and sent must never appear in "abertos"
+  if (isCancelado(r) || isEnviado(r)) return false;
+  const s = normStatus(r.statusPedido);
+  return s.includes("a enviar") || s === "a" || s === "pendente" || s === "order received";
 }
 function isHistorico(r) { return isEnviado(r) || isCancelado(r); }
 
