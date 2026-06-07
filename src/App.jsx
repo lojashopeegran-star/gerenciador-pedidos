@@ -247,16 +247,32 @@ export default function App({user,onLogout}) {
     const incoming = parseSheet(sheet, PEDIDO_COLS, loja);
     if (!incoming.length) { showToast("Nenhum pedido encontrado na planilha.","#d97706"); return; }
 
-    // Merge: update existing, add new
+    // Merge: update existing status, add new ones
+    // Same ID = update status and all fields (status may have changed)
     const map = new Map(allPedidos.map(r=>[r.idPedido,r]));
     let added=0, updated=0;
     for (const r of incoming) {
       const ex = map.get(r.idPedido);
       if (ex) {
-        map.set(r.idPedido,{...ex,statusPedido:r.statusPedido,dataEnvio:r.dataEnvio,horaPagamento:r.horaPagamento,produto:r.produto,preco:r.preco,quantidade:r.quantidade,variacao:r.variacao,destinatario:r.destinatario,notas:r.notas,_status:"existing"});
+        // Always update with latest data from spreadsheet
+        // Preserve statusInterno and notaRevisao (internal flags)
+        map.set(r.idPedido, {
+          ...ex,
+          statusPedido:  r.statusPedido,
+          dataEnvio:     r.dataEnvio,
+          horaPagamento: r.horaPagamento,
+          produto:       r.produto,
+          preco:         r.preco,
+          quantidade:    r.quantidade,
+          variacao:      r.variacao,
+          destinatario:  r.destinatario,
+          notas:         r.notas,
+          loja:          r.loja,
+          _status: "existing",
+        });
         updated++;
       } else {
-        map.set(r.idPedido,{...r,statusInterno:"",notaRevisao:""});
+        map.set(r.idPedido, {...r, statusInterno:"", notaRevisao:""});
         added++;
       }
     }

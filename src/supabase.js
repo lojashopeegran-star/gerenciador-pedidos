@@ -47,17 +47,30 @@ export async function fetchPedidos(userId) {
 
 export async function upsertPedidos(rows, userId) {
   if (!supabase || !rows.length || !userId) return { count: 0 }
-  let totalCount = 0
-  for (let i = 0; i < rows.length; i += 50) {
-    const batch = rows.slice(i, i + 50)
-    const records = batch.map(r => ({ ...rowToDb(r), user_id: userId }))
-    const { data, error } = await supabase
-      .from('pedidos')
-      .upsert(records, { onConflict: 'user_id,id_pedido', ignoreDuplicates: false })
-      .select('id_pedido')
-    if (error) console.error('upsertPedidos error:', error)
-    else totalCount += data?.length ?? 0
+
+  // Deduplicate by id_pedido keeping LAST occurrence
+  // (last row in spreadsheet wins for same ID)
+  const dedupMap = new Map()
+  for (const r of rows) {
+    if (r.idPedido) dedupMap.set(r.idPedido, r)
   }
+  const uniqueRows = Array.from(dedupMap.values())
+  console.log(`upsertPedidos: ${rows.length} rows -> ${uniqueRows.length} unique`)
+
+  let totalCount = 0
+  // Process one at a time to avoid duplicate conflicts within same batch
+  for (const r of uniqueRows) {
+    const record = { ...rowToDb(r), user_id: userId }
+    const { error } = await supabase
+      .from('pedidos')
+      .upsert(record, { onConflict: 'user_id,id_pedido', ignoreDuplicates: false })
+    if (error) {
+      console.error('upsertPedidos error for', record.id_pedido, ':', error.message)
+    } else {
+      totalCount++
+    }
+  }
+  console.log('upsertPedidos total saved:', totalCount)
   return { count: totalCount }
 }
 
