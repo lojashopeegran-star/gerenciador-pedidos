@@ -24,19 +24,24 @@ export async function fetchPedidos(userId) {
   if (!supabase || !userId) return []
   let allData = []
   let from = 0
-  const pageSize = 1000
+  const pageSize = 500
+  let page = 0
   while (true) {
-    const { data, error } = await supabase
-      .from('pedidos').select('*').eq('user_id', userId)
-      .order('criado_em', { ascending: false })
+    page++
+    console.log(`fetchPedidos page ${page}: fetching rows ${from} to ${from + pageSize - 1}`)
+    const { data, error, count } = await supabase
+      .from('pedidos').select('*', { count: 'exact' }).eq('user_id', userId)
+      .order('id', { ascending: true })
       .range(from, from + pageSize - 1)
     if (error) { console.error('fetchPedidos error:', error); break }
+    console.log(`fetchPedidos page ${page}: got ${data?.length} rows, total in DB: ${count}`)
     if (!data || data.length === 0) break
     allData = allData.concat(data)
     if (data.length < pageSize) break
     from += pageSize
+    if (page > 20) { console.error('fetchPedidos: too many pages, stopping'); break }
   }
-  console.log('fetchPedidos total:', allData.length)
+  console.log('fetchPedidos total loaded:', allData.length)
   return allData.map(dbToRow)
 }
 
