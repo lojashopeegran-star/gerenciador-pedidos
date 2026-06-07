@@ -8,16 +8,17 @@ export default function AppShell() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // onAuthStateChange fires immediately with current session on mount
-    // This is the single source of truth — no need for getSession separately
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log("Auth event:", event, "user:", session?.user?.email)
-      if (session?.user) {
-        setUser(session.user)
-      } else {
-        setUser(null)
-      }
+    // Get initial session immediately
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log("Initial session:", session?.user?.email || "none")
+      setUser(session?.user ?? null)
       setLoading(false)
+    })
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      console.log("Auth change:", _event, session?.user?.email || "none")
+      setUser(session?.user ?? null)
     })
 
     return () => subscription.unsubscribe()
@@ -25,13 +26,14 @@ export default function AppShell() {
 
   if (loading) return (
     <div style={{
-      minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center",
-      background:"linear-gradient(135deg,#1e3a8a,#3b82f6)", fontFamily:"sans-serif"
+      minHeight: "100vh", display: "flex", alignItems: "center",
+      justifyContent: "center", background: "linear-gradient(135deg,#1e3a8a,#3b82f6)",
+      fontFamily: "sans-serif"
     }}>
       <div style={{color:"#fff", fontSize:16, fontWeight:600}}>📦 Carregando...</div>
     </div>
   )
 
-  if (!user) return <Auth onLogin={setUser} />
+  if (!user) return <Auth onLogin={u => setUser(u)} />
   return <App user={user} onLogout={() => signOut()} />
 }

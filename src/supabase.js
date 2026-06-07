@@ -3,14 +3,23 @@ import { createClient } from '@supabase/supabase-js'
 const url = import.meta.env.VITE_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-export const supabase = url && key ? createClient(url, key) : null
+// Configure client with persistent session storage
+export const supabase = url && key ? createClient(url, key, {
+  auth: {
+    persistSession: true,
+    storageKey: 'gerenciador-pedidos-auth',
+    storage: window.localStorage,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+  }
+}) : null
 
 export async function signUp(email, password) { return await supabase.auth.signUp({ email, password }) }
 export async function signIn(email, password) { return await supabase.auth.signInWithPassword({ email, password }) }
 export async function signOut() { await supabase.auth.signOut() }
 export async function getSession() { const { data } = await supabase.auth.getSession(); return data.session }
 
-// ── Pedidos — paginated to get ALL records ───────────────────────────────────
+// ── Pedidos — paginated to get ALL records ────────────────────────────────────
 export async function fetchPedidos(userId) {
   if (!supabase || !userId) return []
   let allData = []
@@ -102,23 +111,20 @@ export async function upsertFaturamento(userId, mes, loja, valor) {
   else await supabase.from('faturamento').insert({ user_id: userId, mes, loja, valor })
 }
 
-// ── Delete all data for user ───────────────────────────────────────────────
+// ── Delete all ────────────────────────────────────────────────────────────────
 export async function deleteAllPedidos(userId) {
   if (!supabase || !userId) return
-  const { error } = await supabase.from('pedidos').delete().eq('user_id', userId)
-  if (error) console.error('deleteAllPedidos error:', error)
+  await supabase.from('pedidos').delete().eq('user_id', userId)
 }
 
 export async function deleteAllDevolucoes(userId) {
   if (!supabase || !userId) return
-  const { error } = await supabase.from('devolucoes').delete().eq('user_id', userId)
-  if (error) console.error('deleteAllDevolucoes error:', error)
+  await supabase.from('devolucoes').delete().eq('user_id', userId)
 }
 
 export async function deleteAllFaturamento(userId) {
   if (!supabase || !userId) return
-  const { error } = await supabase.from('faturamento').delete().eq('user_id', userId)
-  if (error) console.error('deleteAllFaturamento error:', error)
+  await supabase.from('faturamento').delete().eq('user_id', userId)
 }
 
 function rowToDb(r) {
