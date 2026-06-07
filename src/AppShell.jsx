@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { supabase, getSession, signOut } from "./supabase.js"
+import { supabase, signOut } from "./supabase.js"
 import Auth from "./Auth.jsx"
 import App from "./App.jsx"
 
@@ -8,21 +8,27 @@ export default function AppShell() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    getSession().then(session => {
-      if (session?.user) setUser(session.user)
+    // onAuthStateChange fires immediately with current session on mount
+    // This is the single source of truth — no need for getSession separately
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log("Auth event:", event, "user:", session?.user?.email)
+      if (session?.user) {
+        setUser(session.user)
+      } else {
+        setUser(null)
+      }
       setLoading(false)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) setUser(session.user)
-      else if (event === 'SIGNED_OUT') setUser(null)
-    })
+
     return () => subscription.unsubscribe()
   }, [])
 
   if (loading) return (
-    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",
-      background:"linear-gradient(135deg,#1e3a8a,#3b82f6)",fontFamily:"sans-serif"}}>
-      <div style={{color:"#fff",fontSize:16,fontWeight:600}}>📦 Carregando...</div>
+    <div style={{
+      minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center",
+      background:"linear-gradient(135deg,#1e3a8a,#3b82f6)", fontFamily:"sans-serif"
+    }}>
+      <div style={{color:"#fff", fontSize:16, fontWeight:600}}>📦 Carregando...</div>
     </div>
   )
 
