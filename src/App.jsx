@@ -505,28 +505,45 @@ export default function App({user,onLogout}) {
                       </button>);
                     })}
                   </div>
-                  {filterProduto!=="all"&&(
+                  {filterProduto!=="all"&&(()=>{
+                    const prodPedidos = pedidosAbertos.filter(r=>r.produto===filterProduto);
+                    const totalProd   = prodPedidos.length;
+                    const feitosProd  = prodPedidos.filter(r=>r.statusInterno==="feito").length;
+                    const revisaoProd = prodPedidos.filter(r=>r.statusInterno==="revisao").length;
+                    return (
                     <div>
-                      <div style={{fontSize:12,fontWeight:700,color:"#5b21b6",marginBottom:8}}>
-                        Pedidos de: <span style={{fontWeight:500}}>{filterProduto}</span>
-                        <span style={{background:"#7c3aed",color:"#fff",borderRadius:20,padding:"1px 9px",fontSize:11,fontWeight:700,marginLeft:6}}>{pedidosAbertos.filter(r=>r.produto===filterProduto).length}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10,flexWrap:"wrap"}}>
+                        <span style={{fontSize:12,fontWeight:700,color:"#5b21b6"}}>Pedidos de: <span style={{fontWeight:500}}>{filterProduto}</span></span>
+                        <span style={{background:"#7c3aed",color:"#fff",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>Total: {totalProd}</span>
+                        <span style={{background:"#d1fae5",color:"#065f46",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>✅ Feitos: {feitosProd}/{totalProd}</span>
+                        {revisaoProd>0&&<span style={{background:"#fef3c7",color:"#92400e",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>📋 Em Revisão: {revisaoProd}</span>}
                       </div>
-                      <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                        {pedidosAbertos.filter(r=>r.produto===filterProduto).map((r,i)=>{
+                      <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                        {prodPedidos.map((r,i)=>{
                           const dl=deadlineInfo(r.dataEnvio);
+                          const si=r.statusInterno;
                           return (
-                            <div key={r.idPedido} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:i%2===0?"#f8fafc":"#fff",borderRadius:9,padding:"7px 11px",border:"1px solid #f1f5f9"}}>
+                            <div key={r.idPedido} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:si==="feito"?"#f0fdf4":si==="revisao"?"#fffbeb":i%2===0?"#f8fafc":"#fff",borderRadius:9,padding:"8px 12px",border:"1px solid",borderColor:si==="feito"?"#86efac":si==="revisao"?"#fde68a":"#f1f5f9"}}>
                               <StyledCheckbox checked={selected.has(r.idPedido)} onChange={()=>toggleSelect(r.idPedido)} />
-                              <span style={{fontFamily:"monospace",fontSize:12,fontWeight:700,color:"#1d4ed8"}}>{r.idPedido}</span>
-                              <span style={{fontSize:11,color:"#64748b"}}>Loja: <strong>{r.loja}</strong></span>
+                              <span style={{fontFamily:"monospace",fontSize:12,fontWeight:700,color:"#1d4ed8",flexShrink:0}}>{r.idPedido}</span>
+                              <span style={{fontSize:11,color:"#64748b",minWidth:120}}>👤 <strong>{r.destinatario||"—"}</strong></span>
+                              <span style={{fontSize:11,color:"#64748b"}}>🏪 <strong>{r.loja||"—"}</strong></span>
+                              <span style={{fontSize:11,color:"#374151",flex:1,minWidth:140}}>📦 {r.produto||"—"}</span>
+                              <span style={{fontSize:11,color:"#7c3aed",fontWeight:600,minWidth:100}}>🎨 {r.variacao||"—"}</span>
                               <span style={{fontSize:11,color:"#064e3b",fontWeight:700}}>{fmtBRL(r.preco)}</span>
-                              {dl&&<span style={{background:dl.bg,color:dl.text,border:`1px solid ${dl.border}`,borderRadius:7,padding:"1px 7px",fontSize:10,fontWeight:600}}>{dl.icon} {dl.label}</span>}
+                              {dl&&<span style={{background:dl.bg,color:dl.text,border:`1px solid ${dl.border}`,borderRadius:7,padding:"1px 7px",fontSize:10,fontWeight:600,flexShrink:0}}>{dl.icon} {dl.label}</span>}
+                              {/* Botões feito / revisão */}
+                              <div style={{display:"flex",gap:4,flexShrink:0,marginLeft:"auto"}}>
+                                <button onClick={()=>setRevisaoModal(r)} style={{padding:"4px 9px",border:"none",borderRadius:7,background:si==="revisao"?"#fef3c7":"#f1f5f9",color:si==="revisao"?"#92400e":"#374151",fontSize:10,fontWeight:600,cursor:"pointer"}}>📋 Revisão</button>
+                                <button onClick={()=>handleStatusChange(r,si==="feito"?"":"feito")} style={{padding:"4px 9px",border:"none",borderRadius:7,background:si==="feito"?"#d1fae5":"#f1f5f9",color:si==="feito"?"#065f46":"#374151",fontSize:10,fontWeight:600,cursor:"pointer"}}>{si==="feito"?"✅ Feito":"⬜ Feito"}</button>
+                              </div>
                             </div>
                           );
                         })}
                       </div>
                     </div>
-                  )}
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -610,7 +627,7 @@ export default function App({user,onLogout}) {
                           <td style={TD}><ExpandCell value={row.destinatario||"—"} /></td>
                           <td style={TD}>{row.loja||"—"}</td>
                           <td style={{...TD,maxWidth:200}}><div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"normal",lineHeight:1.3,maxWidth:200}}>{row.produto||"—"}</div></td>
-                          <td style={TD}><ExpandCell value={row.variacao||"—"} maxLen={20} /></td>
+                          <td style={{...TD,whiteSpace:"normal",maxWidth:200}}>{row.variacao||"—"}</td>
                           <td style={{...TD,textAlign:"center"}}>{row.quantidade||"—"}</td>
                           <td style={{...TD,fontWeight:600,color:"#059669",whiteSpace:"nowrap"}}>{fmtBRL(row.preco)}</td>
                           <td style={TD}>{dl?<div style={{background:dl.bg,border:`1px solid ${dl.border}`,borderRadius:7,padding:"3px 7px",display:"inline-flex",flexDirection:"column",gap:1,minWidth:74}}><span style={{fontSize:10,color:dl.text,fontWeight:700}}>{dl.icon} {dl.label}</span><span style={{fontSize:9,color:dl.text,opacity:0.75}}>{row.dataEnvio?.slice(0,10)}</span></div>:<span style={{color:"#94a3b8",fontSize:10}}>—</span>}</td>
@@ -645,7 +662,7 @@ export default function App({user,onLogout}) {
                       <td style={TD}><ExpandCell value={row.destinatario||"—"} /></td>
                       <td style={TD}>{row.loja||"—"}</td>
                       <td style={{...TD,maxWidth:190}}><div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"normal",lineHeight:1.3,maxWidth:190}}>{row.produto||"—"}</div></td>
-                      <td style={TD}><ExpandCell value={row.variacao||"—"} maxLen={20} /></td>
+                      <td style={{...TD,whiteSpace:"normal",maxWidth:200}}>{row.variacao||"—"}</td>
                       <td style={{...TD,textAlign:"center"}}>{row.quantidade||"—"}</td>
                       <td style={{...TD,fontWeight:600,color:"#059669"}}>{fmtBRL(row.preco)}</td>
                       <td style={TD}>{row.dataEnvio?.slice(0,10)||"—"}</td>
@@ -676,7 +693,7 @@ export default function App({user,onLogout}) {
                       <td style={TD}><ExpandCell value={row.destinatario||"—"} /></td>
                       <td style={TD}>{row.loja||"—"}</td>
                       <td style={{...TD,maxWidth:190}}><div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"normal",lineHeight:1.3,maxWidth:190,textDecoration:"line-through",color:"#9ca3af"}}>{row.produto||"—"}</div></td>
-                      <td style={TD}><ExpandCell value={row.variacao||"—"} maxLen={20} /></td>
+                      <td style={{...TD,whiteSpace:"normal",maxWidth:200}}>{row.variacao||"—"}</td>
                       <td style={{...TD,textAlign:"center",color:"#9ca3af"}}>{row.quantidade||"—"}</td>
                       <td style={{...TD,fontWeight:600,color:"#9ca3af",textDecoration:"line-through"}}>{fmtBRL(row.preco)}</td>
                       <td style={{...TD,color:"#9ca3af"}}>{row.dataEnvio?.slice(0,10)||"—"}</td>
@@ -706,7 +723,7 @@ export default function App({user,onLogout}) {
                       <td style={{...TD,fontWeight:700,color:"#ef4444",fontFamily:"monospace",fontSize:11}}>{row.id_pedido}</td>
                       <td style={TD}>{row.data_criacao?.slice(0,10)||"—"}</td>
                       <td style={{...TD,maxWidth:180}}><div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"normal",lineHeight:1.3,maxWidth:180}}>{row.produto||"—"}</div></td>
-                      <td style={TD}><ExpandCell value={row.variacao||"—"} maxLen={20} /></td>
+                      <td style={{...TD,whiteSpace:"normal",maxWidth:200}}>{row.variacao||"—"}</td>
                       <td style={{...TD,textAlign:"center"}}>{row.quantidade||"—"}</td>
                       <td style={{...TD,color:"#ef4444",fontWeight:600}}>-{fmtBRL(row.preco_unidade)}</td>
                       <td style={TD}><span style={{background:"#fef3c7",color:"#92400e",borderRadius:20,padding:"2px 8px",fontSize:10,fontWeight:600}}>{row.status_devolucao||"—"}</span></td>
