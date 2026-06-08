@@ -352,7 +352,8 @@ export default function App({user,onLogout}) {
     const lines = [...selected].map(id=>{
       const r = allPedidos.find(p=>p.idPedido===id);
       if(!r) return id;
-      return [r.idPedido, r.destinatario||"", r.loja||"", r.variacao||""].join("-");
+      const prazoDate = r.dataEnvio ? r.dataEnvio.slice(0,10).split("-").reverse().join("-") : "";
+      return [r.idPedido, r.destinatario||"", r.loja||"", r.variacao||"", prazoDate].join("-");
     });
     navigator.clipboard.writeText(lines.join("\n")).then(()=>{
       setCopiedFull(true);
