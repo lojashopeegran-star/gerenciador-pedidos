@@ -339,7 +339,28 @@ export default function App({user,onLogout}) {
   // ── Selection ──────────────────────────────────────────────────────────────
   const toggleSelect=id=>setSelected(p=>{const s=new Set(p);s.has(id)?s.delete(id):s.add(id);return s;});
   const toggleAll=()=>selected.size===filtered.length?setSelected(new Set()):setSelected(new Set(filtered.map(r=>r.idPedido)));
-  const copyIds=()=>{navigator.clipboard.writeText([...selected].join(",")).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);showToast("📋 IDs copiados!","#1d4ed8");});};
+  const copyIds=()=>{
+    navigator.clipboard.writeText([...selected].join(",")).then(()=>{
+      setCopied(true);
+      setTimeout(()=>setCopied(false),2000);
+      showToast("📋 IDs copiados para o UpSeller!","#1d4ed8");
+    });
+  };
+
+  const [copiedFull, setCopiedFull] = useState(false);
+  const copyFullData=()=>{
+    const lines = [...selected].map(id=>{
+      const r = allPedidos.find(p=>p.idPedido===id);
+      if(!r) return id;
+      return [r.idPedido, r.destinatario||"", r.loja||"", r.variacao||""].join("-");
+    });
+    navigator.clipboard.writeText(lines.join("
+")).then(()=>{
+      setCopiedFull(true);
+      setTimeout(()=>setCopiedFull(false),2000);
+      showToast("📋 Dados completos copiados!","#7c3aed");
+    });
+  };
 
   // ── Filters ────────────────────────────────────────────────────────────────
   const produtoMap = pedidosAbertos.reduce((a,r)=>{if(r.produto)a[r.produto]=(a[r.produto]||0)+1;return a;},{});
@@ -810,6 +831,39 @@ export default function App({user,onLogout}) {
           </div>
         </div>
       )}
+      {/* ── Floating copy button — follows scroll ── */}
+      {selected.size>0&&(
+        <div style={{
+          position:"fixed", bottom:28, left:"50%", transform:"translateX(-50%)",
+          zIndex:8888, display:"flex", gap:10, alignItems:"center",
+          background:"#1e293b", borderRadius:20, padding:"10px 20px",
+          boxShadow:"0 8px 32px rgba(0,0,0,0.3)",
+          animation:"slideUp 0.2s ease",
+        }}>
+          <style>{`@keyframes slideUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}`}</style>
+          <span style={{color:"#94a3b8",fontSize:12}}>{selected.size} pedido{selected.size!==1?"s":""} selecionado{selected.size!==1?"s":""}</span>
+          <div style={{width:1,height:20,background:"#334155"}}/>
+          <button onClick={copyIds} style={{
+            background:copied?"#059669":"#1d4ed8",color:"#fff",border:"none",
+            borderRadius:12,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer",
+            display:"flex",alignItems:"center",gap:5,transition:"background 0.2s",
+          }}>
+            {copied?"✓ IDs Copiados!":"📋 Copiar IDs"}
+          </button>
+          <button onClick={copyFullData} style={{
+            background:copiedFull?"#059669":"#7c3aed",color:"#fff",border:"none",
+            borderRadius:12,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer",
+            display:"flex",alignItems:"center",gap:5,transition:"background 0.2s",
+          }}>
+            {copiedFull?"✓ Copiado!":"📄 Copiar Completo"}
+          </button>
+          <button onClick={()=>setSelected(new Set())} style={{
+            background:"none",color:"#94a3b8",border:"1px solid #334155",
+            borderRadius:12,padding:"7px 12px",fontSize:12,cursor:"pointer",
+          }}>✕</button>
+        </div>
+      )}
+
       {showFinanceGate&&<FinanceGate onUnlock={()=>{setFinanceUnlocked(true);setActiveTab("financeiro");setShowFinanceGate(false);}} />}
       {revisaoModal&&<RevisaoModal order={revisaoModal} onConfirm={nota=>{handleStatusChange(revisaoModal,"revisao",nota);setRevisaoModal(null);}} onClose={()=>setRevisaoModal(null)} />}
       {toast&&<Toast msg={toast.msg} color={toast.color} />}
