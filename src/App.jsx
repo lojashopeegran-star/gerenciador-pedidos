@@ -220,6 +220,7 @@ export default function App({user,onLogout}) {
   const [showProdPanel, setShowProdPanel] = useState(false);
   const [selected,      setSelected]      = useState(new Set());
   const [copied,        setCopied]        = useState(false);
+  const [copiedFull,    setCopiedFull]    = useState(false);
   const tableRef = useRef(null);
 
   const showToast=(msg,color,ms=3500)=>{setToast({msg,color});setTimeout(()=>setToast(null),ms);};
@@ -347,7 +348,6 @@ export default function App({user,onLogout}) {
     });
   };
 
-  const [copiedFull, setCopiedFull] = useState(false);
   const copyFullData=()=>{
     const lines = [...selected].map(id=>{
       const r = allPedidos.find(p=>p.idPedido===id);
