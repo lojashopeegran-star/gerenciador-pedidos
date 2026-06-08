@@ -354,11 +354,10 @@ export default function App({user,onLogout}) {
       if(!r) return id;
       return [r.idPedido, r.destinatario||"", r.loja||"", r.variacao||""].join("-");
     });
-    navigator.clipboard.writeText(lines.join("
-")).then(()=>{
+    navigator.clipboard.writeText(lines.join("\n")).then(()=>{
       setCopiedFull(true);
       setTimeout(()=>setCopiedFull(false),2000);
-      showToast("📋 Dados completos copiados!","#7c3aed");
+      showToast("Dados completos copiados!","#7c3aed");
     });
   };
 
