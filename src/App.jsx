@@ -341,6 +341,19 @@ export default function App({user,onLogout}) {
   // ── Selection ──────────────────────────────────────────────────────────────
   const toggleSelect=id=>setSelected(p=>{const s=new Set(p);s.has(id)?s.delete(id):s.add(id);return s;});
   const toggleAll=()=>selected.size===filtered.length?setSelected(new Set()):setSelected(new Set(filtered.map(r=>r.idPedido)));
+
+  const markAllFeito = async () => {
+    const ids = [...selected];
+    // Update all selected as feito
+    setAllPedidos(prev => prev.map(o => ids.includes(o.idPedido) ? {...o, statusInterno:"feito", notaRevisao:""} : o));
+    setSelected(new Set());
+    showToast(`✅ ${ids.length} pedido(s) marcados como Feito!`, "#059669");
+    if (supabase) {
+      for (const id of ids) {
+        await updatePedidoStatus(id, user.id, "feito", "");
+      }
+    }
+  };
   const copyIds=()=>{
     navigator.clipboard.writeText([...selected].join(",")).then(()=>{
       setCopied(true);
@@ -397,7 +410,9 @@ export default function App({user,onLogout}) {
     return day(a)-day(b);
   });
 
-  const urgentCount  = pedidosAbertos.filter(r=>deadlineInfo(r.dataEnvio)?.tier==="red").length;
+  const urgentAll    = pedidosAbertos.filter(r=>deadlineInfo(r.dataEnvio)?.tier==="red");
+  const urgentCount  = urgentAll.length;
+  const urgentFeitos = urgentAll.filter(r=>r.statusInterno==="feito").length;
   const feitoCount   = pedidosAbertos.filter(r=>r.statusInterno==="feito").length;
   const revisaoCount = pedidosAbertos.filter(r=>r.statusInterno==="revisao").length;
   const valorAberto  = pedidosAbertos.reduce((s,r)=>s+(parseFloat(r.preco)||0),0);
@@ -485,7 +500,7 @@ export default function App({user,onLogout}) {
             {label:"Em Aberto",  value:pedidosAbertos.length,    color:"#1d4ed8",icon:"📋",tab:"abertos",  action:()=>{setFilterSt("all");setFilterPrazo("all");}},
             {label:"Feitos",     value:feitoCount,                color:"#059669",icon:"✅",tab:"abertos",  action:()=>setFilterSt("feito")},
             {label:"Em Revisão", value:revisaoCount,              color:"#f59e0b",icon:"📋",tab:"abertos",  action:()=>setFilterSt("revisao")},
-            {label:"Urgentes",   value:urgentCount,               color:"#ef4444",icon:"🔴",tab:"abertos",  action:()=>{setFilterSt("all");setFilterPrazo("red");}},
+            {label:"Urgentes",   value:`${urgentFeitos}/${urgentCount}`, color:"#ef4444",icon:"🔴",tab:"abertos",  action:()=>{setFilterSt("all");setFilterPrazo("red");}},
             {label:"Enviados",   value:pedidosEnviados.length,    color:"#059669",icon:"📦",tab:"enviados", action:()=>{}},
             {label:"Cancelados", value:pedidosCancelados.length,  color:"#6b7280",icon:"❌",tab:"cancelados",action:()=>{}},
             {label:"Devoluções", value:devolucoes.length,         color:"#ef4444",icon:"🔄",tab:"devolucoes",action:()=>{}},
@@ -611,6 +626,7 @@ export default function App({user,onLogout}) {
                 <span style={{fontSize:12,color:"#64748b"}}><strong>{filtered.length}</strong> pedidos · <strong>{selected.size}</strong> selecionados</span>
                 {selected.size>0&&<>
                   <button onClick={copyIds} style={{background:copied?"#059669":"#1d4ed8",color:"#fff",border:"none",borderRadius:10,padding:"5px 13px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{copied?"✓ Copiado!`":`📋 Copiar ${selected.size} ID(s)`}</button>
+                  {selected.size>1&&<button onClick={markAllFeito} style={{background:"#059669",color:"#fff",border:"none",borderRadius:10,padding:"5px 13px",fontSize:12,fontWeight:700,cursor:"pointer"}}>✅ Marcar {selected.size} como Feito</button>}
                   <button onClick={()=>setSelected(new Set())} style={{background:"none",border:"1px solid #e2e8f0",borderRadius:10,padding:"5px 10px",fontSize:12,cursor:"pointer",color:"#64748b"}}>Limpar</button>
                 </>}
                 <div style={{marginLeft:"auto",display:"flex",gap:5}}>
@@ -873,6 +889,14 @@ export default function App({user,onLogout}) {
           }}>
             {copiedFull?"✓ Copiado!":"📄 Copiar Completo"}
           </button>
+          {selected.size>1&&(
+            <button onClick={markAllFeito} style={{
+              background:"#059669",color:"#fff",border:"none",
+              borderRadius:12,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer",
+            }}>
+              ✅ Marcar {selected.size} como Feito
+            </button>
+          )}
           <button onClick={()=>setSelected(new Set())} style={{
             background:"none",color:"#94a3b8",border:"1px solid #334155",
             borderRadius:12,padding:"7px 12px",fontSize:12,cursor:"pointer",
