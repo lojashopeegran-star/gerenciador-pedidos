@@ -367,15 +367,30 @@ export default function App({user,onLogout}) {
   const produtoMap = pedidosAbertos.reduce((a,r)=>{if(r.produto)a[r.produto]=(a[r.produto]||0)+1;return a;},{});
   const produtos   = Object.entries(produtoMap).sort((a,b)=>b[1]-a[1]);
 
+  // Support multi-ID search: "ID1,ID2,ID3"
+  const searchTerms = search.split(",").map(s=>s.trim().toLowerCase()).filter(Boolean);
+  const matchesSearch = (r) => {
+    if (!search) return true;
+    // If multiple terms separated by comma, match any ID exactly
+    if (searchTerms.length > 1) {
+      return searchTerms.some(t => r.idPedido.toLowerCase() === t);
+    }
+    // Single term — search across all fields
+    const q = searchTerms[0];
+    return r.idPedido.toLowerCase().includes(q) ||
+           r.produto.toLowerCase().includes(q) ||
+           r.destinatario.toLowerCase().includes(q) ||
+           r.variacao.toLowerCase().includes(q);
+  };
+
   const filtered = pedidosAbertos.filter(r=>{
     const dl=deadlineInfo(r.dataEnvio);
-    const q=search.toLowerCase();
     return (
       (filterLoja==="all"   ||r.loja===filterLoja)&&
       (filterPrazo==="all"  ||(dl&&dl.tier===filterPrazo))&&
       (filterSt==="all"     ||r.statusInterno===filterSt)&&
       (filterProduto==="all"||r.produto===filterProduto)&&
-      (!search||r.idPedido.toLowerCase().includes(q)||r.produto.toLowerCase().includes(q)||r.destinatario.toLowerCase().includes(q)||r.variacao.toLowerCase().includes(q))
+      matchesSearch(r)
     );
   }).sort((a,b)=>{
     const day=r=>{if(!r.dataEnvio)return 9999;const d=new Date(r.dataEnvio.replace(" ","T"));if(isNaN(d))return 9999;const t=new Date();t.setHours(0,0,0,0);const dd=new Date(d);dd.setHours(0,0,0,0);return Math.round((dd-t)/86400000);};
