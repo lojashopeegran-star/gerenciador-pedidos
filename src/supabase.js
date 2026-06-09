@@ -58,16 +58,45 @@ export async function upsertPedidos(rows, userId) {
   console.log(`upsertPedidos: ${rows.length} rows -> ${uniqueRows.length} unique`)
 
   let totalCount = 0
-  // Process one at a time to avoid duplicate conflicts within same batch
+  // Process one at a time to avoid duplicate conflicts
   for (const r of uniqueRows) {
     const record = { ...rowToDb(r), user_id: userId }
-    const { error } = await supabase
+
+    // Check if record already exists
+    const { data: existing } = await supabase
       .from('pedidos')
-      .upsert(record, { onConflict: 'user_id,id_pedido', ignoreDuplicates: false })
-    if (error) {
-      console.error('upsertPedidos error for', record.id_pedido, ':', error.message)
+      .select('id, status_interno, nota_revisao')
+      .eq('user_id', userId)
+      .eq('id_pedido', record.id_pedido)
+      .maybeSingle()
+
+    if (existing) {
+      // Update spreadsheet fields but PRESERVE status_interno and nota_revisao
+      const { error } = await supabase
+        .from('pedidos')
+        .update({
+          status_pedido:  record.status_pedido,
+          data_envio:     record.data_envio,
+          hora_pagamento: record.hora_pagamento,
+          produto:        record.produto,
+          preco:          record.preco,
+          quantidade:     record.quantidade,
+          variacao:       record.variacao,
+          destinatario:   record.destinatario,
+          notas:          record.notas,
+          loja:           record.loja,
+          // DO NOT update status_interno or nota_revisao
+        })
+        .eq('id', existing.id)
+      if (error) console.error('update error for', record.id_pedido, ':', error.message)
+      else totalCount++
     } else {
-      totalCount++
+      // Insert new record
+      const { error } = await supabase
+        .from('pedidos')
+        .insert({ ...record, status_interno: '', nota_revisao: '' })
+      if (error) console.error('insert error for', record.id_pedido, ':', error.message)
+      else totalCount++
     }
   }
   console.log('upsertPedidos total saved:', totalCount)

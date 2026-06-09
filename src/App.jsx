@@ -249,14 +249,12 @@ export default function App({user,onLogout}) {
     if (!incoming.length) { showToast("Nenhum pedido encontrado na planilha.","#d97706"); return; }
 
     // Merge: update existing status, add new ones
-    // Same ID = update status and all fields (status may have changed)
+    // Same ID = update fields from spreadsheet but PRESERVE statusInterno and notaRevisao
     const map = new Map(allPedidos.map(r=>[r.idPedido,r]));
     let added=0, updated=0;
     for (const r of incoming) {
       const ex = map.get(r.idPedido);
       if (ex) {
-        // Always update with latest data from spreadsheet
-        // Preserve statusInterno and notaRevisao (internal flags)
         map.set(r.idPedido, {
           ...ex,
           statusPedido:  r.statusPedido,
@@ -269,6 +267,9 @@ export default function App({user,onLogout}) {
           destinatario:  r.destinatario,
           notas:         r.notas,
           loja:          r.loja,
+          // PRESERVE internal flags — never reset from spreadsheet load
+          statusInterno: ex.statusInterno || "",
+          notaRevisao:   ex.notaRevisao   || "",
           _status: "existing",
         });
         updated++;
