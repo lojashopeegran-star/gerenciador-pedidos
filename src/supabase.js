@@ -210,3 +210,32 @@ export function dbToRow(d) {
     _status: 'existing',
   }
 }
+
+// ── Configurações do usuário (lojas) ─────────────────────────────────────────
+export async function fetchConfig(userId) {
+  if (!supabase || !userId) return null
+  const { data, error } = await supabase
+    .from('user_config')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) { console.error('fetchConfig error:', error); return null }
+  return data
+}
+
+export async function saveConfig(userId, loja1, loja2) {
+  if (!supabase || !userId) return
+  const { data: ex } = await supabase
+    .from('user_config')
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (ex) {
+    await supabase.from('user_config')
+      .update({ loja1, loja2 })
+      .eq('user_id', userId)
+  } else {
+    await supabase.from('user_config')
+      .insert({ user_id: userId, loja1, loja2 })
+  }
+}

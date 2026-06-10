@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, deleteAllDevolucoes, deleteAllFaturamento } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -195,7 +195,6 @@ function TabBar({tabs,active,onChange}) {
   );
 }
 
-const LOJAS = ["Gran Shop","Aishael Mix"];
 const TH={padding:"9px 12px",textAlign:"left",fontWeight:700,fontSize:10,color:"#64748b",letterSpacing:0.5,textTransform:"uppercase",whiteSpace:"nowrap",borderBottom:"2px solid #e2e8f0"};
 const TD={padding:"7px 11px",verticalAlign:"middle"};
 
@@ -230,9 +229,17 @@ export default function App({user,onLogout}) {
     if(!user?.id){setDbLoading(false);return;}
     if(!supabase){setDbLoading(false);return;}
     setDbLoading(true);
-    Promise.all([fetchPedidos(user.id),fetchDevolucoes(user.id),fetchFaturamento(user.id)])
-      .then(([p,d,f])=>{
+    Promise.all([fetchPedidos(user.id),fetchDevolucoes(user.id),fetchFaturamento(user.id),fetchConfig(user.id)])
+      .then(([p,d,f,cfg])=>{
         setAllPedidos(p); setDevolucoes(d); setFaturamento(f);
+        if (cfg?.loja1 && cfg?.loja2) {
+          setLojas([cfg.loja1, cfg.loja2]);
+          setConfigLoja1(cfg.loja1);
+          setConfigLoja2(cfg.loja2);
+        } else {
+          // First time — show config modal
+          setShowConfigLojas(true);
+        }
         setDbLoading(false);
       }).catch(err=>{console.error(err);setDbLoading(false);});
   },[user?.id]);
@@ -310,6 +317,10 @@ export default function App({user,onLogout}) {
 
   // ── Clear all data ────────────────────────────────────────────────────────
   const [showConfirmClear, setShowConfirmClear] = useState(false);
+  const [lojas,           setLojas]           = useState(["Loja 1","Loja 2"]);
+  const [showConfigLojas, setShowConfigLojas] = useState(false);
+  const [configLoja1,     setConfigLoja1]     = useState("");
+  const [configLoja2,     setConfigLoja2]     = useState("");
 
   const handleClearAll = async () => {
     setShowConfirmClear(false);
@@ -434,6 +445,16 @@ export default function App({user,onLogout}) {
     {id:"financeiro", icon:"💰",label:"Financeiro", badge:null,                     color:"#0891b2"},
   ];
 
+
+  const handleSaveConfig = async () => {
+    const l1 = configLoja1.trim() || "Loja 1";
+    const l2 = configLoja2.trim() || "Loja 2";
+    setLojas([l1, l2]);
+    setShowConfigLojas(false);
+    if (supabase) await saveConfig(user.id, l1, l2);
+    showToast("✅ Lojas configuradas com sucesso!", "#059669");
+  };
+
   if (dbLoading) return (
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"linear-gradient(135deg,#1e3a8a,#3b82f6)",fontFamily:"sans-serif"}}>
       <div style={{color:"#fff",fontSize:16,fontWeight:600}}>📦 Carregando seus pedidos...</div>
@@ -456,6 +477,7 @@ export default function App({user,onLogout}) {
             <span style={{width:6,height:6,borderRadius:"50%",background:saving?"#fbbf24":"#4ade80",display:"inline-block"}}/>{saving?"Salvando...":"Conectado"}
           </span>
           <span style={{background:"rgba(255,255,255,0.12)",borderRadius:20,padding:"3px 12px",fontSize:12}}>👤 {user?.email}</span>
+          <button onClick={()=>{setConfigLoja1(lojas[0]);setConfigLoja2(lojas[1]);setShowConfigLojas(true);}} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"3px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>⚙️ Lojas</button>
           <button onClick={onLogout} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"3px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Sair →</button>
         </div>
       </div>
@@ -901,6 +923,34 @@ export default function App({user,onLogout}) {
             background:"none",color:"#94a3b8",border:"1px solid #334155",
             borderRadius:12,padding:"7px 12px",fontSize:12,cursor:"pointer",
           }}>✕</button>
+        </div>
+      )}
+
+      {/* ── Config Lojas Modal ── */}
+      {showConfigLojas&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:20,padding:32,width:"100%",maxWidth:420,boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
+            <div style={{fontSize:32,textAlign:"center",marginBottom:8}}>🏪</div>
+            <h3 style={{margin:"0 0 6px",fontSize:17,fontWeight:700,color:"#1e293b",textAlign:"center"}}>Configurar Suas Lojas</h3>
+            <p style={{margin:"0 0 24px",fontSize:13,color:"#64748b",textAlign:"center"}}>Defina o nome das suas duas lojas. Isso ficará salvo na sua conta.</p>
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              <div>
+                <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:6}}>Nome da Loja 1</label>
+                <input value={configLoja1} onChange={e=>setConfigLoja1(e.target.value)} placeholder="Ex: Gran Shop"
+                  style={{width:"100%",padding:"11px 14px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:14,outline:"none",boxSizing:"border-box"}} />
+              </div>
+              <div>
+                <label style={{fontSize:12,fontWeight:600,color:"#374151",display:"block",marginBottom:6}}>Nome da Loja 2</label>
+                <input value={configLoja2} onChange={e=>setConfigLoja2(e.target.value)} placeholder="Ex: Aishael Mix"
+                  onKeyDown={e=>e.key==="Enter"&&handleSaveConfig()}
+                  style={{width:"100%",padding:"11px 14px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:14,outline:"none",boxSizing:"border-box"}} />
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:20}}>
+              {lojas[0]!=="Loja 1"&&<button onClick={()=>setShowConfigLojas(false)} style={{flex:1,padding:"11px",border:"1px solid #e2e8f0",borderRadius:12,background:"#fff",fontSize:13,cursor:"pointer",color:"#374151"}}>Cancelar</button>}
+              <button onClick={handleSaveConfig} style={{flex:2,padding:"11px",background:"linear-gradient(135deg,#1d4ed8,#7c3aed)",color:"#fff",border:"none",borderRadius:12,fontSize:14,fontWeight:700,cursor:"pointer"}}>Salvar →</button>
+            </div>
+          </div>
         </div>
       )}
 
