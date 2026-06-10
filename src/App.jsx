@@ -214,6 +214,7 @@ export default function App({user,onLogout}) {
   const [search,        setSearch]        = useState("");
   const [filterLoja,    setFilterLoja]    = useState("all");
   const [filterPrazo,   setFilterPrazo]   = useState("all");
+  const [filterData,    setFilterData]    = useState("all"); // specific date filter
   const [filterSt,      setFilterSt]      = useState("all");
   const [filterProduto, setFilterProduto] = useState("all");
   const [showProdPanel, setShowProdPanel] = useState(false);
@@ -391,6 +392,13 @@ export default function App({user,onLogout}) {
   const produtoMap = pedidosAbertos.reduce((a,r)=>{if(r.produto)a[r.produto]=(a[r.produto]||0)+1;return a;},{});
   const produtos   = Object.entries(produtoMap).sort((a,b)=>b[1]-a[1]);
 
+  // Unique deadline dates sorted ascending
+  const datasUnicas = [...new Set(
+    pedidosAbertos
+      .map(r => r.dataEnvio ? r.dataEnvio.slice(0,10) : null)
+      .filter(Boolean)
+  )].sort();
+
   // Support multi-ID search: "ID1,ID2,ID3"
   const searchTerms = search.split(",").map(s=>s.trim().toLowerCase()).filter(Boolean);
   const matchesSearch = (r) => {
@@ -412,6 +420,7 @@ export default function App({user,onLogout}) {
     return (
       (filterLoja==="all"   ||r.loja===filterLoja)&&
       (filterPrazo==="all"  ||(dl&&dl.tier===filterPrazo))&&
+      (filterData==="all"   ||r.dataEnvio?.slice(0,10)===filterData)&&
       (filterSt==="all"     ||r.statusInterno===filterSt)&&
       (filterProduto==="all"||r.produto===filterProduto)&&
       matchesSearch(r)
@@ -637,13 +646,39 @@ export default function App({user,onLogout}) {
                   <option value="all">Todas as lojas</option>
                   {LOJAS.map(l=><option key={l} value={l}>{l}</option>)}
                 </select>
-                <select value={filterPrazo} onChange={e=>setFilterPrazo(e.target.value)} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"7px 11px",fontSize:12,cursor:"pointer",background:"#fff"}}>
+                <select value={filterPrazo} onChange={e=>{setFilterPrazo(e.target.value);setFilterData("all");}} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"7px 11px",fontSize:12,cursor:"pointer",background:"#fff"}}>
                   <option value="all">Todos os prazos</option>
                   <option value="red">🔴 Urgente</option>
                   <option value="yellow">🟡 Atenção (2d)</option>
                   <option value="green">🟢 OK (3+d)</option>
                 </select>
               </div>
+              {/* Date filter chips */}
+              {datasUnicas.length>0&&(
+                <div style={{padding:"8px 18px",background:"#f8fafc",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  <span style={{fontSize:11,fontWeight:700,color:"#64748b",marginRight:4,whiteSpace:"nowrap"}}>📅 Filtrar por data:</span>
+                  <button onClick={()=>setFilterData("all")} style={{padding:"4px 12px",border:`1.5px solid ${filterData==="all"?"#1d4ed8":"#e2e8f0"}`,borderRadius:20,background:filterData==="all"?"#1d4ed8":"#fff",color:filterData==="all"?"#fff":"#374151",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                    Todos
+                  </button>
+                  {datasUnicas.map(data=>{
+                    const dl = deadlineInfo(data+" 00:00:00");
+                    const isActive = filterData===data;
+                    const bg = isActive?(dl?.tier==="red"?"#ef4444":dl?.tier==="yellow"?"#f59e0b":"#059669"):"#fff";
+                    const border = isActive?bg:(dl?.tier==="red"?"#fca5a5":dl?.tier==="yellow"?"#fde68a":"#86efac");
+                    const color = isActive?"#fff":(dl?.tier==="red"?"#991b1b":dl?.tier==="yellow"?"#78350f":"#14532d");
+                    const [yyyy,mm,dd] = data.split("-");
+                    const count = pedidosAbertos.filter(r=>r.dataEnvio?.slice(0,10)===data).length;
+                    return (
+                      <button key={data} onClick={()=>{setFilterData(isActive?"all":data);setFilterPrazo("all");}}
+                        style={{padding:"4px 12px",border:`1.5px solid ${border}`,borderRadius:20,background:bg,color,fontSize:11,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}>
+                        {dl?.tier==="red"?"🔴":dl?.tier==="yellow"?"🟡":"🟢"} {dd}/{mm}
+                        <span style={{background:isActive?"rgba(255,255,255,0.3)":"rgba(0,0,0,0.08)",borderRadius:20,padding:"0 5px",fontSize:10}}>{count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
               <div style={{padding:"8px 18px",background:"#f8fafc",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                 <span style={{fontSize:12,color:"#64748b"}}><strong>{filtered.length}</strong> pedidos · <strong>{selected.size}</strong> selecionados</span>
                 {selected.size>0&&<>
