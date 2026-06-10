@@ -502,7 +502,7 @@ export default function App({user,onLogout}) {
             </button>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
-            {LOJAS.map(loja=>(
+            {lojas.map(loja=>(
               <div key={`ped_${loja}`} style={{border:"1px solid #e2e8f0",borderRadius:12,padding:10}}>
                 <div style={{fontSize:11,fontWeight:700,color:"#1d4ed8",marginBottom:7,display:"flex",alignItems:"center",gap:5}}>
                   <span style={{background:"#eff6ff",borderRadius:6,padding:"1px 8px"}}>{loja}</span>
@@ -512,7 +512,7 @@ export default function App({user,onLogout}) {
                   file={uploadNames[`ped_${loja}`]} onFile={(s,n)=>handlePlanilha(s,n,loja)} />
               </div>
             ))}
-            {LOJAS.map(loja=>(
+            {lojas.map(loja=>(
               <div key={`dev_${loja}`} style={{border:"1px solid #fee2e2",borderRadius:12,padding:10}}>
                 <div style={{fontSize:11,fontWeight:700,color:"#ef4444",marginBottom:7,display:"flex",alignItems:"center",gap:5}}>
                   <span style={{background:"#fef2f2",borderRadius:6,padding:"1px 8px"}}>{loja}</span>
@@ -644,7 +644,7 @@ export default function App({user,onLogout}) {
                 </select>
                 <select value={filterLoja} onChange={e=>setFilterLoja(e.target.value)} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"7px 11px",fontSize:12,cursor:"pointer",background:"#fff"}}>
                   <option value="all">Todas as lojas</option>
-                  {LOJAS.map(l=><option key={l} value={l}>{l}</option>)}
+                  {lojas.map(l=><option key={l} value={l}>{l}</option>)}
                 </select>
                 <select value={filterPrazo} onChange={e=>{setFilterPrazo(e.target.value);setFilterData("all");}} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"7px 11px",fontSize:12,cursor:"pointer",background:"#fff"}}>
                   <option value="all">Todos os prazos</option>
@@ -853,7 +853,7 @@ export default function App({user,onLogout}) {
         {activeTab==="financeiro"&&financeUnlocked&&(
           <div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:18}}>
-              {LOJAS.map(loja=>{
+              {lojas.map(loja=>{
                 const totalFat=faturamento.filter(f=>f.loja===loja).reduce((s,f)=>s+Number(f.valor),0);
                 const totalPed=allPedidos.filter(r=>r.loja===loja).length||1;
                 const ticket=totalFat/totalPed;
