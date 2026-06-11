@@ -667,12 +667,14 @@ export default function App({user,onLogout}) {
                     const border = isActive?bg:(dl?.tier==="red"?"#fca5a5":dl?.tier==="yellow"?"#fde68a":"#86efac");
                     const color = isActive?"#fff":(dl?.tier==="red"?"#991b1b":dl?.tier==="yellow"?"#78350f":"#14532d");
                     const [yyyy,mm,dd] = data.split("-");
-                    const count = pedidosAbertos.filter(r=>r.dataEnvio?.slice(0,10)===data).length;
+                    const pedidosDia = pedidosAbertos.filter(r=>r.dataEnvio?.slice(0,10)===data);
+                    const count = pedidosDia.length;
+                    const feitosDia = pedidosDia.filter(r=>r.statusInterno==="feito").length;
                     return (
                       <button key={data} onClick={()=>{setFilterData(isActive?"all":data);setFilterPrazo("all");}}
                         style={{padding:"4px 12px",border:`1.5px solid ${border}`,borderRadius:20,background:bg,color,fontSize:11,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}>
                         {dl?.tier==="red"?"🔴":dl?.tier==="yellow"?"🟡":"🟢"} {dd}/{mm}
-                        <span style={{background:isActive?"rgba(255,255,255,0.3)":"rgba(0,0,0,0.08)",borderRadius:20,padding:"0 5px",fontSize:10}}>{count}</span>
+                        <span style={{background:isActive?"rgba(255,255,255,0.3)":"rgba(0,0,0,0.08)",borderRadius:20,padding:"0 5px",fontSize:10,fontWeight:700}}>{feitosDia}/{count}</span>
                       </button>
                     );
                   })}
