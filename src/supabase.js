@@ -17,6 +17,11 @@ export const supabase = url && key ? createClient(url, key, {
 export async function signUp(email, password) { return await supabase.auth.signUp({ email, password }) }
 export async function signIn(email, password) { return await supabase.auth.signInWithPassword({ email, password }) }
 export async function signOut() { await supabase.auth.signOut() }
+export async function resetPassword(email) {
+  return await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin,
+  })
+}
 export async function getSession() { const { data } = await supabase.auth.getSession(); return data.session }
 
 // ── Pedidos — paginated to get ALL records ────────────────────────────────────
