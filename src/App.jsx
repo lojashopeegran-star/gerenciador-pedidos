@@ -64,7 +64,8 @@ function normStatus(s) { return norm(s||""); }
 function isEnviado(r) {
   const s = normStatus(r.statusPedido);
   return s === "enviado" || s === "entregue" || s === "concluido" ||
-         s.startsWith("o comprador pode pedir") || s === "completed" || s === "delivered";
+         s.startsWith("o comprador pode pedir") || s === "completed" || s === "delivered" ||
+         s === "order received";
 }
 function isCancelado(r) {
   const s = normStatus(r.statusPedido);
@@ -75,7 +76,7 @@ function isAberto(r) {
   // Cancelled and sent must never appear in "abertos"
   if (isCancelado(r) || isEnviado(r)) return false;
   const s = normStatus(r.statusPedido);
-  return s.includes("a enviar") || s === "a" || s === "pendente" || s === "order received";
+  return s.includes("a enviar") || s === "a" || s === "pendente";
 }
 function isHistorico(r) { return isEnviado(r) || isCancelado(r); }
 
@@ -215,6 +216,7 @@ export default function App({user,onLogout}) {
   const [filterLoja,    setFilterLoja]    = useState("all");
   const [filterPrazo,   setFilterPrazo]   = useState("all");
   const [filterData,    setFilterData]    = useState("all"); // specific date filter
+  const [searchEnviados, setSearchEnviados] = useState("");
   const [filterSt,      setFilterSt]      = useState("all");
   const [filterProduto, setFilterProduto] = useState("all");
   const [showProdPanel, setShowProdPanel] = useState(false);
@@ -756,18 +758,28 @@ export default function App({user,onLogout}) {
         )}
 
         {/* ── TAB: ENVIADOS ── */}
-        {activeTab==="enviados"&&(
+        {activeTab==="enviados"&&(()=>{
+          const qE = searchEnviados.trim().toLowerCase();
+          const enviadosFiltrados = !qE ? pedidosEnviados : pedidosEnviados.filter(r=>
+            r.idPedido.toLowerCase().includes(qE) ||
+            r.produto.toLowerCase().includes(qE) ||
+            r.destinatario.toLowerCase().includes(qE) ||
+            r.variacao.toLowerCase().includes(qE)
+          );
+          return (
           <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden"}}>
             <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
               <span style={{fontSize:13,fontWeight:700,color:"#059669"}}>📦 Pedidos Enviados / Entregues</span>
-              <span style={{background:"#059669",color:"#fff",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{pedidosEnviados.length}</span>
-              <span style={{marginLeft:"auto",fontSize:12,fontWeight:700,color:"#059669"}}>{fmtBRL(pedidosEnviados.reduce((s,r)=>s+(parseFloat(r.preco)||0),0))}</span>
+              <span style={{background:"#059669",color:"#fff",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{enviadosFiltrados.length}</span>
+              <input placeholder="🔍 Buscar ID, produto, destinatário..." value={searchEnviados} onChange={e=>setSearchEnviados(e.target.value)}
+                style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"6px 12px",fontSize:12,outline:"none",flex:1,minWidth:180,maxWidth:320}} />
+              <span style={{marginLeft:"auto",fontSize:12,fontWeight:700,color:"#059669"}}>{fmtBRL(enviadosFiltrados.reduce((s,r)=>s+(parseFloat(r.preco)||0),0))}</span>
             </div>
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead><tr style={{background:"#f0fdf4"}}>{["Status","ID Pedido","Destinatário","Loja","Produto","Variação","Qtd","Preço","Data Envio"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
                 <tbody>
-                  {pedidosEnviados.map((row,i)=>(
+                  {enviadosFiltrados.map((row,i)=>(
                     <tr key={row.idPedido} style={{background:i%2===0?"#f8fffe":"#fff",borderBottom:"1px solid #f0fdf4"}}>
                       <td style={{...TD,textAlign:"center"}}><StatusBadge status={row.statusPedido} /></td>
                       <td style={{...TD,fontWeight:700,color:"#059669",fontFamily:"monospace",fontSize:11}}>{row.idPedido}</td>
@@ -780,12 +792,13 @@ export default function App({user,onLogout}) {
                       <td style={TD}>{row.dataEnvio?.slice(0,10)||"—"}</td>
                     </tr>
                   ))}
-                  {pedidosEnviados.length===0&&<tr><td colSpan={9} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>Nenhum pedido enviado ainda.</td></tr>}
+                  {enviadosFiltrados.length===0&&<tr><td colSpan={9} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>{pedidosEnviados.length===0?"Nenhum pedido enviado ainda.":"Nenhum pedido encontrado."}</td></tr>}
                 </tbody>
               </table>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* ── TAB: CANCELADOS ── */}
         {activeTab==="cancelados"&&(
