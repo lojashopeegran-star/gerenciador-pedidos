@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -115,6 +115,25 @@ function StyledCheckbox({checked,onChange}) {
   );
 }
 
+// Botão "Feito" que usa a cor do funcionário que marcou (sistema de times)
+function FeitoButton({isFeito,cor,nome,onClick,small}) {
+  const bg = isFeito ? (cor || "#059669") : "#f1f5f9";
+  const fg = isFeito ? "#fff" : "#374151";
+  return (
+    <button
+      onClick={onClick}
+      title={isFeito && nome ? `Marcado por ${nome}` : ""}
+      style={{
+        padding: small ? "4px 7px" : "4px 9px",
+        border:"none", borderRadius:7,
+        background:bg, color:fg,
+        fontSize:10, fontWeight:600, cursor:"pointer",
+      }}>
+      {isFeito ? (small ? "✅" : "✅ Feito") : (small ? "⬜" : "⬜ Feito")}
+    </button>
+  );
+}
+
 function ExpandCell({value,maxLen=22}) {
   const [exp,setExp] = useState(false);
   const long = value && value.length > maxLen;
@@ -223,6 +242,22 @@ export default function App({user,onLogout}) {
   const [selected,      setSelected]      = useState(new Set());
   const [copied,        setCopied]        = useState(false);
   const [copiedFull,    setCopiedFull]    = useState(false);
+  // ── Sistema de times ───────────────────────────────────────────────────────
+  const [membro,        setMembro]        = useState(null); // current member record (with permissions)
+  const [organizacao,   setOrganizacao]   = useState(null); // current organization
+  const [membrosEquipe, setMembrosEquipe] = useState([]);   // all members in org (for admin)
+  const [produtividade, setProdutividade] = useState([]);   // raw productivity data
+  const [showEquipeTab, setShowEquipeTab] = useState(false);
+  const [showNovoFuncionario, setShowNovoFuncionario] = useState(false);
+  const [novoFuncNome,     setNovoFuncNome]     = useState("");
+  const [novoFuncEmail,    setNovoFuncEmail]    = useState("");
+  const [novoFuncSenha,    setNovoFuncSenha]    = useState("");
+  const [novoFuncCor,      setNovoFuncCor]      = useState("#ef4444");
+  const [novoFuncPerms,    setNovoFuncPerms]    = useState({
+    pode_ver_financeiro: false, pode_zerar_sistema: false,
+    pode_carregar_planilha: true, pode_editar_status: true,
+  });
+  const [criandoFuncionario, setCriandoFuncionario] = useState(false);
   const tableRef = useRef(null);
 
   const showToast=(msg,color,ms=3500)=>{setToast({msg,color});setTimeout(()=>setToast(null),ms);};
@@ -232,25 +267,62 @@ export default function App({user,onLogout}) {
     if(!user?.id){setDbLoading(false);return;}
     if(!supabase){setDbLoading(false);return;}
     setDbLoading(true);
-    Promise.all([fetchPedidos(user.id),fetchDevolucoes(user.id),fetchFaturamento(user.id),fetchConfig(user.id)])
-      .then(([p,d,f,cfg])=>{
-        setAllPedidos(p); setDevolucoes(d); setFaturamento(f);
-        if (cfg?.loja1 && cfg?.loja2) {
-          setLojas([cfg.loja1, cfg.loja2]);
-          setConfigLoja1(cfg.loja1);
-          setConfigLoja2(cfg.loja2);
-        } else {
-          // First time — show config modal
-          setShowConfigLojas(true);
+
+    // First, find out which organization this user belongs to (if any)
+    fetchMembro(user.id).then(async (m) => {
+      setMembro(m);
+      const orgId = m?.organizacao_id || null;
+
+      if (orgId) {
+        const org = await fetchOrganizacao(orgId);
+        setOrganizacao(org);
+        if (m?.is_admin) {
+          fetchMembrosDaOrganizacao(orgId).then(setMembrosEquipe);
+          fetchProdutividade(orgId).then(setProdutividade);
         }
-        setDbLoading(false);
-      }).catch(err=>{console.error(err);setDbLoading(false);});
+      }
+
+      Promise.all([
+        fetchPedidos(user.id, orgId),
+        fetchDevolucoes(user.id, orgId),
+        fetchFaturamento(user.id, orgId),
+        fetchConfig(user.id, orgId),
+      ]).then(([p,d,f,cfg])=>{
+          setAllPedidos(p); setDevolucoes(d); setFaturamento(f);
+          if (cfg?.loja1 && cfg?.loja2) {
+            setLojas([cfg.loja1, cfg.loja2]);
+            setConfigLoja1(cfg.loja1);
+            setConfigLoja2(cfg.loja2);
+          } else if (!orgId || m?.is_admin) {
+            // First time — show config modal (only for admins/standalone users)
+            setShowConfigLojas(true);
+          }
+          setDbLoading(false);
+        }).catch(err=>{console.error(err);setDbLoading(false);});
+    }).catch(err=>{console.error(err);setDbLoading(false);});
   },[user?.id]);
 
+  // ── Permission helpers (default to true/permissive when no team system active) ──
+  const podeVerFinanceiro    = membro ? membro.pode_ver_financeiro    : true;
+  const podeZerarSistema     = membro ? membro.pode_zerar_sistema     : true;
+  const podeCarregarPlanilha = membro ? membro.pode_carregar_planilha : true;
+  const podeEditarStatus     = membro ? membro.pode_editar_status     : true;
+  const isAdminEquipe        = membro ? membro.is_admin : true;
+  const orgId                = membro?.organizacao_id || null;
+  const minhaCor              = membro?.cor || "#059669";
+  const meuNome                = membro?.nome || user?.email?.split("@")[0] || "Você";
+
+  // ── Mapa nome → cor (sistema de times) ──────────────────────────────────────
+  const corPorNome = membrosEquipe.reduce((acc,m)=>{ acc[m.nome]=m.cor; return acc; },{});
+  const pedidosComCor = allPedidos.map(p => p.feitoPorNome && corPorNome[p.feitoPorNome]
+    ? {...p, feitoPorCor: corPorNome[p.feitoPorNome]}
+    : p
+  );
+
   // ── Pedido groups ──────────────────────────────────────────────────────────
-  const pedidosAbertos    = allPedidos.filter(isAberto);
-  const pedidosEnviados   = allPedidos.filter(isEnviado);
-  const pedidosCancelados = allPedidos.filter(isCancelado);
+  const pedidosAbertos    = pedidosComCor.filter(isAberto);
+  const pedidosEnviados   = pedidosComCor.filter(isEnviado);
+  const pedidosCancelados = pedidosComCor.filter(isCancelado);
 
   // ── Load planilha ──────────────────────────────────────────────────────────
   const handlePlanilha = async (sheet, name, loja) => {
@@ -295,11 +367,11 @@ export default function App({user,onLogout}) {
     // Save to DB
     if (supabase) {
       setSaving(true);
-      await upsertPedidos(incoming, user.id);
+      await upsertPedidos(incoming, user.id, orgId);
       // Faturamento: only count "a enviar" orders
       const aEnviar = incoming.filter(isAberto);
       const totalValor = aEnviar.reduce((s,r)=>s+(parseFloat(r.preco)||0),0);
-      if (totalValor > 0) await upsertFaturamento(user.id, currentMes(), loja, totalValor);
+      if (totalValor > 0) await upsertFaturamento(user.id, currentMes(), loja, totalValor, orgId);
       const fat = await fetchFaturamento(user.id);
       setFaturamento(fat);
       setSaving(false);
@@ -315,7 +387,7 @@ export default function App({user,onLogout}) {
     const novas = rows.filter(r=>!existIds.has(r.id_pedido));
     setDevolucoes(prev=>[...prev,...novas]);
     showToast(`🔄 ${novas.length} devolução(ões) carregada(s)`,"#ef4444");
-    if (supabase) { setSaving(true); await upsertDevolucoes(rows,user.id); setSaving(false); }
+    if (supabase) { setSaving(true); await upsertDevolucoes(rows,user.id,orgId); setSaving(false); }
   };
 
   // ── Clear all data ────────────────────────────────────────────────────────
@@ -330,9 +402,9 @@ export default function App({user,onLogout}) {
     setSaving(true);
     if (supabase) {
       await Promise.all([
-        deleteAllPedidos(user.id),
-        deleteAllDevolucoes(user.id),
-        deleteAllFaturamento(user.id),
+        deleteAllPedidos(user.id, orgId),
+        deleteAllDevolucoes(user.id, orgId),
+        deleteAllFaturamento(user.id, orgId),
       ]);
     }
     setAllPedidos([]);
@@ -347,8 +419,9 @@ export default function App({user,onLogout}) {
 
   // ── Status interno ─────────────────────────────────────────────────────────
   const handleStatusChange = async (order,newSt,nota="") => {
-    setAllPedidos(prev=>prev.map(o=>o.idPedido===order.idPedido?{...o,statusInterno:newSt,notaRevisao:nota}:o));
-    if (supabase) await updatePedidoStatus(order.idPedido,user.id,newSt,nota);
+    if (!podeEditarStatus) { showToast("🔒 Você não tem permissão para editar status.","#991b1b"); return; }
+    setAllPedidos(prev=>prev.map(o=>o.idPedido===order.idPedido?{...o,statusInterno:newSt,notaRevisao:nota,feitoPorNome:newSt?meuNome:"",feitoPorCor:newSt?minhaCor:""}:o));
+    if (supabase) await updatePedidoStatus(order.idPedido,user.id,newSt,nota,orgId,meuNome);
     showToast(newSt==="feito"?"✅ Marcado como Feito!":"📋 Enviado para Revisão",newSt==="feito"?"#059669":"#f59e0b");
   };
 
@@ -357,14 +430,15 @@ export default function App({user,onLogout}) {
   const toggleAll=()=>selected.size===filtered.length?setSelected(new Set()):setSelected(new Set(filtered.map(r=>r.idPedido)));
 
   const markAllFeito = async () => {
+    if (!podeEditarStatus) { showToast("🔒 Você não tem permissão para editar status.","#991b1b"); return; }
     const ids = [...selected];
     // Update all selected as feito
-    setAllPedidos(prev => prev.map(o => ids.includes(o.idPedido) ? {...o, statusInterno:"feito", notaRevisao:""} : o));
+    setAllPedidos(prev => prev.map(o => ids.includes(o.idPedido) ? {...o, statusInterno:"feito", notaRevisao:"", feitoPorNome:meuNome, feitoPorCor:minhaCor} : o));
     setSelected(new Set());
     showToast(`✅ ${ids.length} pedido(s) marcados como Feito!`, "#059669");
     if (supabase) {
       for (const id of ids) {
-        await updatePedidoStatus(id, user.id, "feito", "");
+        await updatePedidoStatus(id, user.id, "feito", "", orgId, meuNome);
       }
     }
   };
@@ -454,6 +528,7 @@ export default function App({user,onLogout}) {
     {id:"cancelados", icon:"❌",label:"Cancelados", badge:pedidosCancelados.length, color:"#6b7280"},
     {id:"devolucoes", icon:"🔄",label:"Devoluções", badge:devolucoes.length,        color:"#ef4444"},
     {id:"financeiro", icon:"💰",label:"Financeiro", badge:null,                     color:"#0891b2"},
+    ...(isAdminEquipe&&organizacao ? [{id:"equipe", icon:"👥", label:"Equipe", badge:membrosEquipe.length||null, color:"#7c3aed"}] : []),
   ];
 
 
@@ -462,8 +537,28 @@ export default function App({user,onLogout}) {
     const l2 = configLoja2.trim() || "Loja 2";
     setLojas([l1, l2]);
     setShowConfigLojas(false);
-    if (supabase) await saveConfig(user.id, l1, l2);
+    if (supabase) await saveConfig(user.id, l1, l2, orgId);
     showToast("✅ Lojas configuradas com sucesso!", "#059669");
+  };
+
+  const handleCriarFuncionario = async () => {
+    if (!novoFuncNome.trim() || !novoFuncEmail.trim() || !novoFuncSenha.trim()) {
+      showToast("Preencha nome, e-mail e senha.","#991b1b"); return;
+    }
+    if (novoFuncSenha.length < 6) { showToast("A senha precisa ter pelo menos 6 caracteres.","#991b1b"); return; }
+    setCriandoFuncionario(true);
+    const res = await criarFuncionario(orgId, {
+      nome: novoFuncNome.trim(), email: novoFuncEmail.trim(), password: novoFuncSenha,
+      cor: novoFuncCor, permissoes: novoFuncPerms,
+    });
+    setCriandoFuncionario(false);
+    if (res.error) { showToast(`❌ ${res.error}`,"#991b1b"); return; }
+    showToast(`✅ Funcionário ${novoFuncNome} criado com sucesso!`,"#059669");
+    setShowNovoFuncionario(false);
+    setNovoFuncNome(""); setNovoFuncEmail(""); setNovoFuncSenha("");
+    setNovoFuncCor("#ef4444");
+    setNovoFuncPerms({ pode_ver_financeiro:false, pode_zerar_sistema:false, pode_carregar_planilha:true, pode_editar_status:true });
+    if (orgId) fetchMembrosDaOrganizacao(orgId).then(setMembrosEquipe);
   };
 
   if (dbLoading) return (
@@ -499,9 +594,9 @@ export default function App({user,onLogout}) {
         <div style={{background:"#fff",borderRadius:18,padding:18,marginBottom:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
           <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
             <div style={{fontSize:11,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:0.5}}>Carregar Planilhas</div>
-            <button onClick={()=>setShowConfirmClear(true)} style={{marginLeft:"auto",background:"#fde8e8",color:"#991b1b",border:"1px solid #fca5a5",borderRadius:10,padding:"6px 14px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+            {podeZerarSistema&&<button onClick={()=>setShowConfirmClear(true)} style={{marginLeft:"auto",background:"#fde8e8",color:"#991b1b",border:"1px solid #fca5a5",borderRadius:10,padding:"6px 14px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
               🗑️ Zerar Sistema
-            </button>
+            </button>}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
             {lojas.map(loja=>(
@@ -511,7 +606,7 @@ export default function App({user,onLogout}) {
                   <span style={{color:"#64748b",fontWeight:400}}>· Pedidos</span>
                 </div>
                 <DropZone label="Carregar Planilha" sublabel="A Enviar / Enviado / Entregue / Cancelado" color="#1d4ed8"
-                  file={uploadNames[`ped_${loja}`]} onFile={(s,n)=>handlePlanilha(s,n,loja)} />
+                  file={uploadNames[`ped_${loja}`]} onFile={(s,n)=>handlePlanilha(s,n,loja)} disabled={!podeCarregarPlanilha} />
               </div>
             ))}
             {lojas.map(loja=>(
@@ -521,7 +616,7 @@ export default function App({user,onLogout}) {
                   <span style={{color:"#64748b",fontWeight:400}}>· Devoluções</span>
                 </div>
                 <DropZone label="Planilha de Devolução" sublabel="Devolução e Reembolso" color="#ef4444"
-                  file={uploadNames[`dev_${loja}`]} onFile={(s,n)=>handleDevolucao(s,n,loja)} />
+                  file={uploadNames[`dev_${loja}`]} onFile={(s,n)=>handleDevolucao(s,n,loja)} disabled={!podeCarregarPlanilha} />
               </div>
             ))}
           </div>
@@ -562,8 +657,11 @@ export default function App({user,onLogout}) {
 
         {/* Tabs */}
         <TabBar tabs={TABS} active={activeTab} onChange={tab=>{
-          if(tab==="financeiro"&&!financeUnlocked){setShowFinanceGate(true);}
-          else setActiveTab(tab);
+          if(tab==="financeiro"){
+            if(!podeVerFinanceiro){ showToast("🔒 Você não tem permissão para ver o Financeiro.","#991b1b"); return; }
+            if(!financeUnlocked){setShowFinanceGate(true);return;}
+          }
+          setActiveTab(tab);
         }} />
 
         {/* ── TAB: ABERTOS ── */}
@@ -620,7 +718,7 @@ export default function App({user,onLogout}) {
                               {/* Botões feito / revisão */}
                               <div style={{display:"flex",gap:4,flexShrink:0,marginLeft:"auto"}}>
                                 <button onClick={()=>setRevisaoModal(r)} style={{padding:"4px 9px",border:"none",borderRadius:7,background:si==="revisao"?"#fef3c7":"#f1f5f9",color:si==="revisao"?"#92400e":"#374151",fontSize:10,fontWeight:600,cursor:"pointer"}}>📋 Revisão</button>
-                                <button onClick={()=>handleStatusChange(r,si==="feito"?"":"feito")} style={{padding:"4px 9px",border:"none",borderRadius:7,background:si==="feito"?"#d1fae5":"#f1f5f9",color:si==="feito"?"#065f46":"#374151",fontSize:10,fontWeight:600,cursor:"pointer"}}>{si==="feito"?"✅ Feito":"⬜ Feito"}</button>
+                                <FeitoButton isFeito={si==="feito"} cor={r.feitoPorCor||minhaCor} nome={r.feitoPorNome} onClick={()=>handleStatusChange(r,si==="feito"?"":"feito")} />
                               </div>
                             </div>
                           );
@@ -729,7 +827,7 @@ export default function App({user,onLogout}) {
                           <td style={{...TD,whiteSpace:"nowrap"}}>
                             <div style={{display:"flex",gap:4}}>
                               <button onClick={()=>setRevisaoModal(row)} style={{padding:"4px 7px",border:"none",borderRadius:7,background:si==="revisao"?"#fef3c7":"#f1f5f9",color:si==="revisao"?"#92400e":"#374151",fontSize:10,fontWeight:600,cursor:"pointer"}}>📋</button>
-                              <button onClick={()=>handleStatusChange(row,si==="feito"?"":"feito")} style={{padding:"4px 7px",border:"none",borderRadius:7,background:si==="feito"?"#d1fae5":"#f1f5f9",color:si==="feito"?"#065f46":"#374151",fontSize:10,fontWeight:600,cursor:"pointer"}}>{si==="feito"?"✅":"⬜"}</button>
+                              <FeitoButton isFeito={si==="feito"} cor={row.feitoPorCor||minhaCor} nome={row.feitoPorNome} onClick={()=>handleStatusChange(row,si==="feito"?"":"feito")} small />
                             </div>
                           </td>
                           <td style={{...TD,textAlign:"center"}}>
@@ -913,6 +1011,115 @@ export default function App({user,onLogout}) {
             </div>
           </div>
         )}
+
+        {/* ── TAB: EQUIPE ── */}
+        {activeTab==="equipe"&&isAdminEquipe&&organizacao&&(()=>{
+          const hoje = new Date(); hoje.setHours(0,0,0,0);
+          const inicioSemana = new Date(hoje); inicioSemana.setDate(hoje.getDate()-hoje.getDay());
+          const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+
+          const statsPorMembro = membrosEquipe.map(m => {
+            const feitosDoMembro = produtividade.filter(p => p.feito_por_user_id===m.user_id && p.status_interno==="feito");
+            const revisaoDoMembro = produtividade.filter(p => p.feito_por_user_id===m.user_id && p.status_interno==="revisao");
+            const contarPeriodo = (lista, desde) => lista.filter(p => p.feito_em && new Date(p.feito_em) >= desde).length;
+            return {
+              membro: m,
+              feitoHoje:   contarPeriodo(feitosDoMembro, hoje),
+              feitoSemana: contarPeriodo(feitosDoMembro, inicioSemana),
+              feitoMes:    contarPeriodo(feitosDoMembro, inicioMes),
+              feitoTotal:  feitosDoMembro.length,
+              revisaoTotal: revisaoDoMembro.length,
+            };
+          });
+          const maxFeitoMes = Math.max(1, ...statsPorMembro.map(s=>s.feitoMes));
+
+          return (
+          <div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
+              <div>
+                <div style={{fontSize:16,fontWeight:800,color:"#1e293b"}}>👥 Gerenciar Equipe</div>
+                <div style={{fontSize:12,color:"#64748b"}}>{organizacao.nome} · {membrosEquipe.length} membro{membrosEquipe.length!==1?"s":""}</div>
+              </div>
+              <button onClick={()=>setShowNovoFuncionario(true)} style={{background:"linear-gradient(135deg,#1d4ed8,#7c3aed)",color:"#fff",border:"none",borderRadius:12,padding:"10px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                + Novo Funcionário
+              </button>
+            </div>
+
+            {/* Cards de produtividade */}
+            <div style={{background:"#fff",borderRadius:18,padding:20,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:18}}>
+              <div style={{fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:16}}>📊 Produtividade da Equipe</div>
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                {statsPorMembro.map(s=>(
+                  <div key={s.membro.id} style={{display:"flex",alignItems:"center",gap:14}}>
+                    <div style={{width:34,height:34,borderRadius:"50%",background:s.membro.cor,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontWeight:700,fontSize:13,flexShrink:0}}>
+                      {s.membro.nome.slice(0,1).toUpperCase()}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                        <span style={{fontSize:13,fontWeight:600,color:"#1e293b"}}>{s.membro.nome}{s.membro.is_admin&&<span style={{fontSize:10,color:"#7c3aed",marginLeft:6}}>(admin)</span>}</span>
+                        <span style={{fontSize:12,color:"#64748b"}}>
+                          <strong style={{color:"#059669"}}>{s.feitoHoje}</strong> hoje · <strong>{s.feitoSemana}</strong> semana · <strong>{s.feitoMes}</strong> mês · <strong>{s.feitoTotal}</strong> total
+                          {s.revisaoTotal>0&&<span style={{color:"#f59e0b"}}> · 📋{s.revisaoTotal}</span>}
+                        </span>
+                      </div>
+                      <div style={{height:8,background:"#f1f5f9",borderRadius:6,overflow:"hidden"}}>
+                        <div style={{height:"100%",width:`${(s.feitoMes/maxFeitoMes)*100}%`,background:s.membro.cor,borderRadius:6,transition:"width 0.3s"}}/>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {statsPorMembro.length===0&&<div style={{textAlign:"center",padding:20,color:"#94a3b8",fontSize:13}}>Nenhum membro cadastrado ainda.</div>}
+              </div>
+            </div>
+
+            {/* Lista de membros com permissões */}
+            <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden"}}>
+              <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",fontSize:14,fontWeight:700,color:"#1e293b"}}>⚙️ Permissões</div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead><tr style={{background:"#f8fafc"}}>
+                    {["Funcionário","Cor","Financeiro","Zerar Sistema","Carregar Planilha","Editar Status",""].map(h=><th key={h} style={TH}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {membrosEquipe.map((m,i)=>(
+                      <tr key={m.id} style={{background:i%2===0?"#fff":"#f8fafc",borderBottom:"1px solid #f1f5f9"}}>
+                        <td style={TD}><strong>{m.nome}</strong><div style={{fontSize:10,color:"#94a3b8"}}>{m.email}</div></td>
+                        <td style={{...TD,textAlign:"center"}}><div style={{width:18,height:18,borderRadius:"50%",background:m.cor,margin:"0 auto"}}/></td>
+                        {["pode_ver_financeiro","pode_zerar_sistema","pode_carregar_planilha","pode_editar_status"].map(perm=>(
+                          <td key={perm} style={{...TD,textAlign:"center"}}>
+                            {m.is_admin ? <span style={{color:"#94a3b8"}}>—</span> : (
+                              <input type="checkbox" checked={!!m[perm]} disabled={m.is_admin}
+                                onChange={async e=>{
+                                  const novoValor = e.target.checked;
+                                  setMembrosEquipe(prev=>prev.map(x=>x.id===m.id?{...x,[perm]:novoValor}:x));
+                                  await atualizarPermissoesMembro(m.id, {[perm]: novoValor});
+                                  showToast("✅ Permissão atualizada!","#059669");
+                                }}
+                                style={{width:16,height:16,cursor:"pointer"}} />
+                            )}
+                          </td>
+                        ))}
+                        <td style={TD}>
+                          {!m.is_admin && (
+                            <button onClick={async()=>{
+                              if(!window.confirm(`Remover ${m.nome} da equipe? O login dele deixará de funcionar.`)) return;
+                              await removerMembro(m.id);
+                              setMembrosEquipe(prev=>prev.filter(x=>x.id!==m.id));
+                              showToast("🗑️ Funcionário removido.","#991b1b");
+                            }} style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                              Remover
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          );
+        })()}
       </div>
 
       {showConfirmClear&&(
@@ -973,6 +1180,70 @@ export default function App({user,onLogout}) {
             background:"none",color:"#94a3b8",border:"1px solid #334155",
             borderRadius:12,padding:"7px 12px",fontSize:12,cursor:"pointer",
           }}>✕</button>
+        </div>
+      )}
+
+      {/* ── Novo Funcionário Modal ── */}
+      {showNovoFuncionario&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,0.25)",maxHeight:"90vh",overflowY:"auto"}}>
+            <div style={{fontSize:28,textAlign:"center",marginBottom:6}}>👤</div>
+            <h3 style={{margin:"0 0 4px",fontSize:16,fontWeight:700,color:"#1e293b",textAlign:"center"}}>Novo Funcionário</h3>
+            <p style={{margin:"0 0 18px",fontSize:12,color:"#64748b",textAlign:"center"}}>Crie o login e defina as permissões dele.</p>
+
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Nome</label>
+                <input value={novoFuncNome} onChange={e=>setNovoFuncNome(e.target.value)} placeholder="Ex: João Silva"
+                  style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:9,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+              </div>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>E-mail (login)</label>
+                <input type="email" value={novoFuncEmail} onChange={e=>setNovoFuncEmail(e.target.value)} placeholder="joao@email.com"
+                  style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:9,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+              </div>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:4}}>Senha (mín. 6 caracteres)</label>
+                <input type="text" value={novoFuncSenha} onChange={e=>setNovoFuncSenha(e.target.value)} placeholder="Crie uma senha"
+                  style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:9,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+              </div>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:"#374151",display:"block",marginBottom:6}}>Cor de identificação</label>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {["#ef4444","#f59e0b","#22c55e","#3b82f6","#7c3aed","#ec4899","#06b6d4","#84cc16"].map(c=>(
+                    <div key={c} onClick={()=>setNovoFuncCor(c)} style={{
+                      width:28,height:28,borderRadius:"50%",background:c,cursor:"pointer",
+                      border: novoFuncCor===c ? "3px solid #1e293b" : "3px solid transparent",
+                      transition:"border 0.15s",
+                    }}/>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{height:1,background:"#f1f5f9",margin:"4px 0"}}/>
+              <div style={{fontSize:11,fontWeight:700,color:"#374151"}}>Permissões</div>
+              {[
+                {key:"pode_ver_financeiro",    label:"Pode ver o Financeiro"},
+                {key:"pode_zerar_sistema",     label:"Pode zerar o sistema"},
+                {key:"pode_carregar_planilha", label:"Pode carregar planilhas"},
+                {key:"pode_editar_status",     label:"Pode marcar Feito/Revisão"},
+              ].map(p=>(
+                <label key={p.key} style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"#374151",cursor:"pointer"}}>
+                  <input type="checkbox" checked={novoFuncPerms[p.key]}
+                    onChange={e=>setNovoFuncPerms(prev=>({...prev,[p.key]:e.target.checked}))}
+                    style={{width:16,height:16,cursor:"pointer"}} />
+                  {p.label}
+                </label>
+              ))}
+            </div>
+
+            <div style={{display:"flex",gap:10,marginTop:22}}>
+              <button onClick={()=>setShowNovoFuncionario(false)} style={{flex:1,padding:"11px",border:"1px solid #e2e8f0",borderRadius:12,background:"#fff",fontSize:13,cursor:"pointer",color:"#374151"}}>Cancelar</button>
+              <button onClick={handleCriarFuncionario} disabled={criandoFuncionario} style={{flex:2,padding:"11px",background:criandoFuncionario?"#e2e8f0":"linear-gradient(135deg,#1d4ed8,#7c3aed)",color:criandoFuncionario?"#94a3b8":"#fff",border:"none",borderRadius:12,fontSize:14,fontWeight:700,cursor:criandoFuncionario?"not-allowed":"pointer"}}>
+                {criandoFuncionario ? "Criando..." : "Criar Funcionário →"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -14,6 +14,16 @@ export const supabase = url && key ? createClient(url, key, {
   }
 }) : null
 
+// Cliente isolado, sem persistência de sessão — usado SOMENTE para criar
+// logins de funcionários sem trocar a sessão ativa do admin no navegador.
+const supabaseAdminAux = url && key ? createClient(url, key, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false,
+  }
+}) : null
+
 export async function signUp(email, password) { return await supabase.auth.signUp({ email, password }) }
 export async function signIn(email, password) { return await supabase.auth.signInWithPassword({ email, password }) }
 export async function signOut() { await supabase.auth.signOut() }
@@ -25,7 +35,7 @@ export async function resetPassword(email) {
 export async function getSession() { const { data } = await supabase.auth.getSession(); return data.session }
 
 // ── Pedidos — paginated to get ALL records ────────────────────────────────────
-export async function fetchPedidos(userId) {
+export async function fetchPedidos(userId, orgId) {
   if (!supabase || !userId) return []
   let allData = []
   let from = 0
@@ -33,9 +43,9 @@ export async function fetchPedidos(userId) {
   let page = 0
   while (true) {
     page++
-    console.log(`fetchPedidos page ${page}: fetching rows ${from} to ${from + pageSize - 1}`)
-    const { data, error, count } = await supabase
-      .from('pedidos').select('*', { count: 'exact' }).eq('user_id', userId)
+    let query = supabase.from('pedidos').select('*', { count: 'exact' })
+    query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
+    const { data, error, count } = await query
       .order('id', { ascending: true })
       .range(from, from + pageSize - 1)
     if (error) { console.error('fetchPedidos error:', error); break }
@@ -50,7 +60,7 @@ export async function fetchPedidos(userId) {
   return allData.map(dbToRow)
 }
 
-export async function upsertPedidos(rows, userId) {
+export async function upsertPedidos(rows, userId, orgId) {
   if (!supabase || !rows.length || !userId) return { count: 0 }
 
   // Deduplicate by id_pedido keeping LAST occurrence
@@ -66,14 +76,12 @@ export async function upsertPedidos(rows, userId) {
   // Process one at a time to avoid duplicate conflicts
   for (const r of uniqueRows) {
     const record = { ...rowToDb(r), user_id: userId }
+    if (orgId) record.organizacao_id = orgId
 
-    // Check if record already exists
-    const { data: existing } = await supabase
-      .from('pedidos')
-      .select('id, status_interno, nota_revisao')
-      .eq('user_id', userId)
-      .eq('id_pedido', record.id_pedido)
-      .maybeSingle()
+    // Check if record already exists (scoped to org when available)
+    let existQuery = supabase.from('pedidos').select('id, status_interno, nota_revisao').eq('id_pedido', record.id_pedido)
+    existQuery = orgId ? existQuery.eq('organizacao_id', orgId) : existQuery.eq('user_id', userId)
+    const { data: existing } = await existQuery.maybeSingle()
 
     if (existing) {
       // Update spreadsheet fields but PRESERVE status_interno and nota_revisao
@@ -108,21 +116,32 @@ export async function upsertPedidos(rows, userId) {
   return { count: totalCount }
 }
 
-export async function updatePedidoStatus(idPedido, userId, statusInterno, nota = '') {
+export async function updatePedidoStatus(idPedido, userId, statusInterno, nota = '', orgId, membroNome) {
   if (!supabase || !userId) return
-  await supabase.from('pedidos')
-    .update({ status_interno: statusInterno, nota_revisao: nota })
-    .eq('id_pedido', idPedido).eq('user_id', userId)
+  const updateData = { status_interno: statusInterno, nota_revisao: nota }
+  if (statusInterno === 'feito' || statusInterno === 'revisao') {
+    updateData.feito_por_user_id = userId
+    updateData.feito_por_nome = membroNome || null
+    updateData.feito_em = new Date().toISOString()
+  } else {
+    updateData.feito_por_user_id = null
+    updateData.feito_por_nome = null
+    updateData.feito_em = null
+  }
+  let query = supabase.from('pedidos').update(updateData).eq('id_pedido', idPedido)
+  query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
+  await query
 }
 
 // ── Devoluções ────────────────────────────────────────────────────────────────
-export async function fetchDevolucoes(userId) {
+export async function fetchDevolucoes(userId, orgId) {
   if (!supabase || !userId) return []
   let allData = []
   let from = 0
   while (true) {
-    const { data, error } = await supabase
-      .from('devolucoes').select('*').eq('user_id', userId)
+    let query = supabase.from('devolucoes').select('*')
+    query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
+    const { data, error } = await query
       .order('criado_em', { ascending: false })
       .range(from, from + 999)
     if (error) { console.error('fetchDevolucoes error:', error); break }
@@ -134,11 +153,11 @@ export async function fetchDevolucoes(userId) {
   return allData
 }
 
-export async function upsertDevolucoes(rows, userId) {
+export async function upsertDevolucoes(rows, userId, orgId) {
   if (!supabase || !rows.length || !userId) return
   for (let i = 0; i < rows.length; i += 50) {
     const batch = rows.slice(i, i + 50)
-    const records = batch.map(r => ({ ...r, user_id: userId }))
+    const records = batch.map(r => ({ ...r, user_id: userId, ...(orgId ? { organizacao_id: orgId } : {}) }))
     const { error } = await supabase
       .from('devolucoes')
       .upsert(records, { onConflict: 'user_id,id_pedido', ignoreDuplicates: false })
@@ -147,36 +166,44 @@ export async function upsertDevolucoes(rows, userId) {
 }
 
 // ── Faturamento ───────────────────────────────────────────────────────────────
-export async function fetchFaturamento(userId) {
+export async function fetchFaturamento(userId, orgId) {
   if (!supabase || !userId) return []
-  const { data, error } = await supabase
-    .from('faturamento').select('*').eq('user_id', userId).order('mes', { ascending: true })
+  let query = supabase.from('faturamento').select('*')
+  query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
+  const { data, error } = await query.order('mes', { ascending: true })
   if (error) { console.error('fetchFaturamento error:', error); return [] }
   return data || []
 }
 
-export async function upsertFaturamento(userId, mes, loja, valor) {
+export async function upsertFaturamento(userId, mes, loja, valor, orgId) {
   if (!supabase || !userId) return
-  const { data: ex } = await supabase.from('faturamento')
-    .select('*').eq('user_id', userId).eq('mes', mes).eq('loja', loja).maybeSingle()
+  let existQuery = supabase.from('faturamento').select('*').eq('mes', mes).eq('loja', loja)
+  existQuery = orgId ? existQuery.eq('organizacao_id', orgId) : existQuery.eq('user_id', userId)
+  const { data: ex } = await existQuery.maybeSingle()
   if (ex) await supabase.from('faturamento').update({ valor: Number(ex.valor) + Number(valor) }).eq('id', ex.id)
-  else await supabase.from('faturamento').insert({ user_id: userId, mes, loja, valor })
+  else await supabase.from('faturamento').insert({ user_id: userId, mes, loja, valor, ...(orgId ? { organizacao_id: orgId } : {}) })
 }
 
 // ── Delete all ────────────────────────────────────────────────────────────────
-export async function deleteAllPedidos(userId) {
+export async function deleteAllPedidos(userId, orgId) {
   if (!supabase || !userId) return
-  await supabase.from('pedidos').delete().eq('user_id', userId)
+  let query = supabase.from('pedidos').delete()
+  query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
+  await query
 }
 
-export async function deleteAllDevolucoes(userId) {
+export async function deleteAllDevolucoes(userId, orgId) {
   if (!supabase || !userId) return
-  await supabase.from('devolucoes').delete().eq('user_id', userId)
+  let query = supabase.from('devolucoes').delete()
+  query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
+  await query
 }
 
-export async function deleteAllFaturamento(userId) {
+export async function deleteAllFaturamento(userId, orgId) {
   if (!supabase || !userId) return
-  await supabase.from('faturamento').delete().eq('user_id', userId)
+  let query = supabase.from('faturamento').delete()
+  query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
+  await query
 }
 
 function rowToDb(r) {
@@ -212,35 +239,121 @@ export function dbToRow(d) {
     statusInterno: d.status_interno || '',
     notaRevisao:   d.nota_revisao   || '',
     notas:         d.notas          || '',
+    feitoPorNome:  d.feito_por_nome || '',
+    feitoEm:       d.feito_em       || '',
     _status: 'existing',
   }
 }
 
 // ── Configurações do usuário (lojas) ─────────────────────────────────────────
-export async function fetchConfig(userId) {
+export async function fetchConfig(userId, orgId) {
   if (!supabase || !userId) return null
-  const { data, error } = await supabase
-    .from('user_config')
-    .select('*')
-    .eq('user_id', userId)
-    .maybeSingle()
+  let query = supabase.from('user_config').select('*')
+  query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
+  const { data, error } = await query.maybeSingle()
   if (error) { console.error('fetchConfig error:', error); return null }
   return data
 }
 
-export async function saveConfig(userId, loja1, loja2) {
+export async function saveConfig(userId, loja1, loja2, orgId) {
   if (!supabase || !userId) return
-  const { data: ex } = await supabase
-    .from('user_config')
-    .select('id')
-    .eq('user_id', userId)
-    .maybeSingle()
+  let existQuery = supabase.from('user_config').select('id')
+  existQuery = orgId ? existQuery.eq('organizacao_id', orgId) : existQuery.eq('user_id', userId)
+  const { data: ex } = await existQuery.maybeSingle()
   if (ex) {
     await supabase.from('user_config')
       .update({ loja1, loja2 })
-      .eq('user_id', userId)
+      .eq('id', ex.id)
   } else {
     await supabase.from('user_config')
-      .insert({ user_id: userId, loja1, loja2 })
+      .insert({ user_id: userId, loja1, loja2, ...(orgId ? { organizacao_id: orgId } : {}) })
   }
+}
+
+// ── Organizações & Membros (sistema de times) ─────────────────────────────────
+export async function fetchMembro(userId) {
+  if (!supabase || !userId) return null
+  const { data, error } = await supabase
+    .from('membros')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) { console.error('fetchMembro error:', error); return null }
+  return data
+}
+
+export async function fetchOrganizacao(orgId) {
+  if (!supabase || !orgId) return null
+  const { data, error } = await supabase
+    .from('organizacoes')
+    .select('*')
+    .eq('id', orgId)
+    .maybeSingle()
+  if (error) { console.error('fetchOrganizacao error:', error); return null }
+  return data
+}
+
+export async function fetchMembrosDaOrganizacao(orgId) {
+  if (!supabase || !orgId) return []
+  const { data, error } = await supabase
+    .from('membros')
+    .select('*')
+    .eq('organizacao_id', orgId)
+    .order('criado_em', { ascending: true })
+  if (error) { console.error('fetchMembrosDaOrganizacao error:', error); return [] }
+  return data || []
+}
+
+// Cria um novo funcionário: cria o login (auth) e o registro de membro
+// Usa um client isolado (supabaseAdminAux) para NÃO substituir a sessão ativa do admin.
+export async function criarFuncionario(orgId, { nome, email, password, cor, permissoes }) {
+  if (!supabase || !supabaseAdminAux) return { error: 'Supabase não configurado' }
+  const { data: signUpData, error: signUpError } = await supabaseAdminAux.auth.signUp({ email, password })
+  if (signUpError) return { error: signUpError.message }
+  const newUserId = signUpData?.user?.id
+  if (!newUserId) return { error: 'Não foi possível criar o login do funcionário.' }
+
+  // Importante: encerra a sessão do client auxiliar para não deixar resíduo
+  await supabaseAdminAux.auth.signOut()
+
+  const { error: membroError } = await supabase.from('membros').insert({
+    organizacao_id: orgId,
+    user_id: newUserId,
+    nome,
+    email,
+    cor: cor || '#3b82f6',
+    is_admin: false,
+    pode_ver_financeiro:    permissoes?.pode_ver_financeiro    ?? false,
+    pode_zerar_sistema:     permissoes?.pode_zerar_sistema     ?? false,
+    pode_carregar_planilha: permissoes?.pode_carregar_planilha ?? true,
+    pode_editar_status:     permissoes?.pode_editar_status     ?? true,
+  })
+  if (membroError) return { error: membroError.message }
+  return { success: true, userId: newUserId }
+}
+
+export async function atualizarPermissoesMembro(membroId, permissoes) {
+  if (!supabase || !membroId) return
+  const { error } = await supabase.from('membros').update(permissoes).eq('id', membroId)
+  if (error) console.error('atualizarPermissoesMembro error:', error)
+  return { error }
+}
+
+export async function removerMembro(membroId) {
+  if (!supabase || !membroId) return
+  const { error } = await supabase.from('membros').delete().eq('id', membroId)
+  if (error) console.error('removerMembro error:', error)
+  return { error }
+}
+
+// Relatório de produtividade: conta quantos pedidos cada membro marcou como feito/revisão
+export async function fetchProdutividade(orgId) {
+  if (!supabase || !orgId) return []
+  const { data, error } = await supabase
+    .from('pedidos')
+    .select('feito_por_user_id, feito_por_nome, status_interno, feito_em')
+    .eq('organizacao_id', orgId)
+    .not('feito_por_user_id', 'is', null)
+  if (error) { console.error('fetchProdutividade error:', error); return [] }
+  return data || []
 }
