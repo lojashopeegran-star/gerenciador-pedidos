@@ -357,3 +357,20 @@ export async function fetchProdutividade(orgId) {
   if (error) { console.error('fetchProdutividade error:', error); return [] }
   return data || []
 }
+
+// Apaga o funcionário de vez (incluindo o login/e-mail) via Edge Function,
+// que usa a service role key no backend para isso de forma segura.
+export async function removerFuncionarioCompleto(userIdToDelete) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { data, error } = await supabase.functions.invoke('delete-user', {
+    body: { userIdToDelete },
+  })
+  if (error) return { error: error.message || 'Erro ao remover funcionário.' }
+  if (data?.error) return { error: data.error }
+  return { success: true }
+}
+
+// Envia e-mail de redefinição de senha para o funcionário
+export async function enviarResetSenhaFuncionario(email) {
+  return await resetPassword(email)
+}

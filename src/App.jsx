@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -623,10 +623,11 @@ export default function App({user,onLogout}) {
         </div>
 
         {/* Stats */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:10,marginBottom:18}}>
+        <div style={{display:"grid",gridTemplateColumns:organizacao?"repeat(8,1fr)":"repeat(7,1fr)",gap:10,marginBottom:18}}>
           {[
             {label:"Em Aberto",  value:pedidosAbertos.length,    color:"#1d4ed8",icon:"📋",tab:"abertos",  action:()=>{setFilterSt("all");setFilterPrazo("all");}},
             {label:"Feitos",     value:feitoCount,                color:"#059669",icon:"✅",tab:"abertos",  action:()=>setFilterSt("feito")},
+            ...(organizacao ? [{label:"Meus Feitos", value:pedidosAbertos.filter(r=>r.feitoPorNome===meuNome).length, color:minhaCor,icon:"⭐",tab:"abertos",action:()=>setFilterSt("feito")}] : []),
             {label:"Em Revisão", value:revisaoCount,              color:"#f59e0b",icon:"📋",tab:"abertos",  action:()=>setFilterSt("revisao")},
             {label:"Urgentes",   value:`${urgentFeitos}/${urgentCount}`, color:"#ef4444",icon:"🔴",tab:"abertos",  action:()=>{setFilterSt("all");setFilterPrazo("red");}},
             {label:"Enviados",   value:pedidosEnviados.length,    color:"#059669",icon:"📦",tab:"enviados", action:()=>{}},
@@ -1101,14 +1102,24 @@ export default function App({user,onLogout}) {
                         ))}
                         <td style={TD}>
                           {!m.is_admin && (
-                            <button onClick={async()=>{
-                              if(!window.confirm(`Remover ${m.nome} da equipe? O login dele deixará de funcionar.`)) return;
-                              await removerMembro(m.id);
-                              setMembrosEquipe(prev=>prev.filter(x=>x.id!==m.id));
-                              showToast("🗑️ Funcionário removido.","#991b1b");
-                            }} style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
-                              Remover
-                            </button>
+                            <div style={{display:"flex",gap:6}}>
+                              <button onClick={async()=>{
+                                const { error } = await resetPassword(m.email);
+                                if (error) showToast("❌ Não foi possível enviar o e-mail.","#991b1b");
+                                else showToast(`📧 E-mail de redefinição enviado para ${m.email}`,"#1d4ed8");
+                              }} style={{background:"#eff6ff",color:"#1d4ed8",border:"none",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                                🔑 Redefinir senha
+                              </button>
+                              <button onClick={async()=>{
+                                if(!window.confirm(`Remover ${m.nome} permanentemente? O login (${m.email}) será apagado de vez e o e-mail poderá ser reutilizado depois.`)) return;
+                                const res = await removerFuncionarioCompleto(m.user_id);
+                                if (res.error) { showToast(`❌ ${res.error}`,"#991b1b"); return; }
+                                setMembrosEquipe(prev=>prev.filter(x=>x.id!==m.id));
+                                showToast("🗑️ Funcionário removido permanentemente.","#991b1b");
+                              }} style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                                Remover
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
