@@ -134,6 +134,25 @@ function FeitoButton({isFeito,cor,nome,onClick,small}) {
   );
 }
 
+// Botão "Revisão" que também usa a cor do funcionário que enviou para revisão
+function RevisaoButton({isRevisao,cor,nome,onClick,small}) {
+  const bg = isRevisao ? (cor || "#f59e0b") : "#f1f5f9";
+  const fg = isRevisao ? "#fff" : "#374151";
+  return (
+    <button
+      onClick={onClick}
+      title={isRevisao && nome ? `Enviado para revisão por ${nome}` : ""}
+      style={{
+        padding: small ? "4px 7px" : "4px 9px",
+        border:"none", borderRadius:7,
+        background:bg, color:fg,
+        fontSize:10, fontWeight:600, cursor:"pointer",
+      }}>
+      {small ? "📋" : "📋 Revisão"}
+    </button>
+  );
+}
+
 function ExpandCell({value,maxLen=22}) {
   const [exp,setExp] = useState(false);
   const long = value && value.length > maxLen;
@@ -422,14 +441,29 @@ export default function App({user,onLogout}) {
   // ── Status interno ─────────────────────────────────────────────────────────
   const handleStatusChange = async (order,newSt,nota="") => {
     if (!podeEditarStatus) { showToast("🔒 Você não tem permissão para editar status.","#991b1b"); return; }
-    // Bloqueia desmarcar "Feito" se foi outra pessoa quem marcou (exceto admin)
-    if (newSt === "" && order.statusInterno === "feito" && order.feitoPorNome && order.feitoPorNome !== meuNome && !isAdminEquipe) {
-      showToast(`🔒 Este pedido foi marcado por ${order.feitoPorNome}. Só ${order.feitoPorNome} ou um admin pode desmarcar.`,"#991b1b");
+    // Bloqueia alterar/desmarcar um pedido (Feito ou Revisão) já marcado por outra pessoa (exceto admin)
+    const jaMarcadoPorOutro = order.feitoPorNome && order.feitoPorNome !== meuNome &&
+      (order.statusInterno === "feito" || order.statusInterno === "revisao");
+    if (jaMarcadoPorOutro && !isAdminEquipe) {
+      const acao = order.statusInterno === "feito" ? "marcado como Feito" : "enviado para Revisão";
+      showToast(`🔒 Este pedido foi ${acao} por ${order.feitoPorNome}. Só ${order.feitoPorNome} ou um admin pode alterar.`,"#991b1b");
       return;
     }
     setAllPedidos(prev=>prev.map(o=>o.idPedido===order.idPedido?{...o,statusInterno:newSt,notaRevisao:nota,feitoPorNome:newSt?meuNome:"",feitoPorCor:newSt?minhaCor:""}:o));
     if (supabase) await updatePedidoStatus(order.idPedido,user.id,newSt,nota,orgId,meuNome);
     showToast(newSt==="feito"?"✅ Marcado como Feito!":"📋 Enviado para Revisão",newSt==="feito"?"#059669":"#f59e0b");
+  };
+
+  const tentarAbrirRevisao = (order) => {
+    if (!podeEditarStatus) { showToast("🔒 Você não tem permissão para editar status.","#991b1b"); return; }
+    const jaMarcadoPorOutro = order.feitoPorNome && order.feitoPorNome !== meuNome &&
+      (order.statusInterno === "feito" || order.statusInterno === "revisao");
+    if (jaMarcadoPorOutro && !isAdminEquipe) {
+      const acao = order.statusInterno === "feito" ? "marcado como Feito" : "enviado para Revisão";
+      showToast(`🔒 Este pedido foi ${acao} por ${order.feitoPorNome}. Só ${order.feitoPorNome} ou um admin pode alterar.`,"#991b1b");
+      return;
+    }
+    setRevisaoModal(order);
   };
 
   // ── Selection ──────────────────────────────────────────────────────────────
@@ -727,7 +761,7 @@ export default function App({user,onLogout}) {
                               {dl&&<span style={{background:dl.bg,color:dl.text,border:`1px solid ${dl.border}`,borderRadius:7,padding:"1px 7px",fontSize:10,fontWeight:600,flexShrink:0}}>{dl.icon} {dl.label}</span>}
                               {/* Botões feito / revisão */}
                               <div style={{display:"flex",gap:4,flexShrink:0,marginLeft:"auto"}}>
-                                <button onClick={()=>setRevisaoModal(r)} style={{padding:"4px 9px",border:"none",borderRadius:7,background:si==="revisao"?"#fef3c7":"#f1f5f9",color:si==="revisao"?"#92400e":"#374151",fontSize:10,fontWeight:600,cursor:"pointer"}}>📋 Revisão</button>
+                                <RevisaoButton isRevisao={si==="revisao"} cor={r.feitoPorCor||minhaCor} nome={r.feitoPorNome} onClick={()=>tentarAbrirRevisao(r)} />
                                 <FeitoButton isFeito={si==="feito"} cor={r.feitoPorCor||minhaCor} nome={r.feitoPorNome} onClick={()=>handleStatusChange(r,si==="feito"?"":"feito")} />
                               </div>
                             </div>
@@ -836,7 +870,7 @@ export default function App({user,onLogout}) {
                           <td style={{...TD,textAlign:"center"}}><StyledCheckbox checked={isSel} onChange={()=>toggleSelect(row.idPedido)} /></td>
                           <td style={{...TD,whiteSpace:"nowrap"}}>
                             <div style={{display:"flex",gap:4}}>
-                              <button onClick={()=>setRevisaoModal(row)} style={{padding:"4px 7px",border:"none",borderRadius:7,background:si==="revisao"?"#fef3c7":"#f1f5f9",color:si==="revisao"?"#92400e":"#374151",fontSize:10,fontWeight:600,cursor:"pointer"}}>📋</button>
+                              <RevisaoButton isRevisao={si==="revisao"} cor={row.feitoPorCor||minhaCor} nome={row.feitoPorNome} onClick={()=>tentarAbrirRevisao(row)} small />
                               <FeitoButton isFeito={si==="feito"} cor={row.feitoPorCor||minhaCor} nome={row.feitoPorNome} onClick={()=>handleStatusChange(row,si==="feito"?"":"feito")} small />
                             </div>
                           </td>
