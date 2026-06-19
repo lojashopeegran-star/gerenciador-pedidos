@@ -276,8 +276,10 @@ export default function App({user,onLogout}) {
       if (orgId) {
         const org = await fetchOrganizacao(orgId);
         setOrganizacao(org);
+        // Todos os membros precisam da lista da equipe para resolver as cores
+        // de quem marcou cada pedido como feito — não só o admin.
+        fetchMembrosDaOrganizacao(orgId).then(setMembrosEquipe);
         if (m?.is_admin) {
-          fetchMembrosDaOrganizacao(orgId).then(setMembrosEquipe);
           fetchProdutividade(orgId).then(setProdutividade);
         }
       }
@@ -420,6 +422,11 @@ export default function App({user,onLogout}) {
   // ── Status interno ─────────────────────────────────────────────────────────
   const handleStatusChange = async (order,newSt,nota="") => {
     if (!podeEditarStatus) { showToast("🔒 Você não tem permissão para editar status.","#991b1b"); return; }
+    // Bloqueia desmarcar "Feito" se foi outra pessoa quem marcou (exceto admin)
+    if (newSt === "" && order.statusInterno === "feito" && order.feitoPorNome && order.feitoPorNome !== meuNome && !isAdminEquipe) {
+      showToast(`🔒 Este pedido foi marcado por ${order.feitoPorNome}. Só ${order.feitoPorNome} ou um admin pode desmarcar.`,"#991b1b");
+      return;
+    }
     setAllPedidos(prev=>prev.map(o=>o.idPedido===order.idPedido?{...o,statusInterno:newSt,notaRevisao:nota,feitoPorNome:newSt?meuNome:"",feitoPorCor:newSt?minhaCor:""}:o));
     if (supabase) await updatePedidoStatus(order.idPedido,user.id,newSt,nota,orgId,meuNome);
     showToast(newSt==="feito"?"✅ Marcado como Feito!":"📋 Enviado para Revisão",newSt==="feito"?"#059669":"#f59e0b");
