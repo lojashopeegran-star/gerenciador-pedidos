@@ -504,7 +504,7 @@ export default function App({user,onLogout}) {
       (filterLoja==="all"   ||r.loja===filterLoja)&&
       (filterPrazo==="all"  ||(dl&&dl.tier===filterPrazo))&&
       (filterData==="all"   ||r.dataEnvio?.slice(0,10)===filterData)&&
-      (filterSt==="all"     ||r.statusInterno===filterSt)&&
+      (filterSt==="all"     ||(filterSt==="meus_feitos" ? (r.statusInterno==="feito"&&r.feitoPorNome===meuNome) : r.statusInterno===filterSt))&&
       (filterProduto==="all"||r.produto===filterProduto)&&
       matchesSearch(r)
     );
@@ -634,7 +634,7 @@ export default function App({user,onLogout}) {
           {[
             {label:"Em Aberto",  value:pedidosAbertos.length,    color:"#1d4ed8",icon:"📋",tab:"abertos",  action:()=>{setFilterSt("all");setFilterPrazo("all");}},
             {label:"Feitos",     value:feitoCount,                color:"#059669",icon:"✅",tab:"abertos",  action:()=>setFilterSt("feito")},
-            ...(organizacao ? [{label:"Meus Feitos", value:pedidosAbertos.filter(r=>r.feitoPorNome===meuNome).length, color:minhaCor,icon:"⭐",tab:"abertos",action:()=>setFilterSt("feito")}] : []),
+            ...(organizacao ? [{label:"Meus Feitos", value:pedidosAbertos.filter(r=>r.feitoPorNome===meuNome).length, color:minhaCor,icon:"⭐",tab:"abertos",action:()=>setFilterSt("meus_feitos")}] : []),
             {label:"Em Revisão", value:revisaoCount,              color:"#f59e0b",icon:"📋",tab:"abertos",  action:()=>setFilterSt("revisao")},
             {label:"Urgentes",   value:`${urgentFeitos}/${urgentCount}`, color:"#ef4444",icon:"🔴",tab:"abertos",  action:()=>{setFilterSt("all");setFilterPrazo("red");}},
             {label:"Enviados",   value:pedidosEnviados.length,    color:"#059669",icon:"📦",tab:"enviados", action:()=>{}},
@@ -654,7 +654,8 @@ export default function App({user,onLogout}) {
           ))}
         </div>
 
-        {/* Valor aberto card */}
+        {/* Valor aberto card — visível só para o admin */}
+        {isAdminEquipe&&(
         <div style={{background:"#eff6ff",borderRadius:14,padding:"14px 18px",marginBottom:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",display:"flex",alignItems:"center",gap:12}}>
           <span style={{fontSize:22}}>💰</span>
           <div>
@@ -662,6 +663,7 @@ export default function App({user,onLogout}) {
             <div style={{fontSize:22,fontWeight:800,color:"#0891b2"}}>{fmtBRL(valorAberto)}</div>
           </div>
         </div>
+        )}
 
         {/* Tabs */}
         <TabBar tabs={TABS} active={activeTab} onChange={tab=>{
