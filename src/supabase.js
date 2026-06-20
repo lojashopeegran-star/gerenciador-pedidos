@@ -98,6 +98,9 @@ export async function upsertPedidos(rows, userId, orgId) {
           destinatario:   record.destinatario,
           notas:          record.notas,
           loja:           record.loja,
+          nome_usuario:   record.nome_usuario,
+          data_criacao:   record.data_criacao,
+          mes_referencia: record.mes_referencia,
           // DO NOT update status_interno or nota_revisao
         })
         .eq('id', existing.id)
@@ -221,6 +224,9 @@ function rowToDb(r) {
     status_interno: r.statusInterno || '',
     nota_revisao:   r.notaRevisao   || '',
     notas:          r.notas         || '',
+    nome_usuario:   r.nomeUsuario   || '',
+    data_criacao:   r.dataCriacao   || null,
+    mes_referencia: r.mesReferencia || '',
   }
 }
 
@@ -241,6 +247,9 @@ export function dbToRow(d) {
     notas:         d.notas          || '',
     feitoPorNome:  d.feito_por_nome || '',
     feitoEm:       d.feito_em       || '',
+    nomeUsuario:   d.nome_usuario   || '',
+    dataCriacao:   d.data_criacao   || '',
+    mesReferencia: d.mes_referencia || '',
     _status: 'existing',
   }
 }

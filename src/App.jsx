@@ -15,6 +15,8 @@ const PEDIDO_COLS = {
   "Nome da variação":            "variacao",
   "Nome do destinatário":        "destinatario",
   "Observação do comprador":     "notas",
+  "Nome de usuário (comprador)": "nomeUsuario",
+  "Data de criação do pedido":   "dataCriacao",
 };
 
 const DEVOLUCAO_COLS = {
@@ -60,6 +62,21 @@ function parseSheet(sheet, colMap, loja) {
 
 // ── Status classification — covers all Shopee status variants ────────────────
 function normStatus(s) { return norm(s||""); }
+
+// Calcula o mês de referência (formato "2026-06") a partir da Data de criação do pedido
+function mesReferencia(dataCriacao) {
+  if (!dataCriacao) return "";
+  // Aceita formatos "2026-06-01 00:29" ou "2026-06-01"
+  const m = String(dataCriacao).match(/^(\d{4})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}` : "";
+}
+
+function mesLabel(mesRef) {
+  if (!mesRef) return "—";
+  const [ano, mes] = mesRef.split("-");
+  const nomes = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+  return `${nomes[parseInt(mes,10)-1]}/${ano}`;
+}
 
 function isEnviado(r) {
   const s = normStatus(r.statusPedido);
@@ -255,6 +272,7 @@ export default function App({user,onLogout}) {
   const [filterPrazo,   setFilterPrazo]   = useState("all");
   const [filterData,    setFilterData]    = useState("all"); // specific date filter
   const [searchEnviados, setSearchEnviados] = useState("");
+  const [mesClientesFiltro, setMesClientesFiltro] = useState("all");
   const [filterSt,      setFilterSt]      = useState("all");
   const [filterProduto, setFilterProduto] = useState("all");
   const [showProdPanel, setShowProdPanel] = useState(false);
@@ -348,7 +366,10 @@ export default function App({user,onLogout}) {
   // ── Load planilha ──────────────────────────────────────────────────────────
   const handlePlanilha = async (sheet, name, loja) => {
     setUploadNames(p=>({...p,[`ped_${loja}`]:name}));
-    const incoming = parseSheet(sheet, PEDIDO_COLS, loja);
+    const incoming = parseSheet(sheet, PEDIDO_COLS, loja).map(r => ({
+      ...r,
+      mesReferencia: mesReferencia(r.dataCriacao),
+    }));
     if (!incoming.length) { showToast("Nenhum pedido encontrado na planilha.","#d97706"); return; }
 
     // Merge: update existing status, add new ones
@@ -370,6 +391,9 @@ export default function App({user,onLogout}) {
           destinatario:  r.destinatario,
           notas:         r.notas,
           loja:          r.loja,
+          nomeUsuario:   r.nomeUsuario,
+          dataCriacao:   r.dataCriacao,
+          mesReferencia: r.mesReferencia,
           // PRESERVE internal flags — never reset from spreadsheet load
           statusInterno: ex.statusInterno || "",
           notaRevisao:   ex.notaRevisao   || "",
@@ -568,6 +592,7 @@ export default function App({user,onLogout}) {
     {id:"enviados",   icon:"📦",label:"Enviados",   badge:pedidosEnviados.length,   color:"#059669"},
     {id:"cancelados", icon:"❌",label:"Cancelados", badge:pedidosCancelados.length, color:"#6b7280"},
     {id:"devolucoes", icon:"🔄",label:"Devoluções", badge:devolucoes.length,        color:"#ef4444"},
+    {id:"clientes",   icon:"👤",label:"Clientes",   badge:null,                     color:"#0d9488"},
     {id:"financeiro", icon:"💰",label:"Financeiro", badge:null,                     color:"#0891b2"},
     ...(isAdminEquipe&&organizacao ? [{id:"equipe", icon:"👥", label:"Equipe", badge:membrosEquipe.length||null, color:"#7c3aed"}] : []),
   ];
@@ -1005,6 +1030,80 @@ export default function App({user,onLogout}) {
             </div>
           </div>
         )}
+
+        {/* ── TAB: CLIENTES ── */}
+        {activeTab==="clientes"&&(()=>{
+          // Meses únicos presentes nos pedidos (com base na data de criação)
+          const mesesUnicos = [...new Set(allPedidos.map(r=>r.mesReferencia).filter(Boolean))].sort().reverse();
+          const pedidosDoMes = mesClientesFiltro==="all" ? allPedidos : allPedidos.filter(r=>r.mesReferencia===mesClientesFiltro);
+
+          // Agrupa por (nomeUsuario + loja) — conta quantas vezes cada cliente comprou
+          const ranking = {};
+          for (const r of pedidosDoMes) {
+            if (!r.nomeUsuario) continue;
+            const chave = `${r.nomeUsuario}__${r.loja}`;
+            if (!ranking[chave]) ranking[chave] = { nomeUsuario: r.nomeUsuario, loja: r.loja, total: 0 };
+            ranking[chave].total++;
+          }
+          const rankingArr = Object.values(ranking).sort((a,b)=>b.total-a.total);
+          const totalClientesUnicos = rankingArr.length;
+          const totalCompras = rankingArr.reduce((s,r)=>s+r.total,0);
+
+          return (
+          <div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18,flexWrap:"wrap",gap:10}}>
+              <div>
+                <div style={{fontSize:16,fontWeight:800,color:"#1e293b"}}>👤 Clientes Recorrentes</div>
+                <div style={{fontSize:12,color:"#64748b"}}>Quantas vezes cada cliente comprou, por mês</div>
+              </div>
+              <select value={mesClientesFiltro} onChange={e=>setMesClientesFiltro(e.target.value)}
+                style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"8px 14px",fontSize:13,cursor:"pointer",background:"#fff",fontWeight:600}}>
+                <option value="all">Todos os meses</option>
+                {mesesUnicos.map(m=><option key={m} value={m}>{mesLabel(m)}</option>)}
+              </select>
+            </div>
+
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14,marginBottom:18}}>
+              <div style={{background:"#fff",borderRadius:16,padding:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
+                <div style={{fontSize:11,color:"#64748b",fontWeight:600}}>Clientes únicos</div>
+                <div style={{fontSize:26,fontWeight:800,color:"#0d9488"}}>{totalClientesUnicos}</div>
+              </div>
+              <div style={{background:"#fff",borderRadius:16,padding:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
+                <div style={{fontSize:11,color:"#64748b",fontWeight:600}}>Total de compras</div>
+                <div style={{fontSize:26,fontWeight:800,color:"#0d9488"}}>{totalCompras}</div>
+              </div>
+            </div>
+
+            <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden"}}>
+              <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",fontSize:14,fontWeight:700,color:"#1e293b"}}>
+                🏆 Ranking — {mesClientesFiltro==="all" ? "Todos os meses" : mesLabel(mesClientesFiltro)}
+              </div>
+              <div style={{overflowX:"auto",maxHeight:560,overflowY:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead><tr style={{background:"#f0fdfa",position:"sticky",top:0}}>
+                    {["#","Nome de Usuário","Loja","Compras"].map(h=><th key={h} style={TH}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {rankingArr.map((c,i)=>(
+                      <tr key={i} style={{background:i%2===0?"#fff":"#f8fafc",borderBottom:"1px solid #f1f5f9"}}>
+                        <td style={{...TD,color:"#94a3b8",fontWeight:600}}>{i+1}</td>
+                        <td style={{...TD,fontWeight:600,color:"#1e293b"}}>{c.nomeUsuario}</td>
+                        <td style={TD}>{c.loja}</td>
+                        <td style={TD}>
+                          <span style={{background:c.total>1?"#ccfbf1":"#f1f5f9",color:c.total>1?"#0d9488":"#64748b",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>
+                            {c.total}x
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {rankingArr.length===0&&<tr><td colSpan={4} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>Nenhum dado de cliente encontrado. Carregue uma planilha com a coluna "Nome de usuário (comprador)".</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          );
+        })()}
 
         {/* ── TAB: FINANCEIRO ── */}
         {activeTab==="financeiro"&&financeUnlocked&&(
