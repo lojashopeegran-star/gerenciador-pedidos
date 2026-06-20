@@ -1035,26 +1035,45 @@ export default function App({user,onLogout}) {
         {activeTab==="clientes"&&(()=>{
           // Meses únicos presentes nos pedidos (com base na data de criação)
           const mesesUnicos = [...new Set(allPedidos.map(r=>r.mesReferencia).filter(Boolean))].sort().reverse();
-          const pedidosDoMes = mesClientesFiltro==="all" ? allPedidos : allPedidos.filter(r=>r.mesReferencia===mesClientesFiltro);
 
-          // Agrupa por (nomeUsuario + loja) — conta quantas vezes cada cliente comprou
+          // Total HISTÓRICO por cliente+loja (todas as planilhas, todos os meses)
+          // — usado para decidir se o cliente é "recorrente" (2+ compras no total)
+          const totalHistorico = {};
+          for (const r of allPedidos) {
+            if (!r.nomeUsuario) continue;
+            const chave = `${r.nomeUsuario}__${r.loja}`;
+            totalHistorico[chave] = (totalHistorico[chave] || 0) + 1;
+          }
+
+          // Lista exibida respeita o filtro de mês selecionado
+          const pedidosDoMes = mesClientesFiltro==="all" ? allPedidos : allPedidos.filter(r=>r.mesReferencia===mesClientesFiltro);
           const ranking = {};
           for (const r of pedidosDoMes) {
             if (!r.nomeUsuario) continue;
             const chave = `${r.nomeUsuario}__${r.loja}`;
-            if (!ranking[chave]) ranking[chave] = { nomeUsuario: r.nomeUsuario, loja: r.loja, total: 0 };
-            ranking[chave].total++;
+            if (!ranking[chave]) ranking[chave] = { nomeUsuario: r.nomeUsuario, loja: r.loja, totalMes: 0 };
+            ranking[chave].totalMes++;
           }
-          const rankingArr = Object.values(ranking).sort((a,b)=>b.total-a.total);
+          const rankingArr = Object.values(ranking)
+            .map(c => ({ ...c, totalGeral: totalHistorico[`${c.nomeUsuario}__${c.loja}`] || c.totalMes }))
+            .sort((a,b)=>b.totalGeral-a.totalGeral);
           const totalClientesUnicos = rankingArr.length;
-          const totalCompras = rankingArr.reduce((s,r)=>s+r.total,0);
+          const totalCompras = rankingArr.reduce((s,r)=>s+r.totalMes,0);
+
+          // Cor de destaque por loja para clientes recorrentes (2+ compras no histórico geral)
+          const corRecorrencia = (loja) => {
+            if (!lojas[0] || !lojas[1]) return { bg:"#ccfbf1", color:"#0d9488" };
+            if (loja === lojas[0]) return { bg:"#ffedd5", color:"#c2410c" }; // laranja forte — loja 1 (Gran Shop)
+            if (loja === lojas[1]) return { bg:"#fce7f3", color:"#be185d" }; // rosa — loja 2 (Aishael Mix)
+            return { bg:"#ccfbf1", color:"#0d9488" };
+          };
 
           return (
           <div>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18,flexWrap:"wrap",gap:10}}>
               <div>
                 <div style={{fontSize:16,fontWeight:800,color:"#1e293b"}}>👤 Clientes Recorrentes</div>
-                <div style={{fontSize:12,color:"#64748b"}}>Quantas vezes cada cliente comprou, por mês</div>
+                <div style={{fontSize:12,color:"#64748b"}}>Compras no mês selecionado · destaque considera o histórico completo do cliente</div>
               </div>
               <select value={mesClientesFiltro} onChange={e=>setMesClientesFiltro(e.target.value)}
                 style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"8px 14px",fontSize:13,cursor:"pointer",background:"#fff",fontWeight:600}}>
@@ -1074,6 +1093,11 @@ export default function App({user,onLogout}) {
               </div>
             </div>
 
+            <div style={{display:"flex",gap:14,marginBottom:14,fontSize:11,color:"#64748b"}}>
+              <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:12,height:12,borderRadius:4,background:"#ffedd5",border:"1px solid #fb923c",display:"inline-block"}}/> Recorrente · {lojas[0]||"Loja 1"}</span>
+              <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:12,height:12,borderRadius:4,background:"#fce7f3",border:"1px solid #f472b6",display:"inline-block"}}/> Recorrente · {lojas[1]||"Loja 2"}</span>
+            </div>
+
             <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden"}}>
               <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",fontSize:14,fontWeight:700,color:"#1e293b"}}>
                 🏆 Ranking — {mesClientesFiltro==="all" ? "Todos os meses" : mesLabel(mesClientesFiltro)}
@@ -1081,22 +1105,27 @@ export default function App({user,onLogout}) {
               <div style={{overflowX:"auto",maxHeight:560,overflowY:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead><tr style={{background:"#f0fdfa",position:"sticky",top:0}}>
-                    {["#","Nome de Usuário","Loja","Compras"].map(h=><th key={h} style={TH}>{h}</th>)}
+                    {["#","Nome de Usuário","Loja","Compras no mês","Total geral"].map(h=><th key={h} style={TH}>{h}</th>)}
                   </tr></thead>
                   <tbody>
-                    {rankingArr.map((c,i)=>(
-                      <tr key={i} style={{background:i%2===0?"#fff":"#f8fafc",borderBottom:"1px solid #f1f5f9"}}>
+                    {rankingArr.map((c,i)=>{
+                      const recorrente = c.totalGeral > 1;
+                      const cores = corRecorrencia(c.loja);
+                      return (
+                      <tr key={i} style={{background:recorrente?cores.bg:(i%2===0?"#fff":"#f8fafc"),borderBottom:"1px solid #f1f5f9"}}>
                         <td style={{...TD,color:"#94a3b8",fontWeight:600}}>{i+1}</td>
-                        <td style={{...TD,fontWeight:600,color:"#1e293b"}}>{c.nomeUsuario}</td>
+                        <td style={{...TD,fontWeight:700,color:recorrente?cores.color:"#1e293b"}}>{c.nomeUsuario}</td>
                         <td style={TD}>{c.loja}</td>
+                        <td style={TD}>{c.totalMes}x</td>
                         <td style={TD}>
-                          <span style={{background:c.total>1?"#ccfbf1":"#f1f5f9",color:c.total>1?"#0d9488":"#64748b",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>
-                            {c.total}x
+                          <span style={{background:recorrente?cores.color:"#f1f5f9",color:recorrente?"#fff":"#64748b",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>
+                            {c.totalGeral}x {recorrente?"⭐":""}
                           </span>
                         </td>
                       </tr>
-                    ))}
-                    {rankingArr.length===0&&<tr><td colSpan={4} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>Nenhum dado de cliente encontrado. Carregue uma planilha com a coluna "Nome de usuário (comprador)".</td></tr>}
+                      );
+                    })}
+                    {rankingArr.length===0&&<tr><td colSpan={5} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>Nenhum dado de cliente encontrado. Carregue uma planilha com a coluna "Nome de usuário (comprador)".</td></tr>}
                   </tbody>
                 </table>
               </div>
