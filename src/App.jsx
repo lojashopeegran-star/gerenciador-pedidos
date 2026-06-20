@@ -78,6 +78,14 @@ function mesLabel(mesRef) {
   return `${nomes[parseInt(mes,10)-1]}/${ano}`;
 }
 
+// Cores fortes e bem visíveis de destaque para cliente recorrente, por loja.
+// lojas[0] = laranja forte, lojas[1] = rosa forte (pink vibrante).
+function corRecorrencia(loja, lojas) {
+  if (lojas && loja === lojas[0]) return { bg:"#fb923c", bgLight:"#fed7aa", color:"#7c2d12", border:"#ea580c" };
+  if (lojas && loja === lojas[1]) return { bg:"#ec4899", bgLight:"#fbcfe8", color:"#831843", border:"#db2777" };
+  return { bg:"#2dd4bf", bgLight:"#99f6e4", color:"#134e4a", border:"#0d9488" };
+}
+
 function isEnviado(r) {
   const s = normStatus(r.statusPedido);
   return s === "enviado" || s === "entregue" || s === "concluido" ||
@@ -273,6 +281,7 @@ export default function App({user,onLogout}) {
   const [filterData,    setFilterData]    = useState("all"); // specific date filter
   const [searchEnviados, setSearchEnviados] = useState("");
   const [mesClientesFiltro, setMesClientesFiltro] = useState("all");
+  const [clienteExpandido, setClienteExpandido] = useState(null); // chave "nomeUsuario__loja"
   const [filterSt,      setFilterSt]      = useState("all");
   const [filterProduto, setFilterProduto] = useState("all");
   const [showProdPanel, setShowProdPanel] = useState(false);
@@ -353,10 +362,22 @@ export default function App({user,onLogout}) {
 
   // ── Mapa nome → cor (sistema de times) ──────────────────────────────────────
   const corPorNome = membrosEquipe.reduce((acc,m)=>{ acc[m.nome]=m.cor; return acc; },{});
-  const pedidosComCor = allPedidos.map(p => p.feitoPorNome && corPorNome[p.feitoPorNome]
-    ? {...p, feitoPorCor: corPorNome[p.feitoPorNome]}
-    : p
-  );
+
+  // ── Total histórico de compras por (nomeUsuario+loja) — usado para destacar
+  // clientes recorrentes em QUALQUER aba (Em Aberto, Enviados, etc) ────────────
+  const totalHistoricoCliente = {};
+  for (const p of allPedidos) {
+    if (!p.nomeUsuario) continue;
+    const k = `${p.nomeUsuario}__${p.loja}`;
+    totalHistoricoCliente[k] = (totalHistoricoCliente[k] || 0) + 1;
+  }
+
+  const pedidosComCor = allPedidos.map(p => {
+    const corFeito = p.feitoPorNome && corPorNome[p.feitoPorNome] ? { feitoPorCor: corPorNome[p.feitoPorNome] } : {};
+    const chaveCliente = p.nomeUsuario ? `${p.nomeUsuario}__${p.loja}` : null;
+    const totalCliente = chaveCliente ? (totalHistoricoCliente[chaveCliente] || 0) : 0;
+    return { ...p, ...corFeito, clienteRecorrente: totalCliente > 1, totalComprasCliente: totalCliente };
+  });
 
   // ── Pedido groups ──────────────────────────────────────────────────────────
   const pedidosAbertos    = pedidosComCor.filter(isAberto);
@@ -774,11 +795,12 @@ export default function App({user,onLogout}) {
                         {prodPedidos.map((r,i)=>{
                           const dl=deadlineInfo(r.dataEnvio);
                           const si=r.statusInterno;
+                          const corCliente = r.clienteRecorrente ? corRecorrencia(r.loja, lojas) : null;
                           return (
-                            <div key={r.idPedido} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:si==="feito"?"#f0fdf4":si==="revisao"?"#fffbeb":i%2===0?"#f8fafc":"#fff",borderRadius:9,padding:"8px 12px",border:"1px solid",borderColor:si==="feito"?"#86efac":si==="revisao"?"#fde68a":"#f1f5f9"}}>
+                            <div key={r.idPedido} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:si==="feito"?"#f0fdf4":si==="revisao"?"#fffbeb":i%2===0?"#f8fafc":"#fff",borderRadius:9,padding:"8px 12px",border:"1px solid",borderColor:si==="feito"?"#86efac":si==="revisao"?"#fde68a":"#f1f5f9",borderLeft:corCliente?`5px solid ${corCliente.color}`:undefined}}>
                               <StyledCheckbox checked={selected.has(r.idPedido)} onChange={()=>toggleSelect(r.idPedido)} />
                               <span style={{fontFamily:"monospace",fontSize:12,fontWeight:700,color:"#1d4ed8",flexShrink:0}}>{r.idPedido}</span>
-                              <span style={{fontSize:11,color:"#64748b",minWidth:120}}>👤 <strong>{r.destinatario||"—"}</strong></span>
+                              <span style={{fontSize:11,color:"#64748b",minWidth:120}}>👤 <strong>{r.destinatario||"—"}</strong> {r.clienteRecorrente&&<span title={`Cliente recorrente: ${r.totalComprasCliente}x`} style={{background:corCliente.color,color:"#fff",borderRadius:20,padding:"1px 6px",fontSize:9,fontWeight:800,marginLeft:3}}>⭐{r.totalComprasCliente}x</span>}</span>
                               <span style={{fontSize:11,color:"#64748b"}}>🏪 <strong>{r.loja||"—"}</strong></span>
                               <span style={{fontSize:11,color:"#374151",flex:1,minWidth:140}}>📦 {r.produto||"—"}</span>
                               <span style={{fontSize:11,color:"#7c3aed",fontWeight:600,minWidth:100}}>🎨 {r.variacao||"—"}</span>
@@ -890,8 +912,9 @@ export default function App({user,onLogout}) {
                       const dl=deadlineInfo(row.dataEnvio);
                       const isSel=selected.has(row.idPedido);
                       const si=row.statusInterno;
+                      const corCliente = row.clienteRecorrente ? corRecorrencia(row.loja, lojas) : null;
                       return (
-                        <tr key={row.idPedido} style={{background:isSel?"#eff6ff":si==="feito"?"#f0fdf4":si==="revisao"?"#fffbeb":i%2===0?"#fff":"#fafafa",borderBottom:"1px solid #f1f5f9"}}>
+                        <tr key={row.idPedido} style={{background:isSel?"#eff6ff":si==="feito"?"#f0fdf4":si==="revisao"?"#fffbeb":i%2===0?"#fff":"#fafafa",borderBottom:"1px solid #f1f5f9",borderLeft:corCliente?`5px solid ${corCliente.color}`:"5px solid transparent"}}>
                           <td style={{...TD,textAlign:"center"}}><StyledCheckbox checked={isSel} onChange={()=>toggleSelect(row.idPedido)} /></td>
                           <td style={{...TD,whiteSpace:"nowrap"}}>
                             <div style={{display:"flex",gap:4}}>
@@ -905,7 +928,12 @@ export default function App({user,onLogout}) {
                             :<StatusBadge status={row.statusPedido} />}
                           </td>
                           <td style={{...TD,fontWeight:700,color:"#1d4ed8",fontFamily:"monospace",fontSize:11}}>{row.idPedido}</td>
-                          <td style={TD}><ExpandCell value={row.destinatario||"—"} /></td>
+                          <td style={TD}>
+                            <div style={{display:"flex",alignItems:"center",gap:5}}>
+                              <ExpandCell value={row.destinatario||"—"} />
+                              {row.clienteRecorrente&&<span title={`Cliente recorrente: ${row.totalComprasCliente}x no histórico`} style={{background:corCliente.color,color:"#fff",borderRadius:20,padding:"1px 7px",fontSize:9,fontWeight:800,flexShrink:0}}>⭐ {row.totalComprasCliente}x</span>}
+                            </div>
+                          </td>
                           <td style={TD}>{row.loja||"—"}</td>
                           <td style={{...TD,maxWidth:200}}><div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"normal",lineHeight:1.3,maxWidth:200}}>{row.produto||"—"}</div></td>
                           <td style={{...TD,whiteSpace:"normal",maxWidth:200}}>{row.variacao||"—"}</td>
@@ -946,11 +974,18 @@ export default function App({user,onLogout}) {
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead><tr style={{background:"#f0fdf4"}}>{["Status","ID Pedido","Destinatário","Loja","Produto","Variação","Qtd","Preço","Data Envio"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
                 <tbody>
-                  {enviadosFiltrados.map((row,i)=>(
-                    <tr key={row.idPedido} style={{background:i%2===0?"#f8fffe":"#fff",borderBottom:"1px solid #f0fdf4"}}>
+                  {enviadosFiltrados.map((row,i)=>{
+                    const corCliente = row.clienteRecorrente ? corRecorrencia(row.loja, lojas) : null;
+                    return (
+                    <tr key={row.idPedido} style={{background:i%2===0?"#f8fffe":"#fff",borderBottom:"1px solid #f0fdf4",borderLeft:corCliente?`5px solid ${corCliente.color}`:"5px solid transparent"}}>
                       <td style={{...TD,textAlign:"center"}}><StatusBadge status={row.statusPedido} /></td>
                       <td style={{...TD,fontWeight:700,color:"#059669",fontFamily:"monospace",fontSize:11}}>{row.idPedido}</td>
-                      <td style={TD}><ExpandCell value={row.destinatario||"—"} /></td>
+                      <td style={TD}>
+                        <div style={{display:"flex",alignItems:"center",gap:5}}>
+                          <ExpandCell value={row.destinatario||"—"} />
+                          {row.clienteRecorrente&&<span title={`Cliente recorrente: ${row.totalComprasCliente}x no histórico`} style={{background:corCliente.color,color:"#fff",borderRadius:20,padding:"1px 7px",fontSize:9,fontWeight:800,flexShrink:0}}>⭐ {row.totalComprasCliente}x</span>}
+                        </div>
+                      </td>
                       <td style={TD}>{row.loja||"—"}</td>
                       <td style={{...TD,maxWidth:190}}><div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"normal",lineHeight:1.3,maxWidth:190}}>{row.produto||"—"}</div></td>
                       <td style={{...TD,whiteSpace:"normal",maxWidth:200}}>{row.variacao||"—"}</td>
@@ -958,7 +993,8 @@ export default function App({user,onLogout}) {
                       <td style={{...TD,fontWeight:600,color:"#059669"}}>{fmtBRL(row.preco)}</td>
                       <td style={TD}>{row.dataEnvio?.slice(0,10)||"—"}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {enviadosFiltrados.length===0&&<tr><td colSpan={9} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>{pedidosEnviados.length===0?"Nenhum pedido enviado ainda.":"Nenhum pedido encontrado."}</td></tr>}
                 </tbody>
               </table>
@@ -978,11 +1014,18 @@ export default function App({user,onLogout}) {
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead><tr style={{background:"#f9fafb"}}>{["Status","ID Pedido","Destinatário","Loja","Produto","Variação","Qtd","Preço","Data"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
                 <tbody>
-                  {pedidosCancelados.map((row,i)=>(
-                    <tr key={row.idPedido} style={{background:i%2===0?"#f9fafb":"#fff",borderBottom:"1px solid #f3f4f6",opacity:0.85}}>
+                  {pedidosCancelados.map((row,i)=>{
+                    const corCliente = row.clienteRecorrente ? corRecorrencia(row.loja, lojas) : null;
+                    return (
+                    <tr key={row.idPedido} style={{background:i%2===0?"#f9fafb":"#fff",borderBottom:"1px solid #f3f4f6",opacity:0.85,borderLeft:corCliente?`5px solid ${corCliente.color}`:"5px solid transparent"}}>
                       <td style={{...TD,textAlign:"center"}}><StatusBadge status={row.statusPedido} /></td>
                       <td style={{...TD,fontWeight:700,color:"#6b7280",fontFamily:"monospace",fontSize:11}}>{row.idPedido}</td>
-                      <td style={TD}><ExpandCell value={row.destinatario||"—"} /></td>
+                      <td style={TD}>
+                        <div style={{display:"flex",alignItems:"center",gap:5}}>
+                          <ExpandCell value={row.destinatario||"—"} />
+                          {row.clienteRecorrente&&<span title={`Cliente recorrente: ${row.totalComprasCliente}x no histórico`} style={{background:corCliente.color,color:"#fff",borderRadius:20,padding:"1px 7px",fontSize:9,fontWeight:800,flexShrink:0}}>⭐ {row.totalComprasCliente}x</span>}
+                        </div>
+                      </td>
                       <td style={TD}>{row.loja||"—"}</td>
                       <td style={{...TD,maxWidth:190}}><div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"normal",lineHeight:1.3,maxWidth:190,textDecoration:"line-through",color:"#9ca3af"}}>{row.produto||"—"}</div></td>
                       <td style={{...TD,whiteSpace:"normal",maxWidth:200}}>{row.variacao||"—"}</td>
@@ -990,7 +1033,8 @@ export default function App({user,onLogout}) {
                       <td style={{...TD,fontWeight:600,color:"#9ca3af",textDecoration:"line-through"}}>{fmtBRL(row.preco)}</td>
                       <td style={{...TD,color:"#9ca3af"}}>{row.dataEnvio?.slice(0,10)||"—"}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {pedidosCancelados.length===0&&<tr><td colSpan={9} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>Nenhum pedido cancelado.</td></tr>}
                 </tbody>
               </table>
@@ -1060,14 +1104,6 @@ export default function App({user,onLogout}) {
           const totalClientesUnicos = rankingArr.length;
           const totalCompras = rankingArr.reduce((s,r)=>s+r.totalMes,0);
 
-          // Cor de destaque por loja para clientes recorrentes (2+ compras no histórico geral)
-          const corRecorrencia = (loja) => {
-            if (!lojas[0] || !lojas[1]) return { bg:"#ccfbf1", color:"#0d9488" };
-            if (loja === lojas[0]) return { bg:"#ffedd5", color:"#c2410c" }; // laranja forte — loja 1 (Gran Shop)
-            if (loja === lojas[1]) return { bg:"#fce7f3", color:"#be185d" }; // rosa — loja 2 (Aishael Mix)
-            return { bg:"#ccfbf1", color:"#0d9488" };
-          };
-
           return (
           <div>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18,flexWrap:"wrap",gap:10}}>
@@ -1093,39 +1129,75 @@ export default function App({user,onLogout}) {
               </div>
             </div>
 
-            <div style={{display:"flex",gap:14,marginBottom:14,fontSize:11,color:"#64748b"}}>
-              <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:12,height:12,borderRadius:4,background:"#ffedd5",border:"1px solid #fb923c",display:"inline-block"}}/> Recorrente · {lojas[0]||"Loja 1"}</span>
-              <span style={{display:"flex",alignItems:"center",gap:5}}><span style={{width:12,height:12,borderRadius:4,background:"#fce7f3",border:"1px solid #f472b6",display:"inline-block"}}/> Recorrente · {lojas[1]||"Loja 2"}</span>
+            <div style={{display:"flex",gap:14,marginBottom:14,fontSize:12,fontWeight:600,color:"#374151"}}>
+              <span style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:14,height:14,borderRadius:4,background:corRecorrencia(lojas[0],lojas).bg,display:"inline-block"}}/> Recorrente · {lojas[0]||"Loja 1"}</span>
+              <span style={{display:"flex",alignItems:"center",gap:6}}><span style={{width:14,height:14,borderRadius:4,background:corRecorrencia(lojas[1],lojas).bg,display:"inline-block"}}/> Recorrente · {lojas[1]||"Loja 2"}</span>
             </div>
 
             <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden"}}>
               <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",fontSize:14,fontWeight:700,color:"#1e293b"}}>
                 🏆 Ranking — {mesClientesFiltro==="all" ? "Todos os meses" : mesLabel(mesClientesFiltro)}
               </div>
-              <div style={{overflowX:"auto",maxHeight:560,overflowY:"auto"}}>
+              <div style={{overflowX:"auto",maxHeight:620,overflowY:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead><tr style={{background:"#f0fdfa",position:"sticky",top:0}}>
-                    {["#","Nome de Usuário","Loja","Compras no mês","Total geral"].map(h=><th key={h} style={TH}>{h}</th>)}
+                    {["","#","Nome de Usuário","Loja","Compras no mês","Total geral"].map(h=><th key={h} style={TH}>{h}</th>)}
                   </tr></thead>
                   <tbody>
                     {rankingArr.map((c,i)=>{
                       const recorrente = c.totalGeral > 1;
-                      const cores = corRecorrencia(c.loja);
+                      const cores = corRecorrencia(c.loja, lojas);
+                      const chave = `${c.nomeUsuario}__${c.loja}`;
+                      const expandido = clienteExpandido === chave;
+                      // Histórico completo de compras desse cliente (todos os meses) para o detalhe
+                      const comprasCliente = allPedidos.filter(r=>r.nomeUsuario===c.nomeUsuario && r.loja===c.loja);
+                      // Agrupa por produto+variação para mostrar "o que ele mais compra"
+                      const porProduto = {};
+                      for (const p of comprasCliente) {
+                        const k = `${p.produto}__${p.variacao}`;
+                        if (!porProduto[k]) porProduto[k] = { produto:p.produto, variacao:p.variacao, qtd:0, ultimaData:p.dataCriacao };
+                        porProduto[k].qtd++;
+                        if (p.dataCriacao > porProduto[k].ultimaData) porProduto[k].ultimaData = p.dataCriacao;
+                      }
+                      const produtosArr = Object.values(porProduto).sort((a,b)=>b.qtd-a.qtd);
                       return (
-                      <tr key={i} style={{background:recorrente?cores.bg:(i%2===0?"#fff":"#f8fafc"),borderBottom:"1px solid #f1f5f9"}}>
-                        <td style={{...TD,color:"#94a3b8",fontWeight:600}}>{i+1}</td>
-                        <td style={{...TD,fontWeight:700,color:recorrente?cores.color:"#1e293b"}}>{c.nomeUsuario}</td>
-                        <td style={TD}>{c.loja}</td>
-                        <td style={TD}>{c.totalMes}x</td>
+                      <>
+                      <tr key={chave} onClick={()=>setClienteExpandido(expandido?null:chave)}
+                        style={{background:recorrente?cores.bg:(i%2===0?"#fff":"#f8fafc"),borderBottom:expandido?"none":"1px solid #f1f5f9",cursor:"pointer"}}>
+                        <td style={{...TD,width:30,textAlign:"center"}}>
+                          <span style={{display:"inline-block",transition:"transform 0.15s",transform:expandido?"rotate(90deg)":"none",color:recorrente?cores.color:"#94a3b8",fontWeight:700}}>▶</span>
+                        </td>
+                        <td style={{...TD,color:recorrente?cores.color:"#94a3b8",fontWeight:700}}>{i+1}</td>
+                        <td style={{...TD,fontWeight:800,color:recorrente?cores.color:"#1e293b"}}>{c.nomeUsuario}</td>
+                        <td style={{...TD,fontWeight:recorrente?700:400,color:recorrente?cores.color:"#374151"}}>{c.loja}</td>
+                        <td style={{...TD,fontWeight:recorrente?700:400,color:recorrente?cores.color:"#374151"}}>{c.totalMes}x</td>
                         <td style={TD}>
-                          <span style={{background:recorrente?cores.color:"#f1f5f9",color:recorrente?"#fff":"#64748b",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>
+                          <span style={{background:recorrente?cores.color:"#f1f5f9",color:recorrente?"#fff":"#64748b",borderRadius:20,padding:"3px 12px",fontSize:12,fontWeight:800}}>
                             {c.totalGeral}x {recorrente?"⭐":""}
                           </span>
                         </td>
                       </tr>
+                      {expandido && (
+                        <tr style={{background:recorrente?cores.bgLight:"#f8fafc",borderBottom:"1px solid #f1f5f9"}}>
+                          <td colSpan={6} style={{padding:"12px 18px 16px 46px"}}>
+                            <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:8}}>📦 Produtos que {c.nomeUsuario} já comprou ({comprasCliente.length} pedido{comprasCliente.length!==1?"s":""} no total):</div>
+                            <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                              {produtosArr.map((p,j)=>(
+                                <div key={j} style={{display:"flex",alignItems:"center",gap:8,background:"#fff",borderRadius:8,padding:"7px 11px",border:"1px solid #f1f5f9"}}>
+                                  <span style={{fontSize:11,color:"#374151",flex:1}}>{p.produto||"—"}</span>
+                                  {p.variacao&&<span style={{fontSize:10,color:"#7c3aed",fontWeight:600}}>🎨 {p.variacao}</span>}
+                                  <span style={{background:p.qtd>1?cores.color:"#f1f5f9",color:p.qtd>1?"#fff":"#64748b",borderRadius:20,padding:"1px 9px",fontSize:10,fontWeight:700,flexShrink:0}}>{p.qtd}x</span>
+                                </div>
+                              ))}
+                              {produtosArr.length===0&&<div style={{fontSize:11,color:"#94a3b8"}}>Nenhum produto encontrado.</div>}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </>
                       );
                     })}
-                    {rankingArr.length===0&&<tr><td colSpan={5} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>Nenhum dado de cliente encontrado. Carregue uma planilha com a coluna "Nome de usuário (comprador)".</td></tr>}
+                    {rankingArr.length===0&&<tr><td colSpan={6} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>Nenhum dado de cliente encontrado. Carregue uma planilha com a coluna "Nome de usuário (comprador)".</td></tr>}
                   </tbody>
                 </table>
               </div>
