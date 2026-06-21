@@ -17,6 +17,7 @@ const PEDIDO_COLS = {
   "Observação do comprador":     "notas",
   "Nome de usuário (comprador)": "nomeUsuario",
   "Data de criação do pedido":   "dataCriacao",
+  "Cancelar Motivo":             "motivoCancelamento",
 };
 
 const DEVOLUCAO_COLS = {
@@ -84,6 +85,21 @@ function corRecorrencia(loja, lojas) {
   if (lojas && loja === lojas[0]) return { bg:"#fb923c", bgLight:"#fed7aa", color:"#7c2d12", border:"#ea580c" };
   if (lojas && loja === lojas[1]) return { bg:"#ec4899", bgLight:"#fbcfe8", color:"#831843", border:"#db2777" };
   return { bg:"#2dd4bf", bgLight:"#99f6e4", color:"#134e4a", border:"#0d9488" };
+}
+
+// Simplifica e categoriza o texto do motivo de cancelamento da Shopee
+function formatMotivoCancelamento(motivo) {
+  if (!motivo) return null;
+  const isComprador = /cancelado pelo comprador/i.test(motivo);
+  const isSistema    = /cancelado automaticamente/i.test(motivo);
+  // Extrai só a parte depois de "Motivo :"
+  const m = motivo.match(/Motivo\s*:\s*(.+)$/i);
+  const texto = m ? m[1].trim() : motivo;
+  return {
+    texto,
+    origem: isComprador ? "Comprador" : isSistema ? "Sistema Shopee" : "Outro",
+    cor: isComprador ? { bg:"#fef3c7", color:"#92400e" } : isSistema ? { bg:"#fee2e2", color:"#991b1b" } : { bg:"#f1f5f9", color:"#64748b" },
+  };
 }
 
 function isEnviado(r) {
@@ -281,6 +297,7 @@ export default function App({user,onLogout}) {
   const [filterData,    setFilterData]    = useState("all"); // specific date filter
   const [searchEnviados, setSearchEnviados] = useState("");
   const [mesClientesFiltro, setMesClientesFiltro] = useState("all");
+  const [filterMotivo, setFilterMotivo] = useState("all");
   const [clienteExpandido, setClienteExpandido] = useState(null); // chave "nomeUsuario__loja"
   const [filterSt,      setFilterSt]      = useState("all");
   const [filterProduto, setFilterProduto] = useState("all");
@@ -415,6 +432,7 @@ export default function App({user,onLogout}) {
           nomeUsuario:   r.nomeUsuario,
           dataCriacao:   r.dataCriacao,
           mesReferencia: r.mesReferencia,
+          motivoCancelamento: r.motivoCancelamento,
           // PRESERVE internal flags — never reset from spreadsheet load
           statusInterno: ex.statusInterno || "",
           notaRevisao:   ex.notaRevisao   || "",
@@ -1004,17 +1022,57 @@ export default function App({user,onLogout}) {
         })()}
 
         {/* ── TAB: CANCELADOS ── */}
-        {activeTab==="cancelados"&&(
+        {activeTab==="cancelados"&&(()=>{
+          // Agrupa cancelados por motivo (texto já simplificado) para os chips de filtro
+          const motivoContagem = {};
+          for (const r of pedidosCancelados) {
+            const info = formatMotivoCancelamento(r.motivoCancelamento);
+            const chave = info ? info.texto : "Motivo não informado";
+            if (!motivoContagem[chave]) motivoContagem[chave] = { texto: chave, total: 0, origem: info?.origem || "—", cor: info?.cor || { bg:"#f1f5f9", color:"#64748b" } };
+            motivoContagem[chave].total++;
+          }
+          const motivosArr = Object.values(motivoContagem).sort((a,b)=>b.total-a.total);
+
+          const canceladosFiltrados = filterMotivo==="all"
+            ? pedidosCancelados
+            : pedidosCancelados.filter(r => {
+                const info = formatMotivoCancelamento(r.motivoCancelamento);
+                const chave = info ? info.texto : "Motivo não informado";
+                return chave === filterMotivo;
+              });
+
+          return (
           <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden"}}>
             <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
               <span style={{fontSize:13,fontWeight:700,color:"#6b7280"}}>❌ Pedidos Cancelados</span>
-              <span style={{background:"#6b7280",color:"#fff",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{pedidosCancelados.length}</span>
+              <span style={{background:"#6b7280",color:"#fff",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{canceladosFiltrados.length}</span>
             </div>
+
+            {/* Filtro por motivo de cancelamento */}
+            {motivosArr.length>0&&(
+              <div style={{padding:"10px 18px",background:"#f8fafc",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                <span style={{fontSize:11,fontWeight:700,color:"#64748b",marginRight:2,whiteSpace:"nowrap"}}>🔍 Filtrar por motivo:</span>
+                <button onClick={()=>setFilterMotivo("all")} style={{padding:"4px 12px",border:`1.5px solid ${filterMotivo==="all"?"#6b7280":"#e2e8f0"}`,borderRadius:20,background:filterMotivo==="all"?"#6b7280":"#fff",color:filterMotivo==="all"?"#fff":"#374151",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                  Todos ({pedidosCancelados.length})
+                </button>
+                {motivosArr.map(m=>{
+                  const isActive = filterMotivo===m.texto;
+                  return (
+                    <button key={m.texto} onClick={()=>setFilterMotivo(isActive?"all":m.texto)}
+                      title={m.texto}
+                      style={{padding:"4px 12px",border:`1.5px solid ${isActive?m.cor.color:"#e2e8f0"}`,borderRadius:20,background:isActive?m.cor.color:m.cor.bg,color:isActive?"#fff":m.cor.color,fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",maxWidth:280,overflow:"hidden",textOverflow:"ellipsis"}}>
+                      {m.texto.length>40?m.texto.slice(0,40)+"…":m.texto} <strong>({m.total})</strong>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                <thead><tr style={{background:"#f9fafb"}}>{["Status","ID Pedido","Destinatário","Loja","Produto","Variação","Qtd","Preço","Data"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
+                <thead><tr style={{background:"#f9fafb"}}>{["Status","ID Pedido","Destinatário","Loja","Produto","Variação","Qtd","Preço","Data","Motivo do Cancelamento"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
                 <tbody>
-                  {pedidosCancelados.map((row,i)=>{
+                  {canceladosFiltrados.map((row,i)=>{
                     const corCliente = row.clienteRecorrente ? corRecorrencia(row.loja, lojas) : null;
                     return (
                     <tr key={row.idPedido} style={{background:i%2===0?"#f9fafb":"#fff",borderBottom:"1px solid #f3f4f6",opacity:0.85,borderLeft:corCliente?`5px solid ${corCliente.color}`:"5px solid transparent"}}>
@@ -1032,15 +1090,28 @@ export default function App({user,onLogout}) {
                       <td style={{...TD,textAlign:"center",color:"#9ca3af"}}>{row.quantidade||"—"}</td>
                       <td style={{...TD,fontWeight:600,color:"#9ca3af",textDecoration:"line-through"}}>{fmtBRL(row.preco)}</td>
                       <td style={{...TD,color:"#9ca3af"}}>{row.dataEnvio?.slice(0,10)||"—"}</td>
+                      <td style={{...TD,maxWidth:220}}>
+                        {(() => {
+                          const info = formatMotivoCancelamento(row.motivoCancelamento);
+                          if (!info) return <span style={{color:"#cbd5e1"}}>—</span>;
+                          return (
+                            <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                              <span style={{background:info.cor.bg,color:info.cor.color,borderRadius:6,padding:"1px 7px",fontSize:9,fontWeight:700,width:"fit-content"}}>{info.origem}</span>
+                              <span style={{fontSize:11,color:"#475569",lineHeight:1.3}}>{info.texto}</span>
+                            </div>
+                          );
+                        })()}
+                      </td>
                     </tr>
                     );
                   })}
-                  {pedidosCancelados.length===0&&<tr><td colSpan={9} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>Nenhum pedido cancelado.</td></tr>}
+                  {canceladosFiltrados.length===0&&<tr><td colSpan={10} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>{pedidosCancelados.length===0?"Nenhum pedido cancelado.":"Nenhum pedido encontrado com esse motivo."}</td></tr>}
                 </tbody>
               </table>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* ── TAB: DEVOLUCOES ── */}
         {activeTab==="devolucoes"&&(

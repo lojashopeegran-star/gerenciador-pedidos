@@ -101,6 +101,7 @@ export async function upsertPedidos(rows, userId, orgId) {
           nome_usuario:   record.nome_usuario,
           data_criacao:   record.data_criacao,
           mes_referencia: record.mes_referencia,
+          motivo_cancelamento: record.motivo_cancelamento,
           // DO NOT update status_interno or nota_revisao
         })
         .eq('id', existing.id)
@@ -227,6 +228,7 @@ function rowToDb(r) {
     nome_usuario:   r.nomeUsuario   || '',
     data_criacao:   r.dataCriacao   || null,
     mes_referencia: r.mesReferencia || '',
+    motivo_cancelamento: r.motivoCancelamento || '',
   }
 }
 
@@ -250,6 +252,7 @@ export function dbToRow(d) {
     nomeUsuario:   d.nome_usuario   || '',
     dataCriacao:   d.data_criacao   || '',
     mesReferencia: d.mes_referencia || '',
+    motivoCancelamento: d.motivo_cancelamento || '',
     _status: 'existing',
   }
 }
