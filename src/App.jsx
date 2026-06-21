@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto } from "./supabase.js";
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -298,6 +298,9 @@ export default function App({user,onLogout}) {
   const [searchEnviados, setSearchEnviados] = useState("");
   const [mesClientesFiltro, setMesClientesFiltro] = useState("all");
   const [filterMotivo, setFilterMotivo] = useState("all");
+  const [filterDataEnviados, setFilterDataEnviados] = useState("all");
+  const [filterDataCancelados, setFilterDataCancelados] = useState("all");
+  const [filterMotivoDevolucao, setFilterMotivoDevolucao] = useState("all");
   const [clienteExpandido, setClienteExpandido] = useState(null); // chave "nomeUsuario__loja"
   const [filterSt,      setFilterSt]      = useState("all");
   const [filterProduto, setFilterProduto] = useState("all");
@@ -310,6 +313,7 @@ export default function App({user,onLogout}) {
   const [organizacao,   setOrganizacao]   = useState(null); // current organization
   const [membrosEquipe, setMembrosEquipe] = useState([]);   // all members in org (for admin)
   const [produtividade, setProdutividade] = useState([]);   // raw productivity data
+  const [auditoria,     setAuditoria]     = useState([]);   // audit log entries
   const [showEquipeTab, setShowEquipeTab] = useState(false);
   const [showNovoFuncionario, setShowNovoFuncionario] = useState(false);
   const [novoFuncNome,     setNovoFuncNome]     = useState("");
@@ -344,6 +348,7 @@ export default function App({user,onLogout}) {
         fetchMembrosDaOrganizacao(orgId).then(setMembrosEquipe);
         if (m?.is_admin) {
           fetchProdutividade(orgId).then(setProdutividade);
+          fetchAuditoria(orgId, true).then(setAuditoria);
         }
       }
 
@@ -484,12 +489,14 @@ export default function App({user,onLogout}) {
   const handleClearAll = async () => {
     setShowConfirmClear(false);
     setSaving(true);
+    const totalAntes = allPedidos.length;
     if (supabase) {
       await Promise.all([
         deleteAllPedidos(user.id, orgId),
         deleteAllDevolucoes(user.id, orgId),
         deleteAllFaturamento(user.id, orgId),
       ]);
+      registrarAuditoria(orgId, user.id, meuNome, "zerou_sistema", `Apagou ${totalAntes} pedido(s), todas as devoluções e faturamento.`);
     }
     setAllPedidos([]);
     setDevolucoes([]);
@@ -546,6 +553,23 @@ export default function App({user,onLogout}) {
       }
     }
   };
+  // ── Exportar dados para Excel ──────────────────────────────────────────────
+  const exportToExcel = (rows, filename, columnsMap) => {
+    if (!rows.length) { showToast("Nada para exportar.","#d97706"); return; }
+    const data = rows.map(r => {
+      const obj = {};
+      for (const [label, key] of Object.entries(columnsMap)) {
+        obj[label] = typeof key === "function" ? key(r) : (r[key] ?? "");
+      }
+      return obj;
+    });
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Dados");
+    XLSX.writeFile(wb, `${filename}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    showToast(`📥 ${rows.length} linha(s) exportada(s)!`,"#059669");
+  };
+
   const copyIds=()=>{
     navigator.clipboard.writeText([...selected].join(",")).then(()=>{
       setCopied(true);
@@ -658,6 +682,7 @@ export default function App({user,onLogout}) {
     });
     setCriandoFuncionario(false);
     if (res.error) { showToast(`❌ ${res.error}`,"#991b1b"); return; }
+    registrarAuditoria(orgId, user.id, meuNome, "criou_funcionario", `Criou o login de "${novoFuncNome.trim()}" (${novoFuncEmail.trim()}).`);
     showToast(`✅ Funcionário ${novoFuncNome} criado com sucesso!`,"#059669");
     setShowNovoFuncionario(false);
     setNovoFuncNome(""); setNovoFuncEmail(""); setNovoFuncSenha("");
@@ -726,6 +751,32 @@ export default function App({user,onLogout}) {
             ))}
           </div>
         </div>
+
+        {/* ── Alerta de prazos vencendo hoje ── */}
+        {(() => {
+          const vencendoHoje = pedidosAbertos.filter(r => deadlineInfo(r.dataEnvio)?.tier === "red" && r.statusInterno !== "feito");
+          if (vencendoHoje.length === 0) return null;
+          return (
+            <div style={{
+              background: "linear-gradient(135deg,#dc2626,#ef4444)", borderRadius: 14, padding: "14px 20px",
+              marginBottom: 18, display: "flex", alignItems: "center", gap: 14, boxShadow: "0 4px 14px rgba(239,68,68,0.3)",
+              animation: "pulseAlert 2s ease-in-out infinite",
+            }}>
+              <style>{`@keyframes pulseAlert{0%,100%{box-shadow:0 4px 14px rgba(239,68,68,0.3)}50%{box-shadow:0 4px 22px rgba(239,68,68,0.55)}}`}</style>
+              <span style={{ fontSize: 26 }}>🚨</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: "#fff", fontWeight: 800, fontSize: 14 }}>
+                  {vencendoHoje.length} pedido{vencendoHoje.length !== 1 ? "s" : ""} vencendo hoje ou já vencido{vencendoHoje.length !== 1 ? "s" : ""}!
+                </div>
+                <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12 }}>Priorize esses pedidos para não atrasar o envio.</div>
+              </div>
+              <button onClick={() => { setActiveTab("abertos"); setFilterSt("all"); setFilterPrazo("red"); }}
+                style={{ background: "#fff", color: "#dc2626", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
+                Ver agora →
+              </button>
+            </div>
+          );
+        })()}
 
         {/* Stats */}
         <div style={{display:"grid",gridTemplateColumns:organizacao?"repeat(8,1fr)":"repeat(7,1fr)",gap:10,marginBottom:18}}>
@@ -861,6 +912,13 @@ export default function App({user,onLogout}) {
                   <option value="yellow">🟡 Atenção (2d)</option>
                   <option value="green">🟢 OK (3+d)</option>
                 </select>
+                <button onClick={()=>exportToExcel(filtered, "pedidos_em_aberto", {
+                  "ID Pedido":"idPedido","Status":"statusPedido","Destinatário":"destinatario","Loja":"loja",
+                  "Produto":"produto","Variação":"variacao","Qtd":"quantidade","Preço":r=>r.preco,
+                  "Prazo":"dataEnvio","Notas":"notas",
+                })} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"7px 14px",fontSize:12,cursor:"pointer",background:"#fff",fontWeight:600,color:"#374151",display:"flex",alignItems:"center",gap:5}}>
+                  📥 Exportar
+                </button>
               </div>
               {/* Date filter chips */}
               {datasUnicas.length>0&&(
@@ -973,12 +1031,14 @@ export default function App({user,onLogout}) {
         {/* ── TAB: ENVIADOS ── */}
         {activeTab==="enviados"&&(()=>{
           const qE = searchEnviados.trim().toLowerCase();
-          const enviadosFiltrados = !qE ? pedidosEnviados : pedidosEnviados.filter(r=>
+          const datasEnviados = [...new Set(pedidosEnviados.map(r=>r.dataEnvio?.slice(0,10)).filter(Boolean))].sort().reverse();
+          let enviadosFiltrados = !qE ? pedidosEnviados : pedidosEnviados.filter(r=>
             r.idPedido.toLowerCase().includes(qE) ||
             r.produto.toLowerCase().includes(qE) ||
             r.destinatario.toLowerCase().includes(qE) ||
             r.variacao.toLowerCase().includes(qE)
           );
+          if (filterDataEnviados!=="all") enviadosFiltrados = enviadosFiltrados.filter(r=>r.dataEnvio?.slice(0,10)===filterDataEnviados);
           return (
           <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden"}}>
             <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
@@ -986,8 +1046,31 @@ export default function App({user,onLogout}) {
               <span style={{background:"#059669",color:"#fff",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{enviadosFiltrados.length}</span>
               <input placeholder="🔍 Buscar ID, produto, destinatário..." value={searchEnviados} onChange={e=>setSearchEnviados(e.target.value)}
                 style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"6px 12px",fontSize:12,outline:"none",flex:1,minWidth:180,maxWidth:320}} />
+              <button onClick={()=>exportToExcel(enviadosFiltrados, "pedidos_enviados", {
+                "ID Pedido":"idPedido","Status":"statusPedido","Destinatário":"destinatario","Loja":"loja",
+                "Produto":"produto","Variação":"variacao","Qtd":"quantidade","Preço":r=>r.preco,"Data Envio":"dataEnvio",
+              })} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"6px 13px",fontSize:11,cursor:"pointer",background:"#fff",fontWeight:600,color:"#374151"}}>
+                📥 Exportar
+              </button>
               <span style={{marginLeft:"auto",fontSize:12,fontWeight:700,color:"#059669"}}>{fmtBRL(enviadosFiltrados.reduce((s,r)=>s+(parseFloat(r.preco)||0),0))}</span>
             </div>
+            {datasEnviados.length>0&&(
+              <div style={{padding:"9px 18px",background:"#f8fafc",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                <span style={{fontSize:11,fontWeight:700,color:"#64748b",marginRight:2,whiteSpace:"nowrap"}}>📅 Data de envio:</span>
+                <button onClick={()=>setFilterDataEnviados("all")} style={{padding:"4px 12px",border:`1.5px solid ${filterDataEnviados==="all"?"#059669":"#e2e8f0"}`,borderRadius:20,background:filterDataEnviados==="all"?"#059669":"#fff",color:filterDataEnviados==="all"?"#fff":"#374151",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Todas</button>
+                {datasEnviados.slice(0,30).map(data=>{
+                  const isActive = filterDataEnviados===data;
+                  const [yyyy,mm,dd] = data.split("-");
+                  const count = pedidosEnviados.filter(r=>r.dataEnvio?.slice(0,10)===data).length;
+                  return (
+                    <button key={data} onClick={()=>setFilterDataEnviados(isActive?"all":data)}
+                      style={{padding:"4px 12px",border:`1.5px solid ${isActive?"#059669":"#e2e8f0"}`,borderRadius:20,background:isActive?"#059669":"#fff",color:isActive?"#fff":"#374151",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                      {dd}/{mm} <span style={{opacity:0.8}}>({count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead><tr style={{background:"#f0fdf4"}}>{["Status","ID Pedido","Destinatário","Loja","Produto","Variação","Qtd","Preço","Data Envio"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
@@ -1033,19 +1116,28 @@ export default function App({user,onLogout}) {
           }
           const motivosArr = Object.values(motivoContagem).sort((a,b)=>b.total-a.total);
 
-          const canceladosFiltrados = filterMotivo==="all"
+          const canceladosFiltrados0 = filterMotivo==="all"
             ? pedidosCancelados
             : pedidosCancelados.filter(r => {
                 const info = formatMotivoCancelamento(r.motivoCancelamento);
                 const chave = info ? info.texto : "Motivo não informado";
                 return chave === filterMotivo;
               });
+          const datasCancelados = [...new Set(pedidosCancelados.map(r=>r.dataEnvio?.slice(0,10)).filter(Boolean))].sort().reverse();
+          const canceladosFiltrados = filterDataCancelados==="all" ? canceladosFiltrados0 : canceladosFiltrados0.filter(r=>r.dataEnvio?.slice(0,10)===filterDataCancelados);
 
           return (
           <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden"}}>
             <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
               <span style={{fontSize:13,fontWeight:700,color:"#6b7280"}}>❌ Pedidos Cancelados</span>
               <span style={{background:"#6b7280",color:"#fff",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{canceladosFiltrados.length}</span>
+              <button onClick={()=>exportToExcel(canceladosFiltrados, "pedidos_cancelados", {
+                "ID Pedido":"idPedido","Status":"statusPedido","Destinatário":"destinatario","Loja":"loja",
+                "Produto":"produto","Variação":"variacao","Qtd":"quantidade","Preço":r=>r.preco,"Data":"dataEnvio",
+                "Motivo do Cancelamento": r => formatMotivoCancelamento(r.motivoCancelamento)?.texto || "",
+              })} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"6px 13px",fontSize:11,cursor:"pointer",background:"#fff",fontWeight:600,color:"#374151"}}>
+                📥 Exportar
+              </button>
             </div>
 
             {/* Filtro por motivo de cancelamento */}
@@ -1062,6 +1154,24 @@ export default function App({user,onLogout}) {
                       title={m.texto}
                       style={{padding:"4px 12px",border:`1.5px solid ${isActive?m.cor.color:"#e2e8f0"}`,borderRadius:20,background:isActive?m.cor.color:m.cor.bg,color:isActive?"#fff":m.cor.color,fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",maxWidth:280,overflow:"hidden",textOverflow:"ellipsis"}}>
                       {m.texto.length>40?m.texto.slice(0,40)+"…":m.texto} <strong>({m.total})</strong>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {datasCancelados.length>0&&(
+              <div style={{padding:"9px 18px",background:"#f8fafc",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                <span style={{fontSize:11,fontWeight:700,color:"#64748b",marginRight:2,whiteSpace:"nowrap"}}>📅 Data:</span>
+                <button onClick={()=>setFilterDataCancelados("all")} style={{padding:"4px 12px",border:`1.5px solid ${filterDataCancelados==="all"?"#6b7280":"#e2e8f0"}`,borderRadius:20,background:filterDataCancelados==="all"?"#6b7280":"#fff",color:filterDataCancelados==="all"?"#fff":"#374151",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>Todas</button>
+                {datasCancelados.slice(0,30).map(data=>{
+                  const isActive = filterDataCancelados===data;
+                  const [yyyy,mm,dd] = data.split("-");
+                  const count = pedidosCancelados.filter(r=>r.dataEnvio?.slice(0,10)===data).length;
+                  return (
+                    <button key={data} onClick={()=>setFilterDataCancelados(isActive?"all":data)}
+                      style={{padding:"4px 12px",border:`1.5px solid ${isActive?"#6b7280":"#e2e8f0"}`,borderRadius:20,background:isActive?"#6b7280":"#fff",color:isActive?"#fff":"#374151",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                      {dd}/{mm} <span style={{opacity:0.8}}>({count})</span>
                     </button>
                   );
                 })}
@@ -1114,18 +1224,57 @@ export default function App({user,onLogout}) {
         })()}
 
         {/* ── TAB: DEVOLUCOES ── */}
-        {activeTab==="devolucoes"&&(
+        {activeTab==="devolucoes"&&(()=>{
+          const motivoDevContagem = {};
+          for (const r of devolucoes) {
+            const chave = (r.motivo || "Motivo não informado").trim();
+            motivoDevContagem[chave] = (motivoDevContagem[chave] || 0) + 1;
+          }
+          const motivosDevArr = Object.entries(motivoDevContagem).sort((a,b)=>b[1]-a[1]);
+          const devolucoesFiltradas = filterMotivoDevolucao==="all"
+            ? devolucoes
+            : devolucoes.filter(r => (r.motivo || "Motivo não informado").trim() === filterMotivoDevolucao);
+          const totalDevFiltrado = devolucoesFiltradas.reduce((s,r)=>s+(parseFloat(r.preco_unidade)||0)*(parseFloat(r.quantidade)||1),0);
+
+          return (
           <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden"}}>
             <div style={{padding:"14px 18px",borderBottom:"1px solid #fee2e2",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
               <span style={{fontSize:13,fontWeight:700,color:"#ef4444"}}>🔄 Devoluções e Reembolsos</span>
-              <span style={{background:"#ef4444",color:"#fff",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{devolucoes.length}</span>
-              {totalDev>0&&<span style={{background:"#fde8e8",color:"#991b1b",borderRadius:20,padding:"3px 12px",fontSize:12,fontWeight:800}}>-{fmtBRL(totalDev)}</span>}
+              <span style={{background:"#ef4444",color:"#fff",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{devolucoesFiltradas.length}</span>
+              {totalDevFiltrado>0&&<span style={{background:"#fde8e8",color:"#991b1b",borderRadius:20,padding:"3px 12px",fontSize:12,fontWeight:800}}>-{fmtBRL(totalDevFiltrado)}</span>}
+              <button onClick={()=>exportToExcel(devolucoesFiltradas, "devolucoes", {
+                "ID Pedido":"id_pedido","Data":"data_criacao","Produto":"produto","Variação":"variacao",
+                "Qtd":"quantidade","Preço Unit.":r=>r.preco_unidade,"Status Devolução":"status_devolucao",
+                "Motivo":"motivo","Observações":"observacoes","Loja":"loja",
+              })} style={{border:"1px solid #fee2e2",borderRadius:10,padding:"6px 13px",fontSize:11,cursor:"pointer",background:"#fff",fontWeight:600,color:"#374151"}}>
+                📥 Exportar
+              </button>
             </div>
+
+            {motivosDevArr.length>0&&(
+              <div style={{padding:"10px 18px",background:"#fef2f2",borderBottom:"1px solid #fee2e2",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                <span style={{fontSize:11,fontWeight:700,color:"#991b1b",marginRight:2,whiteSpace:"nowrap"}}>🔍 Filtrar por motivo:</span>
+                <button onClick={()=>setFilterMotivoDevolucao("all")} style={{padding:"4px 12px",border:`1.5px solid ${filterMotivoDevolucao==="all"?"#ef4444":"#fecaca"}`,borderRadius:20,background:filterMotivoDevolucao==="all"?"#ef4444":"#fff",color:filterMotivoDevolucao==="all"?"#fff":"#991b1b",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                  Todos ({devolucoes.length})
+                </button>
+                {motivosDevArr.map(([motivo,total])=>{
+                  const isActive = filterMotivoDevolucao===motivo;
+                  return (
+                    <button key={motivo} onClick={()=>setFilterMotivoDevolucao(isActive?"all":motivo)}
+                      title={motivo}
+                      style={{padding:"4px 12px",border:`1.5px solid ${isActive?"#ef4444":"#fecaca"}`,borderRadius:20,background:isActive?"#ef4444":"#fff",color:isActive?"#fff":"#991b1b",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",maxWidth:260,overflow:"hidden",textOverflow:"ellipsis"}}>
+                      {motivo.length>35?motivo.slice(0,35)+"…":motivo} <strong>({total})</strong>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
             <div style={{overflowX:"auto"}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead><tr style={{background:"#fef2f2"}}>{["ID Pedido","Data","Produto","Variação","Qtd","Preço Unit.","Status Dev.","Motivo","Observações","Loja"].map(h=><th key={h} style={TH}>{h}</th>)}</tr></thead>
                 <tbody>
-                  {devolucoes.map((row,i)=>(
+                  {devolucoesFiltradas.map((row,i)=>(
                     <tr key={row.id_pedido||i} style={{background:i%2===0?"#fff5f5":"#fff",borderBottom:"1px solid #fee2e2"}}>
                       <td style={{...TD,fontWeight:700,color:"#ef4444",fontFamily:"monospace",fontSize:11}}>{row.id_pedido}</td>
                       <td style={TD}>{row.data_criacao?.slice(0,10)||"—"}</td>
@@ -1139,12 +1288,13 @@ export default function App({user,onLogout}) {
                       <td style={TD}>{row.loja||"—"}</td>
                     </tr>
                   ))}
-                  {devolucoes.length===0&&<tr><td colSpan={10} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>Nenhuma devolução registrada.</td></tr>}
+                  {devolucoesFiltradas.length===0&&<tr><td colSpan={10} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>{devolucoes.length===0?"Nenhuma devolução registrada.":"Nenhuma devolução encontrada com esse motivo."}</td></tr>}
                 </tbody>
               </table>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* ── TAB: CLIENTES ── */}
         {activeTab==="clientes"&&(()=>{
@@ -1206,8 +1356,13 @@ export default function App({user,onLogout}) {
             </div>
 
             <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden"}}>
-              <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",fontSize:14,fontWeight:700,color:"#1e293b"}}>
-                🏆 Ranking — {mesClientesFiltro==="all" ? "Todos os meses" : mesLabel(mesClientesFiltro)}
+              <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",fontSize:14,fontWeight:700,color:"#1e293b",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                <span>🏆 Ranking — {mesClientesFiltro==="all" ? "Todos os meses" : mesLabel(mesClientesFiltro)}</span>
+                <button onClick={()=>exportToExcel(rankingArr, "ranking_clientes", {
+                  "Nome de Usuário":"nomeUsuario","Loja":"loja","Compras no mês":"totalMes","Total geral":"totalGeral",
+                })} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"6px 13px",fontSize:11,cursor:"pointer",background:"#fff",fontWeight:600,color:"#374151"}}>
+                  📥 Exportar
+                </button>
               </div>
               <div style={{overflowX:"auto",maxHeight:620,overflowY:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
@@ -1324,6 +1479,66 @@ export default function App({user,onLogout}) {
                 </ResponsiveContainer>
               ):<div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:13}}>Carregue planilhas para ver o faturamento.</div>}
             </div>
+
+            {/* ── Gráfico: Pedidos por dia (últimos 30 dias com dados) ── */}
+            <div style={{background:"#fff",borderRadius:18,padding:20,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginTop:18}}>
+              <div style={{fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:16}}>📊 Pedidos por Dia</div>
+              {(() => {
+                const porDia = {};
+                for (const r of allPedidos) {
+                  const d = r.dataCriacao?.slice(0,10);
+                  if (!d) continue;
+                  if (!porDia[d]) porDia[d] = { dia: d, total: 0, cancelados: 0 };
+                  porDia[d].total++;
+                  if (isCancelado(r)) porDia[d].cancelados++;
+                }
+                const dadosDia = Object.values(porDia).sort((a,b)=>a.dia.localeCompare(b.dia)).slice(-30)
+                  .map(d => ({ ...d, diaLabel: d.dia.slice(8,10)+"/"+d.dia.slice(5,7) }));
+                if (dadosDia.length===0) return <div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:13}}>Sem dados suficientes ainda.</div>;
+                return (
+                  <ResponsiveContainer width="100%" height={240}>
+                    <LineChart data={dadosDia} margin={{top:5,right:10,left:10,bottom:0}}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="diaLabel" tick={{fontSize:10}} />
+                      <YAxis tick={{fontSize:11}} allowDecimals={false} />
+                      <Tooltip />
+                      <Legend />
+                      <Line type="monotone" dataKey="total" name="Pedidos" stroke="#1d4ed8" strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="cancelados" name="Cancelados" stroke="#ef4444" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                );
+              })()}
+            </div>
+
+            {/* ── Gráfico: Taxa de cancelamento ao longo do tempo ── */}
+            <div style={{background:"#fff",borderRadius:18,padding:20,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginTop:18}}>
+              <div style={{fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:16}}>📉 Taxa de Cancelamento por Mês</div>
+              {(() => {
+                const porMes = {};
+                for (const r of allPedidos) {
+                  const m = r.mesReferencia;
+                  if (!m) continue;
+                  if (!porMes[m]) porMes[m] = { mes: m, total: 0, cancelados: 0 };
+                  porMes[m].total++;
+                  if (isCancelado(r)) porMes[m].cancelados++;
+                }
+                const dadosMes = Object.values(porMes).sort((a,b)=>a.mes.localeCompare(b.mes))
+                  .map(d => ({ ...d, mesLabel: mesLabel(d.mes), taxa: d.total ? Number(((d.cancelados/d.total)*100).toFixed(1)) : 0 }));
+                if (dadosMes.length===0) return <div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:13}}>Sem dados suficientes ainda.</div>;
+                return (
+                  <ResponsiveContainer width="100%" height={240}>
+                    <LineChart data={dadosMes} margin={{top:5,right:10,left:10,bottom:0}}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="mesLabel" tick={{fontSize:11}} />
+                      <YAxis tick={{fontSize:11}} unit="%" />
+                      <Tooltip formatter={v=>`${v}%`} />
+                      <Line type="monotone" dataKey="taxa" name="Taxa de cancelamento" stroke="#ef4444" strokeWidth={2} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                );
+              })()}
+            </div>
           </div>
         )}
 
@@ -1387,6 +1602,30 @@ export default function App({user,onLogout}) {
               </div>
             </div>
 
+            {/* Histórico de Atividades / Auditoria */}
+            <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden",marginBottom:18}}>
+              <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",fontSize:14,fontWeight:700,color:"#1e293b"}}>📜 Histórico de Atividades</div>
+              <div style={{maxHeight:320,overflowY:"auto",padding:"6px 0"}}>
+                {auditoria.length===0 && <div style={{textAlign:"center",padding:24,color:"#94a3b8",fontSize:12}}>Nenhuma atividade registrada ainda.</div>}
+                {auditoria.map(a=>{
+                  const icones = {
+                    zerou_sistema: "🗑️", criou_funcionario: "👤➕", removeu_funcionario: "👤➖", alterou_permissao: "🔐",
+                  };
+                  const dt = new Date(a.criado_em);
+                  const dataFmt = dt.toLocaleDateString("pt-BR") + " " + dt.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+                  return (
+                    <div key={a.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"8px 18px",borderBottom:"1px solid #f8fafc"}}>
+                      <span style={{fontSize:16,flexShrink:0}}>{icones[a.acao]||"📌"}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,color:"#1e293b"}}><strong>{a.nome_usuario||"Usuário"}</strong> {a.detalhes}</div>
+                        <div style={{fontSize:10,color:"#94a3b8",marginTop:1}}>{dataFmt}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Lista de membros com permissões */}
             <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden"}}>
               <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",fontSize:14,fontWeight:700,color:"#1e293b"}}>⚙️ Permissões</div>
@@ -1408,6 +1647,7 @@ export default function App({user,onLogout}) {
                                   const novoValor = e.target.checked;
                                   setMembrosEquipe(prev=>prev.map(x=>x.id===m.id?{...x,[perm]:novoValor}:x));
                                   await atualizarPermissoesMembro(m.id, {[perm]: novoValor});
+                                  registrarAuditoria(orgId, user.id, meuNome, "alterou_permissao", `${novoValor?"Concedeu":"Removeu"} "${perm}" para ${m.nome}.`);
                                   showToast("✅ Permissão atualizada!","#059669");
                                 }}
                                 style={{width:16,height:16,cursor:"pointer"}} />
@@ -1428,6 +1668,7 @@ export default function App({user,onLogout}) {
                                 if(!window.confirm(`Remover ${m.nome} permanentemente? O login (${m.email}) será apagado de vez e o e-mail poderá ser reutilizado depois.`)) return;
                                 const res = await removerFuncionarioCompleto(m.user_id);
                                 if (res.error) { showToast(`❌ ${res.error}`,"#991b1b"); return; }
+                                registrarAuditoria(orgId, user.id, meuNome, "removeu_funcionario", `Removeu "${m.nome}" (${m.email}) permanentemente.`);
                                 setMembrosEquipe(prev=>prev.filter(x=>x.id!==m.id));
                                 showToast("🗑️ Funcionário removido permanentemente.","#991b1b");
                               }} style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:8,padding:"4px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>

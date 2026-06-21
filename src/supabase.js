@@ -386,3 +386,25 @@ export async function removerFuncionarioCompleto(userIdToDelete) {
 export async function enviarResetSenhaFuncionario(email) {
   return await resetPassword(email)
 }
+
+// ── Auditoria — registra ações importantes da equipe ──────────────────────────
+export async function registrarAuditoria(orgId, userId, nomeUsuario, acao, detalhes = '') {
+  if (!supabase || !userId) return
+  const { error } = await supabase.from('auditoria').insert({
+    organizacao_id: orgId,
+    user_id: userId,
+    nome_usuario: nomeUsuario,
+    acao,
+    detalhes,
+  })
+  if (error) console.error('registrarAuditoria error:', error.message)
+}
+
+export async function fetchAuditoria(orgIdOrUserId, isOrg) {
+  if (!supabase || !orgIdOrUserId) return []
+  let query = supabase.from('auditoria').select('*')
+  query = isOrg ? query.eq('organizacao_id', orgIdOrUserId) : query.eq('user_id', orgIdOrUserId)
+  const { data, error } = await query.order('criado_em', { ascending: false }).limit(200)
+  if (error) { console.error('fetchAuditoria error:', error.message); return [] }
+  return data || []
+}
