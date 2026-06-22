@@ -1,0 +1,3 @@
+# Desativa verificação JWT para permitir chamadas do cron job
+[check-prazos-calendar]
+verify_jwt = false
