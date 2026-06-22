@@ -826,7 +826,7 @@ export default function App({user,onLogout}) {
                 </div>
                 <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12 }}>Priorize esses pedidos para não atrasar o envio.</div>
               </div>
-              <button onClick={() => { setActiveTab("abertos"); setFilterSt("all"); setFilterPrazo("red"); }}
+              <button onClick={() => { setActiveTab("abertos"); setFilterSt("all"); setFilterPrazo("red"); setFilterData("all"); setFilterLoja("all"); setFilterProduto("all"); setSearch(""); }}
                 style={{ background: "#fff", color: "#dc2626", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
                 Ver agora →
               </button>
