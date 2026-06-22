@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -314,6 +314,10 @@ export default function App({user,onLogout}) {
   const [membrosEquipe, setMembrosEquipe] = useState([]);   // all members in org (for admin)
   const [produtividade, setProdutividade] = useState([]);   // raw productivity data
   const [auditoria,     setAuditoria]     = useState([]);   // audit log entries
+  const [googleCalStatus, setGoogleCalStatus] = useState(null); // { id, ativo, criado_em } | null
+  const [conectandoGoogle, setConectandoGoogle] = useState(false);
+  const [alarmeHorarios, setAlarmeHorarios] = useState(["09:30","11:00","13:00","14:30"]);
+  const [salvandoHorarios, setSalvandoHorarios] = useState(false);
   const [showEquipeTab, setShowEquipeTab] = useState(false);
   const [showNovoFuncionario, setShowNovoFuncionario] = useState(false);
   const [novoFuncNome,     setNovoFuncNome]     = useState("");
@@ -349,6 +353,8 @@ export default function App({user,onLogout}) {
         if (m?.is_admin) {
           fetchProdutividade(orgId).then(setProdutividade);
           fetchAuditoria(orgId, true).then(setAuditoria);
+          fetchGoogleCalendarStatus(orgId).then(setGoogleCalStatus);
+          fetchAlarmeHorarios(orgId).then(setAlarmeHorarios);
         }
       }
 
@@ -668,6 +674,56 @@ export default function App({user,onLogout}) {
     setShowConfigLojas(false);
     if (supabase) await saveConfig(user.id, l1, l2, orgId);
     showToast("✅ Lojas configuradas com sucesso!", "#059669");
+  };
+
+  // ── Google Calendar — conectar / desconectar ─────────────────────────────────
+  const GOOGLE_CLIENT_ID = "786408703311-jic96ggrroh26usc5jb4n0pemnm2tmqd.apps.googleusercontent.com";
+  const GOOGLE_REDIRECT_URI = typeof window !== "undefined" ? window.location.origin : "";
+
+  const conectarGoogleCalendar = () => {
+    const params = new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: GOOGLE_REDIRECT_URI,
+      response_type: "code",
+      scope: "https://www.googleapis.com/auth/calendar.events",
+      access_type: "offline",
+      prompt: "consent",
+      state: "google_calendar_connect",
+    });
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  };
+
+  // Detecta retorno do Google (code na URL) e finaliza a conexão
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const state = params.get("state");
+    if (code && state === "google_calendar_connect" && supabase && orgId) {
+      setConectandoGoogle(true);
+      supabase.functions.invoke("google-calendar-connect", {
+        body: { code, redirectUri: GOOGLE_REDIRECT_URI },
+      }).then(({ data, error }) => {
+        setConectandoGoogle(false);
+        // Limpa o "code" da URL para não tentar reconectar de novo
+        window.history.replaceState({}, "", window.location.pathname);
+        if (error || data?.error) {
+          showToast(`❌ ${data?.error || "Erro ao conectar Google Calendar."}`, "#991b1b");
+        } else {
+          showToast("✅ Google Calendar conectado com sucesso!", "#059669");
+          fetchGoogleCalendarStatus(orgId).then(setGoogleCalStatus);
+          registrarAuditoria(orgId, user.id, meuNome, "conectou_google_calendar", "Conectou o Google Calendar para alarmes de prazo.");
+        }
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgId]);
+
+  const handleDesconectarGoogle = async () => {
+    if (!window.confirm("Desconectar o Google Calendar? Os alarmes automáticos de prazo vão parar de ser criados.")) return;
+    await desconectarGoogleCalendar(orgId);
+    setGoogleCalStatus(null);
+    registrarAuditoria(orgId, user.id, meuNome, "desconectou_google_calendar", "Desconectou o Google Calendar.");
+    showToast("🔌 Google Calendar desconectado.", "#64748b");
   };
 
   const handleCriarFuncionario = async () => {
@@ -1602,6 +1658,84 @@ export default function App({user,onLogout}) {
               </div>
             </div>
 
+            {/* Google Calendar — alarmes automáticos de prazo */}
+            <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",padding:20,marginBottom:18}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:googleCalStatus?16:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:12}}>
+                  <span style={{fontSize:28}}>📅</span>
+                  <div>
+                    <div style={{fontSize:14,fontWeight:700,color:"#1e293b"}}>Alarmes no Google Calendar</div>
+                    <div style={{fontSize:12,color:"#64748b"}}>
+                      {googleCalStatus
+                        ? "Conectado — cria eventos automáticos nos horários configurados abaixo"
+                        : "Não conectado. Conecte para receber alarmes de pedidos vencendo direto na sua agenda."}
+                    </div>
+                  </div>
+                </div>
+                {conectandoGoogle ? (
+                  <span style={{fontSize:12,color:"#64748b",fontWeight:600}}>Conectando...</span>
+                ) : googleCalStatus ? (
+                  <button onClick={handleDesconectarGoogle} style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:10,padding:"9px 18px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                    🔌 Desconectar
+                  </button>
+                ) : (
+                  <button onClick={conectarGoogleCalendar} style={{background:"linear-gradient(135deg,#1d4ed8,#0891b2)",color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                    Conectar Google Calendar →
+                  </button>
+                )}
+              </div>
+
+              {/* Gerenciador de horários — só aparece quando conectado */}
+              {googleCalStatus&&(
+                <div style={{borderTop:"1px solid #f1f5f9",paddingTop:16}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#374151",marginBottom:12}}>
+                    ⏰ Horários dos alarmes (horário de Brasília)
+                  </div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:12}}>
+                    {alarmeHorarios.map((h,i)=>(
+                      <div key={i} style={{display:"flex",alignItems:"center",gap:6,background:"#f1f5f9",borderRadius:10,padding:"6px 10px"}}>
+                        <input
+                          type="time"
+                          value={h}
+                          onChange={e=>{
+                            const novo = [...alarmeHorarios];
+                            novo[i] = e.target.value;
+                            setAlarmeHorarios(novo.sort());
+                          }}
+                          style={{border:"none",background:"transparent",fontSize:13,fontWeight:600,color:"#1e293b",cursor:"pointer",outline:"none"}}
+                        />
+                        <button onClick={()=>{
+                          if (alarmeHorarios.length <= 1) { showToast("Precisa ter pelo menos 1 horário.","#d97706"); return; }
+                          setAlarmeHorarios(prev=>prev.filter((_,idx)=>idx!==i));
+                        }} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:14,fontWeight:700,padding:"0 2px",lineHeight:1}}>✕</button>
+                      </div>
+                    ))}
+                    <button onClick={()=>setAlarmeHorarios(prev=>[...prev,"08:00"].sort())}
+                      style={{background:"none",border:"1.5px dashed #cbd5e1",borderRadius:10,padding:"6px 14px",fontSize:12,color:"#64748b",cursor:"pointer",fontWeight:600}}>
+                      + Adicionar horário
+                    </button>
+                  </div>
+                  <button
+                    onClick={async()=>{
+                      if (alarmeHorarios.length===0) { showToast("Adicione pelo menos 1 horário.","#d97706"); return; }
+                      setSalvandoHorarios(true);
+                      const res = await salvarAlarmeHorarios(alarmeHorarios);
+                      setSalvandoHorarios(false);
+                      if (res.error) { showToast(`❌ ${res.error}`,"#991b1b"); return; }
+                      registrarAuditoria(orgId, user.id, meuNome, "alterou_horarios_alarme", `Configurou ${alarmeHorarios.length} horário(s): ${alarmeHorarios.join(", ")}`);
+                      showToast(`✅ ${alarmeHorarios.length} horário(s) salvos com sucesso!`,"#059669");
+                    }}
+                    disabled={salvandoHorarios}
+                    style={{background:salvandoHorarios?"#e2e8f0":"#059669",color:salvandoHorarios?"#94a3b8":"#fff",border:"none",borderRadius:10,padding:"9px 20px",fontSize:12,fontWeight:700,cursor:salvandoHorarios?"not-allowed":"pointer"}}>
+                    {salvandoHorarios ? "Salvando..." : "💾 Salvar horários"}
+                  </button>
+                  <div style={{fontSize:11,color:"#94a3b8",marginTop:8}}>
+                    Os alarmes só são criados quando há pedidos vencendo que não estão marcados como Feito.
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Histórico de Atividades / Auditoria */}
             <div style={{background:"#fff",borderRadius:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden",marginBottom:18}}>
               <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",fontSize:14,fontWeight:700,color:"#1e293b"}}>📜 Histórico de Atividades</div>
@@ -1610,6 +1744,7 @@ export default function App({user,onLogout}) {
                 {auditoria.map(a=>{
                   const icones = {
                     zerou_sistema: "🗑️", criou_funcionario: "👤➕", removeu_funcionario: "👤➖", alterou_permissao: "🔐",
+                    conectou_google_calendar: "📅", desconectou_google_calendar: "🔌", alterou_horarios_alarme: "⏰",
                   };
                   const dt = new Date(a.criado_em);
                   const dataFmt = dt.toLocaleDateString("pt-BR") + " " + dt.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});

@@ -408,3 +408,42 @@ export async function fetchAuditoria(orgIdOrUserId, isOrg) {
   if (error) { console.error('fetchAuditoria error:', error.message); return [] }
   return data || []
 }
+
+// ── Google Calendar — conexão e status ─────────────────────────────────────────
+export async function fetchGoogleCalendarStatus(orgId) {
+  if (!supabase || !orgId) return null
+  const { data, error } = await supabase
+    .from('google_calendar_tokens')
+    .select('id, ativo, criado_em')
+    .eq('organizacao_id', orgId)
+    .maybeSingle()
+  if (error) { console.error('fetchGoogleCalendarStatus error:', error.message); return null }
+  return data
+}
+
+export async function desconectarGoogleCalendar(orgId) {
+  if (!supabase || !orgId) return
+  await supabase.from('google_calendar_tokens').delete().eq('organizacao_id', orgId)
+}
+
+// ── Alarme horários configuráveis ─────────────────────────────────────────────
+export async function fetchAlarmeHorarios(orgId) {
+  if (!supabase || !orgId) return ["09:30","11:00","13:00","14:30"]
+  const { data, error } = await supabase
+    .from('alarme_horarios')
+    .select('horarios')
+    .eq('organizacao_id', orgId)
+    .maybeSingle()
+  if (error || !data) return ["09:30","11:00","13:00","14:30"]
+  return data.horarios || ["09:30","11:00","13:00","14:30"]
+}
+
+export async function salvarAlarmeHorarios(horarios) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { data, error } = await supabase.functions.invoke('update-alarme-horarios', {
+    body: { horarios },
+  })
+  if (error) return { error: error.message }
+  if (data?.error) return { error: data.error }
+  return { success: true }
+}
