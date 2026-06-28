@@ -678,48 +678,46 @@ export default function App({user,onLogout}) {
   const totalDev     = devolucoes.reduce((s,d)=>s+(parseFloat(d.preco_unidade||0)*parseInt(d.quantidade||1)),0);
 
   // ── Notificações computadas ─────────────────────────────────────────────────
-  const notifPrazosRaw = pedidosAbertos
-    .filter(r => deadlineInfo(r.dataEnvio)?.tier === "red" && r.statusInterno !== "feito")
-    .map(r => {
-      const dl = deadlineInfo(r.dataEnvio);
-      return {
-        id: `prazo__${r.idPedido}`,
-        tipo: "prazo",
-        icon: "🔴",
-        titulo: dl?.label === "Vencido!" ? "Prazo vencido!" : "Prazo: amanhã",
-        desc: `Pedido ${r.idPedido}${r.destinatario ? " · " + r.destinatario : ""}`,
-        acao: () => { setActiveTab("abertos"); setFilterPrazo("red"); setFilterSt("all"); setShowNotifPanel(false); },
-        cor: "#ef4444",
-      };
-    });
+  // ── Notificações computadas ────────────────────────────────────────────────
+  function buildNotifs() {
+    var prazos = [];
+    var revisoes = [];
+    var revisaoIds = new Set();
+    for (var i = 0; i < pedidosAbertos.length; i++) {
+      var r = pedidosAbertos[i];
+      var dl = deadlineInfo(r.dataEnvio);
+      if (!dl || dl.tier !== "red") continue;
+      var desc = "Pedido " + r.idPedido + (r.destinatario ? " · " + r.destinatario : "");
+      if (r.statusInterno === "revisao") {
+        revisoes.push({ id: "revisao__" + r.idPedido, tipo: "revisao", icon: "📋", titulo: "Revisão com prazo crítico", desc: desc, cor: "#f59e0b" });
+        revisaoIds.add("prazo__" + r.idPedido);
+      }
+      if (r.statusInterno !== "feito") {
+        prazos.push({ id: "prazo__" + r.idPedido, tipo: "prazo", icon: "🔴", titulo: dl.label === "Vencido!" ? "Prazo vencido!" : "Prazo: amanhã", desc: desc, cor: "#ef4444" });
+      }
+    }
+    var prazosFiltrados = prazos.filter(function(n) { return !revisaoIds.has(n.id); });
+    return revisoes.concat(prazosFiltrados);
+  }
+  var todasNotifs = buildNotifs();
+  var notifNaoLidas = todasNotifs.filter(function(n) { return !lidas.has(n.id); });
 
-  const notifRevisoes = pedidosAbertos
-    .filter(r => r.statusInterno === "revisao" && deadlineInfo(r.dataEnvio)?.tier === "red")
-    .map(r => ({
-      id: `revisao__${r.idPedido}`,
-      tipo: "revisao",
-      icon: "📋",
-      titulo: "Revisão com prazo crítico",
-      desc: `Pedido ${r.idPedido}${r.destinatario ? " · " + r.destinatario : ""}`,
-      acao: () => { setActiveTab("abertos"); setFilterSt("revisao"); setFilterPrazo("red"); setShowNotifPanel(false); },
-      cor: "#f59e0b",
-    }));
-
-  const idsJaRevisao = new Set(notifRevisoes.map(n => n.id.replace("revisao__","prazo__")));
-  const notifPrazos = notifPrazosRaw.filter(n => !idsJaRevisao.has(n.id));
-  const todasNotifs = [...notifRevisoes, ...notifPrazos];
-  const notifNaoLidas = todasNotifs.filter(n => !lidas.has(n.id));
-
-  const marcarTodasLidas = () => {
-    const novas = new Set([...lidas, ...todasNotifs.map(n => n.id)]);
+  function marcarTodasLidas() {
+    var ids = todasNotifs.map(function(n) { return n.id; });
+    var novas = new Set([...lidas, ...ids]);
     setLidas(novas);
-    try { localStorage.setItem("notif_lidas", JSON.stringify([...novas])); } catch {}
-  };
-  const marcarLida = (id) => {
-    const novas = new Set([...lidas, id]);
+    try { localStorage.setItem("notif_lidas", JSON.stringify(Array.from(novas))); } catch(e) {}
+  }
+  function marcarLida(id) {
+    var novas = new Set([...lidas, id]);
     setLidas(novas);
-    try { localStorage.setItem("notif_lidas", JSON.stringify([...novas])); } catch {}
-  };
+    try { localStorage.setItem("notif_lidas", JSON.stringify(Array.from(novas))); } catch(e) {}
+  }
+  function notifAcao(n) {
+    if (n.tipo === "revisao") { setActiveTab("abertos"); setFilterSt("revisao"); setFilterPrazo("red"); }
+    else { setActiveTab("abertos"); setFilterPrazo("red"); setFilterSt("all"); }
+    setShowNotifPanel(false);
+  }
 
   // Chart
   const chartData = faturamento.reduce((acc,f)=>{
@@ -887,7 +885,7 @@ export default function App({user,onLogout}) {
                         <div key={n.id} style={{padding:"12px 16px",borderBottom:"1px solid #f8fafc",background:isLida?"#fff":"#fafbff",display:"flex",gap:12,alignItems:"flex-start",cursor:"pointer",transition:"background 0.15s"}}
                           onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
                           onMouseLeave={e=>e.currentTarget.style.background=isLida?"#fff":"#fafbff"}
-                          onClick={()=>{marcarLida(n.id);n.acao();}}>
+                          onClick={()=>{marcarLida(n.id);notifAcao(n);}}>
                           <div style={{width:36,height:36,borderRadius:10,background:n.cor+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{n.icon}</div>
                           <div style={{flex:1,minWidth:0}}>
                             <div style={{fontSize:13,fontWeight:isLida?500:700,color:isLida?"#64748b":"#1e293b",marginBottom:2}}>{n.titulo}</div>
