@@ -289,7 +289,8 @@ export default function App({user,onLogout}) {
   const [activeTab,     setActiveTab]     = useState("abertos");
   const [financeUnlocked,setFinanceUnlocked]=useState(false);
   const [showFinanceGate,setShowFinanceGate]=useState(false);
-  const [revisaoModal,  setRevisaoModal]  = useState(null);
+  const [revisaoModal,      setRevisaoModal]      = useState(null);
+  const [confirmarDesmarcar, setConfirmarDesmarcar] = useState(null); // {order, novoSt, label}
   const [uploadNames,   setUploadNames]   = useState({});
   const [search,        setSearch]        = useState("");
   const [filterLoja,    setFilterLoja]    = useState("all");
@@ -329,9 +330,23 @@ export default function App({user,onLogout}) {
     pode_carregar_planilha: true, pode_editar_status: true,
   });
   const [criandoFuncionario, setCriandoFuncionario] = useState(false);
-  const tableRef = useRef(null);
+  const tableRef  = useRef(null);
+  const notifRef  = useRef(null);
 
   const showToast=(msg,color,ms=3500)=>{setToast({msg,color});setTimeout(()=>setToast(null),ms);};
+
+  // Fechar painel de notificações ao clicar fora
+  useEffect(() => {
+    if (!showNotifPanel) return;
+    const handler = (e) => {
+      if (notifRef.current && !notifRef.current.contains(e.target)) {
+        setShowNotifPanel(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showNotifPanel]);
+
 
   // ── Load all data from Supabase on mount ───────────────────────────────────
   useEffect(()=>{
@@ -489,6 +504,11 @@ export default function App({user,onLogout}) {
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [lojas,           setLojas]           = useState(["Loja 1","Loja 2"]);
   const [showConfigLojas, setShowConfigLojas] = useState(false);
+  // ── Notificações in-app ────────────────────────────────────────────────────
+  const [showNotifPanel,  setShowNotifPanel]  = useState(false);
+  const [lidas,           setLidas]           = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("notif_lidas")||"[]")); } catch { return new Set(); }
+  });
   const [configLoja1,     setConfigLoja1]     = useState("");
   const [configLoja2,     setConfigLoja2]     = useState("");
 
@@ -540,6 +560,11 @@ export default function App({user,onLogout}) {
       return;
     }
     setRevisaoModal(order);
+  };
+
+  // Intercepta clique de DESMARCAR feito ou revisão — pede confirmação
+  const tentarDesmarcar = (order, novoSt, label) => {
+    setConfirmarDesmarcar({ order, novoSt, label });
   };
 
   // ── Selection ──────────────────────────────────────────────────────────────
@@ -647,6 +672,50 @@ export default function App({user,onLogout}) {
   const revisaoCount = pedidosAbertos.filter(r=>r.statusInterno==="revisao").length;
   const valorAberto  = pedidosAbertos.reduce((s,r)=>s+(parseFloat(r.preco)||0),0);
   const totalDev     = devolucoes.reduce((s,d)=>s+(parseFloat(d.preco_unidade||0)*parseInt(d.quantidade||1)),0);
+
+  // ── Notificações computadas ─────────────────────────────────────────────────
+  const notifPrazosRaw = pedidosAbertos
+    .filter(r => deadlineInfo(r.dataEnvio)?.tier === "red" && r.statusInterno !== "feito")
+    .map(r => {
+      const dl = deadlineInfo(r.dataEnvio);
+      return {
+        id: `prazo__${r.idPedido}`,
+        tipo: "prazo",
+        icon: "🔴",
+        titulo: dl?.label === "Vencido!" ? "Prazo vencido!" : "Prazo: amanhã",
+        desc: `Pedido ${r.idPedido}${r.destinatario ? " · " + r.destinatario : ""}`,
+        acao: () => { setActiveTab("abertos"); setFilterPrazo("red"); setFilterSt("all"); setShowNotifPanel(false); },
+        cor: "#ef4444",
+      };
+    });
+
+  const notifRevisoes = pedidosAbertos
+    .filter(r => r.statusInterno === "revisao" && deadlineInfo(r.dataEnvio)?.tier === "red")
+    .map(r => ({
+      id: `revisao__${r.idPedido}`,
+      tipo: "revisao",
+      icon: "📋",
+      titulo: "Revisão com prazo crítico",
+      desc: `Pedido ${r.idPedido}${r.destinatario ? " · " + r.destinatario : ""}`,
+      acao: () => { setActiveTab("abertos"); setFilterSt("revisao"); setFilterPrazo("red"); setShowNotifPanel(false); },
+      cor: "#f59e0b",
+    }));
+
+  const idsJaRevisao = new Set(notifRevisoes.map(n => n.id.replace("revisao__","prazo__")));
+  const notifPrazos = notifPrazosRaw.filter(n => !idsJaRevisao.has(n.id));
+  const todasNotifs = [...notifRevisoes, ...notifPrazos];
+  const notifNaoLidas = todasNotifs.filter(n => !lidas.has(n.id));
+
+  const marcarTodasLidas = () => {
+    const novas = new Set([...lidas, ...todasNotifs.map(n => n.id)]);
+    setLidas(novas);
+    try { localStorage.setItem("notif_lidas", JSON.stringify([...novas])); } catch {}
+  };
+  const marcarLida = (id) => {
+    const novas = new Set([...lidas, id]);
+    setLidas(novas);
+    try { localStorage.setItem("notif_lidas", JSON.stringify([...novas])); } catch {}
+  };
 
   // Chart
   const chartData = faturamento.reduce((acc,f)=>{
@@ -770,6 +839,56 @@ export default function App({user,onLogout}) {
           </span>
           <span style={{background:"rgba(255,255,255,0.12)",borderRadius:20,padding:"3px 12px",fontSize:12}}>👤 {user?.email}</span>
           <button onClick={()=>{setConfigLoja1(lojas[0]);setConfigLoja2(lojas[1]);setShowConfigLojas(true);}} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"3px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>⚙️ Lojas</button>
+          {/* ── Sino de Notificações ── */}
+          <div ref={notifRef} style={{position:"relative"}}>
+            <button onClick={()=>setShowNotifPanel(v=>!v)} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"3px 14px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+              🔔
+              {notifNaoLidas.length>0&&(
+                <span style={{background:"#ef4444",color:"#fff",borderRadius:"50%",width:18,height:18,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,lineHeight:1}}>
+                  {notifNaoLidas.length>9?"9+":notifNaoLidas.length}
+                </span>
+              )}
+            </button>
+            {showNotifPanel&&(
+              <div style={{position:"absolute",right:0,top:"calc(100% + 10px)",width:340,background:"#fff",borderRadius:16,boxShadow:"0 8px 32px rgba(0,0,0,0.18)",zIndex:9000,overflow:"hidden",border:"1px solid #e2e8f0"}}>
+                <div style={{padding:"14px 16px 10px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <div style={{fontSize:14,fontWeight:700,color:"#1e293b"}}>🔔 Notificações</div>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    {notifNaoLidas.length>0&&(
+                      <button onClick={marcarTodasLidas} style={{background:"none",border:"none",fontSize:11,color:"#3b82f6",cursor:"pointer",fontWeight:600,padding:"2px 6px"}}>Marcar todas como lidas</button>
+                    )}
+                    <button onClick={()=>setShowNotifPanel(false)} style={{background:"#f1f5f9",border:"none",borderRadius:8,width:24,height:24,cursor:"pointer",fontSize:14,color:"#64748b",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                  </div>
+                </div>
+                <div style={{maxHeight:380,overflowY:"auto"}}>
+                  {todasNotifs.length===0?(
+                    <div style={{padding:"32px 16px",textAlign:"center",color:"#94a3b8"}}>
+                      <div style={{fontSize:32,marginBottom:8}}>✅</div>
+                      <div style={{fontSize:13,fontWeight:500}}>Tudo em dia!</div>
+                      <div style={{fontSize:12,marginTop:4}}>Nenhum prazo urgente no momento.</div>
+                    </div>
+                  ):(
+                    todasNotifs.map(n=>{
+                      const isLida = lidas.has(n.id);
+                      return (
+                        <div key={n.id} style={{padding:"12px 16px",borderBottom:"1px solid #f8fafc",background:isLida?"#fff":"#fafbff",display:"flex",gap:12,alignItems:"flex-start",cursor:"pointer",transition:"background 0.15s"}}
+                          onMouseEnter={e=>e.currentTarget.style.background="#f8fafc"}
+                          onMouseLeave={e=>e.currentTarget.style.background=isLida?"#fff":"#fafbff"}
+                          onClick={()=>{marcarLida(n.id);n.acao();}}>
+                          <div style={{width:36,height:36,borderRadius:10,background:n.cor+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,flexShrink:0}}>{n.icon}</div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:13,fontWeight:isLida?500:700,color:isLida?"#64748b":"#1e293b",marginBottom:2}}>{n.titulo}</div>
+                            <div style={{fontSize:11,color:"#94a3b8",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{n.desc}</div>
+                          </div>
+                          {!isLida&&<div style={{width:8,height:8,borderRadius:"50%",background:n.cor,flexShrink:0,marginTop:4}}/>}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <button onClick={onLogout} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"3px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Sair →</button>
         </div>
       </div>
@@ -826,7 +945,7 @@ export default function App({user,onLogout}) {
                 </div>
                 <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12 }}>Priorize esses pedidos para não atrasar o envio.</div>
               </div>
-              <button onClick={() => { setActiveTab("abertos"); setFilterSt("all"); setFilterPrazo("red"); setFilterData("all"); setFilterLoja("all"); setFilterProduto("all"); setSearch(""); }}
+              <button onClick={() => { setActiveTab("abertos"); setFilterSt("all"); setFilterPrazo("red"); }}
                 style={{ background: "#fff", color: "#dc2626", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
                 Ver agora →
               </button>
@@ -933,8 +1052,8 @@ export default function App({user,onLogout}) {
                               {dl&&<span style={{background:dl.bg,color:dl.text,border:`1px solid ${dl.border}`,borderRadius:7,padding:"1px 7px",fontSize:10,fontWeight:600,flexShrink:0}}>{dl.icon} {dl.label}</span>}
                               {/* Botões feito / revisão */}
                               <div style={{display:"flex",gap:4,flexShrink:0,marginLeft:"auto"}}>
-                                <RevisaoButton isRevisao={si==="revisao"} cor={r.feitoPorCor||minhaCor} nome={r.feitoPorNome} onClick={()=>tentarAbrirRevisao(r)} />
-                                <FeitoButton isFeito={si==="feito"} cor={r.feitoPorCor||minhaCor} nome={r.feitoPorNome} onClick={()=>handleStatusChange(r,si==="feito"?"":"feito")} />
+                                <RevisaoButton isRevisao={si==="revisao"} cor={r.feitoPorCor||minhaCor} nome={r.feitoPorNome} onClick={()=>si==="revisao"?tentarDesmarcar(r,"","Revisão"):tentarAbrirRevisao(r)} />
+                                <FeitoButton isFeito={si==="feito"} cor={r.feitoPorCor||minhaCor} nome={r.feitoPorNome} onClick={()=>si==="feito"?tentarDesmarcar(r,"","Feito"):handleStatusChange(r,"feito")} />
                               </div>
                             </div>
                           );
@@ -1050,8 +1169,8 @@ export default function App({user,onLogout}) {
                           <td style={{...TD,textAlign:"center"}}><StyledCheckbox checked={isSel} onChange={()=>toggleSelect(row.idPedido)} /></td>
                           <td style={{...TD,whiteSpace:"nowrap"}}>
                             <div style={{display:"flex",gap:4}}>
-                              <RevisaoButton isRevisao={si==="revisao"} cor={row.feitoPorCor||minhaCor} nome={row.feitoPorNome} onClick={()=>tentarAbrirRevisao(row)} small />
-                              <FeitoButton isFeito={si==="feito"} cor={row.feitoPorCor||minhaCor} nome={row.feitoPorNome} onClick={()=>handleStatusChange(row,si==="feito"?"":"feito")} small />
+                              <RevisaoButton isRevisao={si==="revisao"} cor={row.feitoPorCor||minhaCor} nome={row.feitoPorNome} onClick={()=>si==="revisao"?tentarDesmarcar(row,"","Revisão"):tentarAbrirRevisao(row)} small />
+                              <FeitoButton isFeito={si==="feito"} cor={row.feitoPorCor||minhaCor} nome={row.feitoPorNome} onClick={()=>si==="feito"?tentarDesmarcar(row,"","Feito"):handleStatusChange(row,"feito")} small />
                             </div>
                           </td>
                           <td style={{...TD,textAlign:"center"}}>
@@ -1978,6 +2097,43 @@ export default function App({user,onLogout}) {
 
       {showFinanceGate&&<FinanceGate onUnlock={()=>{setFinanceUnlocked(true);setActiveTab("financeiro");setShowFinanceGate(false);}} />}
       {revisaoModal&&<RevisaoModal order={revisaoModal} onConfirm={nota=>{handleStatusChange(revisaoModal,"revisao",nota);setRevisaoModal(null);}} onClose={()=>setRevisaoModal(null)} />}
+
+      {/* ── Modal confirmação desmarcar ─────────────────────────────── */}
+      {confirmarDesmarcar&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:9100,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}
+          onClick={e=>e.target===e.currentTarget&&setConfirmarDesmarcar(null)}>
+          <div style={{background:"#fff",borderRadius:20,padding:"32px 28px",maxWidth:380,width:"100%",boxShadow:"0 20px 60px rgba(0,0,0,0.2)",textAlign:"center"}}>
+            <div style={{fontSize:48,marginBottom:12}}>
+              {confirmarDesmarcar.label==="Feito"?"✅":"📋"}
+            </div>
+            <div style={{fontSize:17,fontWeight:700,color:"#1e293b",marginBottom:8}}>
+              Desmarcar como {confirmarDesmarcar.label}?
+            </div>
+            <div style={{fontSize:13,color:"#64748b",marginBottom:6}}>
+              Pedido <strong style={{color:"#1d4ed8"}}>{confirmarDesmarcar.order.idPedido}</strong>
+              {confirmarDesmarcar.order.destinatario&&<span> · {confirmarDesmarcar.order.destinatario}</span>}
+            </div>
+            <div style={{fontSize:12,color:"#94a3b8",marginBottom:28}}>
+              O pedido voltará para o estado <strong>pendente</strong>.
+            </div>
+            <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+              <button
+                onClick={()=>setConfirmarDesmarcar(null)}
+                style={{flex:1,padding:"10px 0",borderRadius:12,border:"1px solid #e2e8f0",background:"#f8fafc",color:"#64748b",fontSize:14,fontWeight:600,cursor:"pointer"}}>
+                Cancelar
+              </button>
+              <button
+                onClick={()=>{
+                  handleStatusChange(confirmarDesmarcar.order, confirmarDesmarcar.novoSt);
+                  setConfirmarDesmarcar(null);
+                }}
+                style={{flex:1,padding:"10px 0",borderRadius:12,border:"none",background:"#ef4444",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"}}>
+                Sim, desmarcar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {toast&&<Toast msg={toast.msg} color={toast.color} />}
     </div>
   );
