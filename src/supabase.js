@@ -60,64 +60,85 @@ export async function fetchPedidos(userId, orgId) {
   return allData.map(dbToRow)
 }
 
-export async function upsertPedidos(rows, userId, orgId) {
+export async function upsertPedidos(rows, userId, orgId, onProgress) {
   if (!supabase || !rows.length || !userId) return { count: 0 }
 
-  // Deduplicate by id_pedido keeping LAST occurrence
-  // (last row in spreadsheet wins for same ID)
+  // Deduplicate by id_pedido — última ocorrência vence
   const dedupMap = new Map()
-  for (const r of rows) {
-    if (r.idPedido) dedupMap.set(r.idPedido, r)
-  }
+  for (const r of rows) { if (r.idPedido) dedupMap.set(r.idPedido, r) }
   const uniqueRows = Array.from(dedupMap.values())
-  console.log(`upsertPedidos: ${rows.length} rows -> ${uniqueRows.length} unique`)
+  const total = uniqueRows.length
+  console.log(`upsertPedidos: ${rows.length} rows -> ${total} unique`)
 
-  let totalCount = 0
-  // Process one at a time to avoid duplicate conflicts
+  // 1. Busca IDs existentes em UMA só query (batch)
+  const CHUNK = 50
+  const ids = uniqueRows.map(r => r.idPedido)
+  let existingMap = new Map() // id_pedido -> { id, status_interno, nota_revisao }
+
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = ids.slice(i, i + 500)
+    let q = supabase.from('pedidos').select('id, id_pedido, status_interno, nota_revisao').in('id_pedido', chunk)
+    q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
+    const { data } = await q
+    if (data) data.forEach(r => existingMap.set(r.id_pedido, r))
+  }
+
+  // 2. Separar novos vs existentes
+  const toInsert = []
+  const toUpdate = [] // { dbId, record }
+
   for (const r of uniqueRows) {
     const record = { ...rowToDb(r), user_id: userId }
     if (orgId) record.organizacao_id = orgId
-
-    // Check if record already exists (scoped to org when available)
-    let existQuery = supabase.from('pedidos').select('id, status_interno, nota_revisao').eq('id_pedido', record.id_pedido)
-    existQuery = orgId ? existQuery.eq('organizacao_id', orgId) : existQuery.eq('user_id', userId)
-    const { data: existing } = await existQuery.maybeSingle()
-
-    if (existing) {
-      // Update spreadsheet fields but PRESERVE status_interno and nota_revisao
-      const { error } = await supabase
-        .from('pedidos')
-        .update({
-          status_pedido:  record.status_pedido,
-          data_envio:     record.data_envio,
-          hora_pagamento: record.hora_pagamento,
-          produto:        record.produto,
-          preco:          record.preco,
-          quantidade:     record.quantidade,
-          variacao:       record.variacao,
-          destinatario:   record.destinatario,
-          notas:          record.notas,
-          loja:           record.loja,
-          nome_usuario:   record.nome_usuario,
-          data_criacao:   record.data_criacao,
-          mes_referencia: record.mes_referencia,
-          motivo_cancelamento: record.motivo_cancelamento,
-          // DO NOT update status_interno or nota_revisao
-        })
-        .eq('id', existing.id)
-      if (error) console.error('update error for', record.id_pedido, ':', error.message)
-      else totalCount++
+    const ex = existingMap.get(r.idPedido)
+    if (ex) {
+      toUpdate.push({ dbId: ex.id, record })
     } else {
-      // Insert new record
-      const { error } = await supabase
-        .from('pedidos')
-        .insert({ ...record, status_interno: '', nota_revisao: '' })
-      if (error) console.error('insert error for', record.id_pedido, ':', error.message)
-      else totalCount++
+      toInsert.push({ ...record, status_interno: '', nota_revisao: '' })
     }
   }
-  console.log('upsertPedidos total saved:', totalCount)
-  return { count: totalCount }
+
+  let done = 0
+  const report = () => { done++; onProgress && onProgress(Math.round((done / total) * 100)) }
+
+  // 3. Inserts em batch (chunks de 50, paralelo por chunk)
+  const updateFields = (record) => ({
+    status_pedido:       record.status_pedido,
+    data_envio:          record.data_envio,
+    hora_pagamento:      record.hora_pagamento,
+    produto:             record.produto,
+    preco:               record.preco,
+    quantidade:          record.quantidade,
+    variacao:            record.variacao,
+    destinatario:        record.destinatario,
+    notas:               record.notas,
+    loja:                record.loja,
+    nome_usuario:        record.nome_usuario,
+    data_criacao:        record.data_criacao,
+    mes_referencia:      record.mes_referencia,
+    motivo_cancelamento: record.motivo_cancelamento,
+  })
+
+  // Inserts em chunks paralelos
+  for (let i = 0; i < toInsert.length; i += CHUNK) {
+    const chunk = toInsert.slice(i, i + CHUNK)
+    const { error } = await supabase.from('pedidos').insert(chunk)
+    if (error) console.error('batch insert error:', error.message)
+    chunk.forEach(() => report())
+  }
+
+  // Updates em chunks paralelos (Promise.all dentro do chunk)
+  for (let i = 0; i < toUpdate.length; i += CHUNK) {
+    const chunk = toUpdate.slice(i, i + CHUNK)
+    await Promise.all(chunk.map(async ({ dbId, record }) => {
+      const { error } = await supabase.from('pedidos').update(updateFields(record)).eq('id', dbId)
+      if (error) console.error('update error:', error.message)
+      report()
+    }))
+  }
+
+  console.log(`upsertPedidos done: ${toInsert.length} inserted, ${toUpdate.length} updated`)
+  return { count: toInsert.length + toUpdate.length }
 }
 
 export async function updatePedidoStatus(idPedido, userId, statusInterno, nota = '', orgId, membroNome) {

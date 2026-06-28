@@ -284,7 +284,8 @@ export default function App({user,onLogout}) {
   const [devolucoes,    setDevolucoes]    = useState([]);
   const [faturamento,   setFaturamento]   = useState([]);
   const [dbLoading,     setDbLoading]     = useState(true);
-  const [saving,        setSaving]        = useState(false);
+  const [saving,          setSaving]          = useState(false);
+  const [uploadProgress,  setUploadProgress]  = useState(null); // null = idle, 0-100 = %
   const [toast,         setToast]         = useState(null);
   const [activeTab,     setActiveTab]     = useState("abertos");
   const [financeUnlocked,setFinanceUnlocked]=useState(false);
@@ -477,7 +478,9 @@ export default function App({user,onLogout}) {
     // Save to DB
     if (supabase) {
       setSaving(true);
-      await upsertPedidos(incoming, user.id, orgId);
+      setUploadProgress(0);
+      await upsertPedidos(incoming, user.id, orgId, (pct) => setUploadProgress(pct));
+      setUploadProgress(100);
       // Faturamento: only count "a enviar" orders
       const aEnviar = incoming.filter(isAberto);
       const totalValor = aEnviar.reduce((s,r)=>s+(parseFloat(r.preco)||0),0);
@@ -485,6 +488,7 @@ export default function App({user,onLogout}) {
       const fat = await fetchFaturamento(user.id);
       setFaturamento(fat);
       setSaving(false);
+      setTimeout(() => setUploadProgress(null), 800);
     }
   };
 
@@ -834,9 +838,18 @@ export default function App({user,onLogout}) {
             <div style={{fontSize:10,fontWeight:600,letterSpacing:2,opacity:0.7}}>GERENCIADOR DE PEDIDOS</div>
             <h1 style={{margin:"2px 0 0",fontSize:20,fontWeight:800}}>Painel de Pedidos 📦</h1>
           </div>
-          <span style={{background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"3px 12px",fontSize:12,display:"flex",alignItems:"center",gap:5}}>
-            <span style={{width:6,height:6,borderRadius:"50%",background:saving?"#fbbf24":"#4ade80",display:"inline-block"}}/>{saving?"Salvando...":"Conectado"}
-          </span>
+          {uploadProgress !== null ? (
+            <span style={{background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"4px 12px",fontSize:12,display:"flex",alignItems:"center",gap:8,minWidth:180}}>
+              <span style={{fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>⬆️ Salvando {uploadProgress}%</span>
+              <span style={{flex:1,height:6,background:"rgba(255,255,255,0.2)",borderRadius:99,overflow:"hidden",minWidth:80}}>
+                <span style={{display:"block",height:"100%",width:`${uploadProgress}%`,background:"#4ade80",borderRadius:99,transition:"width 0.3s ease"}}/>
+              </span>
+            </span>
+          ) : (
+            <span style={{background:"rgba(255,255,255,0.15)",borderRadius:20,padding:"3px 12px",fontSize:12,display:"flex",alignItems:"center",gap:5}}>
+              <span style={{width:6,height:6,borderRadius:"50%",background:saving?"#fbbf24":"#4ade80",display:"inline-block"}}/>{saving?"Salvando...":"Conectado"}
+            </span>
+          )}
           <span style={{background:"rgba(255,255,255,0.12)",borderRadius:20,padding:"3px 12px",fontSize:12}}>👤 {user?.email}</span>
           <button onClick={()=>{setConfigLoja1(lojas[0]);setConfigLoja2(lojas[1]);setShowConfigLojas(true);}} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"3px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>⚙️ Lojas</button>
           {/* ── Sino de Notificações ── */}
