@@ -284,6 +284,10 @@ export default function App({user,onLogout}) {
   const [devolucoes,    setDevolucoes]    = useState([]);
   const [faturamento,   setFaturamento]   = useState([]);
   const [dbLoading,     setDbLoading]     = useState(true);
+  const [lojas,           setLojas]           = useState(["Loja 1","Loja 2"]);
+  const [showConfigLojas, setShowConfigLojas] = useState(false);
+  const [configLoja1,     setConfigLoja1]     = useState("");
+  const [configLoja2,     setConfigLoja2]     = useState("");
   const [saving,          setSaving]          = useState(false);
   const [uploadProgress,  setUploadProgress]  = useState(null); // null = idle, 0-100 = %
   const [toast,         setToast]         = useState(null);
@@ -333,6 +337,12 @@ export default function App({user,onLogout}) {
   const [criandoFuncionario, setCriandoFuncionario] = useState(false);
   const tableRef  = useRef(null);
   const notifRef  = useRef(null);
+
+  // ── Notificações in-app (declarados ANTES do useEffect que os usa) ──────────
+  const [showNotifPanel,  setShowNotifPanel]  = useState(false);
+  const [lidas,           setLidas]           = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("notif_lidas")||"[]")); } catch { return new Set(); }
+  });
 
   const showToast=(msg,color,ms=3500)=>{setToast({msg,color});setTimeout(()=>setToast(null),ms);};
 
@@ -506,15 +516,7 @@ export default function App({user,onLogout}) {
 
   // ── Clear all data ────────────────────────────────────────────────────────
   const [showConfirmClear, setShowConfirmClear] = useState(false);
-  const [lojas,           setLojas]           = useState(["Loja 1","Loja 2"]);
-  const [showConfigLojas, setShowConfigLojas] = useState(false);
-  // ── Notificações in-app ────────────────────────────────────────────────────
-  const [showNotifPanel,  setShowNotifPanel]  = useState(false);
-  const [lidas,           setLidas]           = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("notif_lidas")||"[]")); } catch { return new Set(); }
-  });
-  const [configLoja1,     setConfigLoja1]     = useState("");
-  const [configLoja2,     setConfigLoja2]     = useState("");
+
 
   const handleClearAll = async () => {
     setShowConfirmClear(false);
@@ -573,7 +575,6 @@ export default function App({user,onLogout}) {
 
   // ── Selection ──────────────────────────────────────────────────────────────
   const toggleSelect=id=>setSelected(p=>{const s=new Set(p);s.has(id)?s.delete(id):s.add(id);return s;});
-  const toggleAll=()=>selected.size===filtered.length?setSelected(new Set()):setSelected(new Set(filtered.map(r=>r.idPedido)));
 
   const markAllFeito = async () => {
     if (!podeEditarStatus) { showToast("🔒 Você não tem permissão para editar status.","#991b1b"); return; }
@@ -668,6 +669,9 @@ export default function App({user,onLogout}) {
     const day=r=>{if(!r.dataEnvio)return 9999;const d=new Date(r.dataEnvio.replace(" ","T"));if(isNaN(d))return 9999;const t=new Date();t.setHours(0,0,0,0);const dd=new Date(d);dd.setHours(0,0,0,0);return Math.round((dd-t)/86400000);};
     return day(a)-day(b);
   });
+
+  // toggleAll usa 'filtered', por isso é declarado DEPOIS dele (evita TDZ)
+  const toggleAll=()=>selected.size===filtered.length?setSelected(new Set()):setSelected(new Set(filtered.map(r=>r.idPedido)));
 
   const urgentAll    = pedidosAbertos.filter(r=>deadlineInfo(r.dataEnvio)?.tier==="red");
   const urgentCount  = urgentAll.length;
