@@ -7,15 +7,17 @@ export default defineConfig({
     minify: 'terser',
     terserOptions: {
       compress: {
-        // Desabilita otimizações que reordenam declarações e causam TDZ
         sequences: false,
         join_vars: false,
         collapse_vars: false,
         reduce_vars: false,
         hoist_vars: false,
         hoist_funs: false,
+        inline: false,
       },
-      mangle: true,
+    },
+    rollupOptions: {
+      output: { inlineDynamicImports: true },
     },
   },
 })
