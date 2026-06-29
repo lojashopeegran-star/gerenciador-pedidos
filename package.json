@@ -16,7 +16,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^4.5.14"
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.19"
   }
 }
