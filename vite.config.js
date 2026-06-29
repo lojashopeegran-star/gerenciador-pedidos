@@ -4,13 +4,18 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   build: {
-    target: 'es2015',
-    rollupOptions: {
-      external: ['xlsx'],
-      output: {
-        globals: { xlsx: 'XLSX' },
-        format: 'iife',
-      }
-    }
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        // Desabilita otimizações que reordenam declarações e causam TDZ
+        sequences: false,
+        join_vars: false,
+        collapse_vars: false,
+        reduce_vars: false,
+        hoist_vars: false,
+        hoist_funs: false,
+      },
+      mangle: true,
+    },
   },
 })
