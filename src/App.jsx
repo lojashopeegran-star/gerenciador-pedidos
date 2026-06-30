@@ -226,18 +226,24 @@ function Toast({msg,color}) {
   return <div style={{position:"fixed",bottom:24,right:24,zIndex:9999,background:color||"#1e293b",color:"#fff",borderRadius:12,padding:"12px 20px",fontSize:13,fontWeight:600,boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}>{msg}</div>;
 }
 
-function RevisaoModal({order,onConfirm,onClose}) {
+function RevisaoModal({order,onConfirm,onClose,onDesmarcar}) {
   const [nota,setNota]=useState(order.notaRevisao||"");
+  const jaEmRevisao = order.statusInterno === "revisao";
   return (
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
       <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
         <h3 style={{margin:"0 0 6px",fontSize:15,fontWeight:700,color:"#1e293b"}}>📋 Revisão</h3>
-        <p style={{margin:"0 0 14px",fontSize:12,color:"#64748b"}}>Pedido: <strong>{order.idPedido}</strong></p>
+        <p style={{margin:"0 0 14px",fontSize:12,color:"#64748b"}}>Pedido: <strong>{order.idPedido}</strong>{order.feitoPorNome&&<span> · enviado por {order.feitoPorNome}</span>}</p>
         <textarea value={nota} onChange={e=>setNota(e.target.value)} placeholder="Descreva o motivo..." autoFocus
           style={{width:"100%",minHeight:90,padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,resize:"vertical",outline:"none",boxSizing:"border-box",fontFamily:"inherit"}} />
-        <div style={{display:"flex",gap:10,marginTop:14,justifyContent:"flex-end"}}>
-          <button onClick={onClose} style={{padding:"8px 18px",border:"1px solid #e2e8f0",borderRadius:10,background:"#fff",fontSize:12,cursor:"pointer"}}>Cancelar</button>
-          <button onClick={()=>onConfirm(nota)} disabled={!nota.trim()} style={{padding:"8px 18px",border:"none",borderRadius:10,background:nota.trim()?"#f59e0b":"#e2e8f0",color:nota.trim()?"#fff":"#94a3b8",fontSize:12,fontWeight:700,cursor:nota.trim()?"pointer":"not-allowed"}}>Confirmar</button>
+        <div style={{display:"flex",gap:10,marginTop:14,justifyContent:jaEmRevisao?"space-between":"flex-end"}}>
+          {jaEmRevisao&&(
+            <button onClick={()=>onDesmarcar(order)} style={{padding:"8px 14px",border:"1px solid #fecaca",borderRadius:10,background:"#fff",color:"#ef4444",fontSize:12,fontWeight:600,cursor:"pointer"}}>Desmarcar revisão</button>
+          )}
+          <div style={{display:"flex",gap:10}}>
+            <button onClick={onClose} style={{padding:"8px 18px",border:"1px solid #e2e8f0",borderRadius:10,background:"#fff",fontSize:12,cursor:"pointer"}}>Cancelar</button>
+            <button onClick={()=>onConfirm(nota)} disabled={!nota.trim()} style={{padding:"8px 18px",border:"none",borderRadius:10,background:nota.trim()?"#f59e0b":"#e2e8f0",color:nota.trim()?"#fff":"#94a3b8",fontSize:12,fontWeight:700,cursor:nota.trim()?"pointer":"not-allowed"}}>{jaEmRevisao?"Salvar":"Confirmar"}</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1067,7 +1073,7 @@ export default function App({user,onLogout}) {
                               {dl&&<span style={{background:dl.bg,color:dl.text,border:`1px solid ${dl.border}`,borderRadius:7,padding:"1px 7px",fontSize:10,fontWeight:600,flexShrink:0}}>{dl.icon} {dl.label}</span>}
                               {/* Botões feito / revisão */}
                               <div style={{display:"flex",gap:4,flexShrink:0,marginLeft:"auto"}}>
-                                <RevisaoButton isRevisao={si==="revisao"} cor={r.feitoPorCor||minhaCor} nome={r.feitoPorNome} onClick={()=>si==="revisao"?tentarDesmarcar(r,"","Revisão"):tentarAbrirRevisao(r)} />
+                                <RevisaoButton isRevisao={si==="revisao"} cor={r.feitoPorCor||minhaCor} nome={r.feitoPorNome} onClick={()=>tentarAbrirRevisao(r)} />
                                 <FeitoButton isFeito={si==="feito"} cor={r.feitoPorCor||minhaCor} nome={r.feitoPorNome} onClick={()=>si==="feito"?tentarDesmarcar(r,"","Feito"):handleStatusChange(r,"feito")} />
                               </div>
                             </div>
@@ -1184,7 +1190,7 @@ export default function App({user,onLogout}) {
                           <td style={{...TD,textAlign:"center"}}><StyledCheckbox checked={isSel} onChange={()=>toggleSelect(row.idPedido)} /></td>
                           <td style={{...TD,whiteSpace:"nowrap"}}>
                             <div style={{display:"flex",gap:4}}>
-                              <RevisaoButton isRevisao={si==="revisao"} cor={row.feitoPorCor||minhaCor} nome={row.feitoPorNome} onClick={()=>si==="revisao"?tentarDesmarcar(row,"","Revisão"):tentarAbrirRevisao(row)} small />
+                              <RevisaoButton isRevisao={si==="revisao"} cor={row.feitoPorCor||minhaCor} nome={row.feitoPorNome} onClick={()=>tentarAbrirRevisao(row)} small />
                               <FeitoButton isFeito={si==="feito"} cor={row.feitoPorCor||minhaCor} nome={row.feitoPorNome} onClick={()=>si==="feito"?tentarDesmarcar(row,"","Feito"):handleStatusChange(row,"feito")} small />
                             </div>
                           </td>
@@ -2111,7 +2117,7 @@ export default function App({user,onLogout}) {
       )}
 
       {showFinanceGate&&<FinanceGate onUnlock={()=>{setFinanceUnlocked(true);setActiveTab("financeiro");setShowFinanceGate(false);}} />}
-      {revisaoModal&&<RevisaoModal order={revisaoModal} onConfirm={nota=>{handleStatusChange(revisaoModal,"revisao",nota);setRevisaoModal(null);}} onClose={()=>setRevisaoModal(null)} />}
+      {revisaoModal&&<RevisaoModal order={revisaoModal} onConfirm={nota=>{handleStatusChange(revisaoModal,"revisao",nota);setRevisaoModal(null);}} onClose={()=>setRevisaoModal(null)} onDesmarcar={order=>{setRevisaoModal(null);tentarDesmarcar(order,"","Revisão");}} />}
 
       {/* ── Modal confirmação desmarcar ─────────────────────────────── */}
       {confirmarDesmarcar&&(
