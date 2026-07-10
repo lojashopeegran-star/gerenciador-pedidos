@@ -1008,7 +1008,7 @@ export default function App({user,onLogout}) {
             {label:"Cancelados", value:pedidosCancelados.length,  color:"#6b7280",icon:"❌",tab:"cancelados",action:()=>{}},
             {label:"Devoluções", value:devolucoes.length,         color:"#ef4444",icon:"🔄",tab:"devolucoes",action:()=>{}},
           ];
-          const LIMIT = 8;
+          const LIMIT = 7;
           const visiveis = showTodosCards ? todosCards : todosCards.slice(0, LIMIT);
           const temMais = todosCards.length > LIMIT;
           const CardItem = (s) => (
