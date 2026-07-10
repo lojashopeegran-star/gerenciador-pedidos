@@ -2023,40 +2023,38 @@ export default function App({user,onLogout}) {
                           </td>
                         ))}
                         <td style={{...TD,minWidth:220}}>
-                          {!m.is_admin ? (
-                            <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                              {[
-                                {key:"frase_feito",   icon:"✅", placeholder:"Ex: Parabéns Mylena!"},
-                                {key:"frase_revisao", icon:"📋", placeholder:"Ex: Revise no final do dia"},
-                                {key:"frase_vazio",   icon:"📦", placeholder:"Ex: Produto sem estoque"},
-                              ].map(f=>(
-                                <div key={f.key} style={{display:"flex",alignItems:"center",gap:4}}>
-                                  <span style={{fontSize:12}}>{f.icon}</span>
-                                  <input
-                                    defaultValue={m[f.key]||""}
-                                    placeholder={f.placeholder}
-                                    onBlur={async e=>{
-                                      const val = e.target.value.trim()||null;
-                                      if(val===(m[f.key]||null)) return;
-                                      setMembrosEquipe(prev=>prev.map(x=>x.id===m.id?{...x,[f.key]:val}:x));
-                                      await atualizarPermissoesMembro(m.id,{[f.key]:val});
-                                      showToast("🔊 Frase salva!","#059669");
-                                    }}
-                                    style={{flex:1,padding:"3px 7px",border:"1px solid #e2e8f0",borderRadius:7,fontSize:11,outline:"none"}}
-                                  />
-                                </div>
-                              ))}
-                              <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#64748b",cursor:"pointer",marginTop:2}}>
-                                <input type="checkbox" checked={m.som_ativado!==false}
-                                  onChange={async e=>{
-                                    const val=e.target.checked;
-                                    setMembrosEquipe(prev=>prev.map(x=>x.id===m.id?{...x,som_ativado:val}:x));
-                                    await atualizarPermissoesMembro(m.id,{som_ativado:val});
-                                  }} style={{width:13,height:13}} />
-                                Som ativado
-                              </label>
-                            </div>
-                          ) : <span style={{color:"#94a3b8",fontSize:11}}>—</span>}
+                          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                            {[
+                              {key:"frase_feito",   icon:"✅", placeholder:"Ex: Parabéns Mylena!"},
+                              {key:"frase_revisao", icon:"📋", placeholder:"Ex: Revise no final do dia"},
+                              {key:"frase_vazio",   icon:"📦", placeholder:"Ex: Produto sem estoque"},
+                            ].map(f=>(
+                              <div key={f.key} style={{display:"flex",alignItems:"center",gap:4}}>
+                                <span style={{fontSize:12}}>{f.icon}</span>
+                                <input
+                                  defaultValue={m[f.key]||""}
+                                  placeholder={f.placeholder}
+                                  onBlur={async e=>{
+                                    const val = e.target.value.trim()||null;
+                                    if(val===(m[f.key]||null)) return;
+                                    setMembrosEquipe(prev=>prev.map(x=>x.id===m.id?{...x,[f.key]:val}:x));
+                                    await atualizarPermissoesMembro(m.id,{[f.key]:val});
+                                    showToast("🔊 Frase salva!","#059669");
+                                  }}
+                                  style={{flex:1,padding:"3px 7px",border:"1px solid #e2e8f0",borderRadius:7,fontSize:11,outline:"none"}}
+                                />
+                              </div>
+                            ))}
+                            <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#64748b",cursor:"pointer",marginTop:2}}>
+                              <input type="checkbox" checked={m.som_ativado!==false}
+                                onChange={async e=>{
+                                  const val=e.target.checked;
+                                  setMembrosEquipe(prev=>prev.map(x=>x.id===m.id?{...x,som_ativado:val}:x));
+                                  await atualizarPermissoesMembro(m.id,{som_ativado:val});
+                                }} style={{width:13,height:13}} />
+                              Som ativado
+                            </label>
+                          </div>
                         </td>
                         <td style={TD}>
                           {!m.is_admin && (
