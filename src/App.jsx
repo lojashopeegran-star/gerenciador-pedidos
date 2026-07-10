@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -415,8 +415,10 @@ export default function App({user,onLogout}) {
         fetchDevolucoes(user.id, orgId),
         fetchFaturamento(user.id, orgId),
         fetchConfig(user.id, orgId),
-      ]).then(([p,d,f,cfg])=>{
+        contarPedidosArquivados(user.id, orgId),
+      ]).then(([p,d,f,cfg,qtdArq])=>{
           setAllPedidos(p); setDevolucoes(d); setFaturamento(f);
+          setQtdArquivados(qtdArq||0);
           if (cfg?.loja1 && cfg?.loja2) {
             setLojas([cfg.loja1, cfg.loja2]);
             setConfigLoja1(cfg.loja1);
@@ -541,7 +543,9 @@ export default function App({user,onLogout}) {
   };
 
   // ── Clear all data ────────────────────────────────────────────────────────
-  const [showConfirmClear, setShowConfirmClear] = useState(false);
+  const [showConfirmClear,   setShowConfirmClear]   = useState(false);
+  const [qtdArquivados,      setQtdArquivados]      = useState(0);
+  const [showConfirmRestore, setShowConfirmRestore] = useState(false);
 
 
   const handleClearAll = async () => {
@@ -554,7 +558,9 @@ export default function App({user,onLogout}) {
         deleteAllDevolucoes(user.id, orgId),
         deleteAllFaturamento(user.id, orgId),
       ]);
-      registrarAuditoria(orgId, user.id, meuNome, "zerou_sistema", `Apagou ${totalAntes} pedido(s), todas as devoluções e faturamento.`);
+      registrarAuditoria(orgId, user.id, meuNome, "zerou_sistema", `Arquivou ${totalAntes} pedido(s) (soft delete - expira em 7 dias).`);
+      const qtd = await contarPedidosArquivados(user.id, orgId);
+      setQtdArquivados(qtd);
     }
     setAllPedidos([]);
     setDevolucoes([]);
@@ -563,7 +569,21 @@ export default function App({user,onLogout}) {
     setSelected(new Set());
     setActiveTab("abertos");
     setSaving(false);
-    showToast("🗑️ Sistema zerado com sucesso!", "#059669");
+    showToast("🗑️ Sistema zerado! Você tem 7 dias para restaurar.", "#f59e0b");
+  };
+
+  const handleRestaurar = async () => {
+    setShowConfirmRestore(false);
+    setSaving(true);
+    if (supabase) {
+      await restaurarPedidos(user.id, orgId);
+      registrarAuditoria(orgId, user.id, meuNome, "restaurou_sistema", `Restaurou pedidos arquivados.`);
+      const pedidos = await fetchPedidos(user.id, orgId);
+      setAllPedidos(pedidos);
+      setQtdArquivados(0);
+    }
+    setSaving(false);
+    showToast("✅ Pedidos restaurados com sucesso!", "#059669");
   };
 
   // ── Status interno ─────────────────────────────────────────────────────────
@@ -941,9 +961,16 @@ export default function App({user,onLogout}) {
         <div style={{background:"#fff",borderRadius:18,padding:18,marginBottom:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
           <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
             <div style={{fontSize:11,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:0.5}}>Carregar Planilhas</div>
-            {podeZerarSistema&&<button onClick={()=>setShowConfirmClear(true)} style={{marginLeft:"auto",background:"#fde8e8",color:"#991b1b",border:"1px solid #fca5a5",borderRadius:10,padding:"6px 14px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
-              🗑️ Zerar Sistema
-            </button>}
+            <div style={{display:"flex",gap:8,marginLeft:"auto",alignItems:"center"}}>
+              {qtdArquivados>0&&(
+                <button onClick={()=>setShowConfirmRestore(true)} style={{background:"#ecfdf5",color:"#065f46",border:"1px solid #6ee7b7",borderRadius:10,padding:"6px 14px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+                  ♻️ Restaurar ({qtdArquivados})
+                </button>
+              )}
+              {podeZerarSistema&&<button onClick={()=>setShowConfirmClear(true)} style={{background:"#fde8e8",color:"#991b1b",border:"1px solid #fca5a5",borderRadius:10,padding:"6px 14px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+                🗑️ Zerar Sistema
+              </button>}
+            </div>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
             {lojas.map(loja=>(
@@ -2014,8 +2041,9 @@ export default function App({user,onLogout}) {
             <div style={{fontSize:44,marginBottom:12}}>⚠️</div>
             <h3 style={{margin:"0 0 8px",fontSize:17,fontWeight:700,color:"#1e293b"}}>Zerar o Sistema?</h3>
             <p style={{margin:"0 0 24px",fontSize:13,color:"#64748b",lineHeight:1.6}}>
-              Isso vai apagar <strong>todos os pedidos, devoluções e faturamento</strong> salvos no banco de dados.<br/>
-              <strong style={{color:"#ef4444"}}>Essa ação não pode ser desfeita.</strong>
+              Os pedidos serão <strong>arquivados</strong> por <strong>7 dias</strong> e você poderá restaurá-los nesse período.<br/>
+              Devoluções e faturamento também serão apagados.<br/>
+              <strong style={{color:"#f59e0b"}}>Após 7 dias a exclusão é permanente.</strong>
             </p>
             <div style={{display:"flex",gap:10,justifyContent:"center"}}>
               <button onClick={()=>setShowConfirmClear(false)} style={{padding:"10px 24px",border:"1px solid #e2e8f0",borderRadius:12,background:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",color:"#374151"}}>
@@ -2023,6 +2051,28 @@ export default function App({user,onLogout}) {
               </button>
               <button onClick={handleClearAll} style={{padding:"10px 24px",border:"none",borderRadius:12,background:"#ef4444",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>
                 🗑️ Sim, Zerar Tudo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── Modal confirmação restaurar ── */}
+      {showConfirmRestore&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+          onClick={e=>e.target===e.currentTarget&&setShowConfirmRestore(false)}>
+          <div style={{background:"#fff",borderRadius:20,padding:32,width:"100%",maxWidth:400,boxShadow:"0 20px 60px rgba(0,0,0,0.25)",textAlign:"center"}}>
+            <div style={{fontSize:44,marginBottom:12}}>♻️</div>
+            <h3 style={{margin:"0 0 8px",fontSize:17,fontWeight:700,color:"#1e293b"}}>Restaurar Pedidos?</h3>
+            <p style={{margin:"0 0 24px",fontSize:13,color:"#64748b",lineHeight:1.6}}>
+              Isso vai restaurar <strong>{qtdArquivados} pedido(s)</strong> arquivados de volta ao sistema.<br/>
+              <strong style={{color:"#059669"}}>Todos os status e informações serão preservados.</strong>
+            </p>
+            <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+              <button onClick={()=>setShowConfirmRestore(false)} style={{padding:"10px 24px",border:"1px solid #e2e8f0",borderRadius:12,background:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",color:"#374151"}}>
+                Cancelar
+              </button>
+              <button onClick={handleRestaurar} style={{padding:"10px 24px",border:"none",borderRadius:12,background:"#059669",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                ♻️ Sim, Restaurar
               </button>
             </div>
           </div>

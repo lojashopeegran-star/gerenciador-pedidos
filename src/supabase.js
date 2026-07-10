@@ -45,6 +45,7 @@ export async function fetchPedidos(userId, orgId) {
     page++
     let query = supabase.from('pedidos').select('*', { count: 'exact' })
     query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
+    query = query.is('arquivado_em', null)  // ignora soft-deleted
     const { data, error, count } = await query
       .order('id', { ascending: true })
       .range(from, from + pageSize - 1)
@@ -211,10 +212,27 @@ export async function upsertFaturamento(userId, mes, loja, valor, orgId) {
 
 // ── Delete all ────────────────────────────────────────────────────────────────
 export async function deleteAllPedidos(userId, orgId) {
+  // Soft delete: marca arquivado_em em vez de deletar permanentemente
   if (!supabase || !userId) return
-  let query = supabase.from('pedidos').delete()
+  const agora = new Date().toISOString()
+  let query = supabase.from('pedidos').update({ arquivado_em: agora }).is('arquivado_em', null)
   query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
   await query
+}
+
+export async function restaurarPedidos(userId, orgId) {
+  if (!supabase || !userId) return
+  let query = supabase.from('pedidos').update({ arquivado_em: null }).not('arquivado_em', 'is', null)
+  query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
+  await query
+}
+
+export async function contarPedidosArquivados(userId, orgId) {
+  if (!supabase || !userId) return 0
+  let query = supabase.from('pedidos').select('id', { count: 'exact', head: true }).not('arquivado_em', 'is', null)
+  query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
+  const { count } = await query
+  return count || 0
 }
 
 export async function deleteAllDevolucoes(userId, orgId) {
