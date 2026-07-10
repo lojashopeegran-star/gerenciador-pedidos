@@ -365,6 +365,7 @@ export default function App({user,onLogout}) {
 
   // ── Notificações in-app (declarados ANTES do useEffect que os usa) ──────────
   const [showNotifPanel,  setShowNotifPanel]  = useState(false);
+  const [showTodosCards,  setShowTodosCards]  = useState(false);
   const [lidas,           setLidas]           = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem("notif_lidas")||"[]")); } catch { return new Set(); }
   });
@@ -995,18 +996,22 @@ export default function App({user,onLogout}) {
         })()}
 
         {/* Stats */}
-        <div style={{display:"grid",gridTemplateColumns:organizacao?"repeat(8,1fr)":"repeat(7,1fr)",gap:10,marginBottom:18}}>
-          {[
+        {(()=>{
+          const todosCards = [
             {label:"Em Aberto",  value:pedidosAbertos.length,    color:"#1d4ed8",icon:"📋",tab:"abertos",  action:()=>{setFilterSt("all");setFilterPrazo("all");}},
             {label:"Feitos",     value:feitoCount,                color:"#059669",icon:"✅",tab:"abertos",  action:()=>setFilterSt("feito")},
             ...(organizacao ? [{label:"Meus Feitos", value:pedidosAbertos.filter(r=>r.feitoPorNome===meuNome).length, color:minhaCor,icon:"⭐",tab:"abertos",action:()=>setFilterSt("meus_feitos")}] : []),
             {label:"Em Revisão", value:revisaoCount,              color:"#f59e0b",icon:"📋",tab:"abertos",  action:()=>setFilterSt("revisao")},
-            {label:"Vazios",      value:vazioCount,                color:"#6366f1",icon:"📦",tab:"abertos",  action:()=>setFilterSt("vazio")},
+            {label:"Vazios",     value:vazioCount,                color:"#6366f1",icon:"📦",tab:"abertos",  action:()=>setFilterSt("vazio")},
             {label:"Urgentes",   value:`${urgentFeitos}/${urgentCount}`, color:"#ef4444",icon:"🔴",tab:"abertos",  action:()=>{setFilterSt("all");setFilterPrazo("red");}},
             {label:"Enviados",   value:pedidosEnviados.length,    color:"#059669",icon:"📦",tab:"enviados", action:()=>{}},
             {label:"Cancelados", value:pedidosCancelados.length,  color:"#6b7280",icon:"❌",tab:"cancelados",action:()=>{}},
             {label:"Devoluções", value:devolucoes.length,         color:"#ef4444",icon:"🔄",tab:"devolucoes",action:()=>{}},
-          ].map(s=>(
+          ];
+          const LIMIT = 8;
+          const visiveis = showTodosCards ? todosCards : todosCards.slice(0, LIMIT);
+          const temMais = todosCards.length > LIMIT;
+          const CardItem = (s) => (
             <div key={s.label} onClick={()=>{s.action();setActiveTab(s.tab);tableRef.current?.scrollIntoView({behavior:"smooth"});}}
               style={{background:"#fff",borderRadius:12,padding:"12px 14px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",borderLeft:`4px solid ${s.color}`,cursor:"pointer",transition:"transform 0.15s,box-shadow 0.15s"}}
               onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow="0 6px 20px rgba(0,0,0,0.12)";}}
@@ -1017,8 +1022,24 @@ export default function App({user,onLogout}) {
               {s.label==="Devoluções"&&totalDev>0&&<div style={{fontSize:10,color:"#ef4444",fontWeight:700}}>-{fmtBRL(totalDev)}</div>}
               <div style={{fontSize:9,color:s.color,opacity:0.7,marginTop:1}}>clique →</div>
             </div>
-          ))}
-        </div>
+          );
+          return (
+            <div style={{marginBottom:18}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(8,1fr)",gap:10}}>
+                {visiveis.map(s=>CardItem(s))}
+                {temMais&&(
+                  <div onClick={()=>setShowTodosCards(v=>!v)}
+                    style={{background:"#f8fafc",borderRadius:12,padding:"12px 14px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",border:"2px dashed #e2e8f0",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,transition:"all 0.15s"}}
+                    onMouseEnter={e=>{e.currentTarget.style.background="#f1f5f9";e.currentTarget.style.borderColor="#cbd5e1";}}
+                    onMouseLeave={e=>{e.currentTarget.style.background="#f8fafc";e.currentTarget.style.borderColor="#e2e8f0";}}>
+                    <div style={{fontSize:20,color:"#94a3b8"}}>{showTodosCards?"−":"+"+( todosCards.length-LIMIT)}</div>
+                    <div style={{fontSize:10,color:"#94a3b8",fontWeight:600}}>{showTodosCards?"menos":"mais"}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Valor aberto card — visível só para o admin */}
         {isAdminEquipe&&(
