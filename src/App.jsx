@@ -194,6 +194,25 @@ function RevisaoButton({isRevisao,cor,nome,onClick,small}) {
   );
 }
 
+// Botão "Vazio" — indica pedido com embalagem vazia/produto indisponível
+function VazioButton({isVazio,cor,nome,onClick,small}) {
+  const bg = isVazio ? (cor || "#6366f1") : "#f1f5f9";
+  const fg = isVazio ? "#fff" : "#374151";
+  return (
+    <button
+      onClick={onClick}
+      title={isVazio && nome ? `Marcado como Vazio por ${nome}` : ""}
+      style={{
+        padding: small ? "4px 7px" : "4px 9px",
+        border:"none", borderRadius:7,
+        background:bg, color:fg,
+        fontSize:10, fontWeight:600, cursor:"pointer",
+      }}>
+      {isVazio ? (small ? "📦" : "📦 Vazio") : (small ? "📦" : "📦 Vazio")}
+    </button>
+  );
+}
+
 function ExpandCell({value,maxLen=22}) {
   const [exp,setExp] = useState(false);
   const long = value && value.length > maxLen;
@@ -559,7 +578,7 @@ export default function App({user,onLogout}) {
     }
     setAllPedidos(prev=>prev.map(o=>o.idPedido===order.idPedido?{...o,statusInterno:newSt,notaRevisao:nota,feitoPorNome:newSt?meuNome:"",feitoPorCor:newSt?minhaCor:""}:o));
     if (supabase) await updatePedidoStatus(order.idPedido,user.id,newSt,nota,orgId,meuNome);
-    showToast(newSt==="feito"?"✅ Marcado como Feito!":"📋 Enviado para Revisão",newSt==="feito"?"#059669":"#f59e0b");
+    showToast(newSt==="feito"?"✅ Marcado como Feito!":newSt==="vazio"?"📦 Marcado como Vazio!":newSt==="revisao"?"📋 Enviado para Revisão":"↩️ Desmarcado",newSt==="feito"?"#059669":newSt==="vazio"?"#6366f1":newSt==="revisao"?"#f59e0b":"#64748b");
   };
 
   const tentarAbrirRevisao = (order) => {
@@ -684,6 +703,7 @@ export default function App({user,onLogout}) {
   const urgentFeitos = urgentAll.filter(r=>r.statusInterno==="feito").length;
   const feitoCount   = pedidosAbertos.filter(r=>r.statusInterno==="feito").length;
   const revisaoCount = pedidosAbertos.filter(r=>r.statusInterno==="revisao").length;
+  const vazioCount   = pedidosAbertos.filter(r=>r.statusInterno==="vazio").length;
   const valorAberto  = pedidosAbertos.reduce((s,r)=>s+(parseFloat(r.preco)||0),0);
   const totalDev     = devolucoes.reduce((s,d)=>s+(parseFloat(d.preco_unidade||0)*parseInt(d.quantidade||1)),0);
 
@@ -981,6 +1001,7 @@ export default function App({user,onLogout}) {
             {label:"Feitos",     value:feitoCount,                color:"#059669",icon:"✅",tab:"abertos",  action:()=>setFilterSt("feito")},
             ...(organizacao ? [{label:"Meus Feitos", value:pedidosAbertos.filter(r=>r.feitoPorNome===meuNome).length, color:minhaCor,icon:"⭐",tab:"abertos",action:()=>setFilterSt("meus_feitos")}] : []),
             {label:"Em Revisão", value:revisaoCount,              color:"#f59e0b",icon:"📋",tab:"abertos",  action:()=>setFilterSt("revisao")},
+            {label:"Vazios",      value:vazioCount,                color:"#6366f1",icon:"📦",tab:"abertos",  action:()=>setFilterSt("vazio")},
             {label:"Urgentes",   value:`${urgentFeitos}/${urgentCount}`, color:"#ef4444",icon:"🔴",tab:"abertos",  action:()=>{setFilterSt("all");setFilterPrazo("red");}},
             {label:"Enviados",   value:pedidosEnviados.length,    color:"#059669",icon:"📦",tab:"enviados", action:()=>{}},
             {label:"Cancelados", value:pedidosCancelados.length,  color:"#6b7280",icon:"❌",tab:"cancelados",action:()=>{}},
@@ -1075,6 +1096,7 @@ export default function App({user,onLogout}) {
                               <div style={{display:"flex",gap:4,flexShrink:0,marginLeft:"auto"}}>
                                 <RevisaoButton isRevisao={si==="revisao"} cor={r.feitoPorCor||minhaCor} nome={r.feitoPorNome} onClick={()=>tentarAbrirRevisao(r)} />
                                 <FeitoButton isFeito={si==="feito"} cor={r.feitoPorCor||minhaCor} nome={r.feitoPorNome} onClick={()=>si==="feito"?tentarDesmarcar(r,"","Feito"):handleStatusChange(r,"feito")} />
+                                <VazioButton isVazio={si==="vazio"} cor={r.feitoPorCor||minhaCor} nome={r.feitoPorNome} onClick={()=>si==="vazio"?tentarDesmarcar(r,"","Vazio"):handleStatusChange(r,"vazio")} />
                               </div>
                             </div>
                           );
@@ -1097,6 +1119,7 @@ export default function App({user,onLogout}) {
                   <option value="">⏳ Pendentes</option>
                   <option value="feito">✅ Feito</option>
                   <option value="revisao">📋 Revisão</option>
+                  <option value="vazio">📦 Vazio</option>
                 </select>
                 <select value={filterLoja} onChange={e=>setFilterLoja(e.target.value)} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"7px 11px",fontSize:12,cursor:"pointer",background:"#fff"}}>
                   <option value="all">Todas as lojas</option>
@@ -1192,6 +1215,7 @@ export default function App({user,onLogout}) {
                             <div style={{display:"flex",gap:4}}>
                               <RevisaoButton isRevisao={si==="revisao"} cor={row.feitoPorCor||minhaCor} nome={row.feitoPorNome} onClick={()=>tentarAbrirRevisao(row)} small />
                               <FeitoButton isFeito={si==="feito"} cor={row.feitoPorCor||minhaCor} nome={row.feitoPorNome} onClick={()=>si==="feito"?tentarDesmarcar(row,"","Feito"):handleStatusChange(row,"feito")} small />
+                              <VazioButton isVazio={si==="vazio"} cor={row.feitoPorCor||minhaCor} nome={row.feitoPorNome} onClick={()=>si==="vazio"?tentarDesmarcar(row,"","Vazio"):handleStatusChange(row,"vazio")} small />
                             </div>
                           </td>
                           <td style={{...TD,textAlign:"center"}}>
@@ -2125,7 +2149,7 @@ export default function App({user,onLogout}) {
           onClick={e=>e.target===e.currentTarget&&setConfirmarDesmarcar(null)}>
           <div style={{background:"#fff",borderRadius:20,padding:"32px 28px",maxWidth:380,width:"100%",boxShadow:"0 20px 60px rgba(0,0,0,0.2)",textAlign:"center"}}>
             <div style={{fontSize:48,marginBottom:12}}>
-              {confirmarDesmarcar.label==="Feito"?"✅":"📋"}
+              {confirmarDesmarcar.label==="Feito"?"✅":confirmarDesmarcar.label==="Vazio"?"📦":"📋"}
             </div>
             <div style={{fontSize:17,fontWeight:700,color:"#1e293b",marginBottom:8}}>
               Desmarcar como {confirmarDesmarcar.label}?
