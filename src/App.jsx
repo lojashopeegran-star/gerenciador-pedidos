@@ -372,6 +372,22 @@ export default function App({user,onLogout}) {
 
   const showToast=(msg,color,ms=3500)=>{setToast({msg,color});setTimeout(()=>setToast(null),ms);};
 
+  // ── Voz do browser ──────────────────────────────────────────────────────────
+  const falarFrase = (frase) => {
+    if (!frase || !frase.trim()) return;
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(frase.trim());
+    utterance.lang = "pt-BR";
+    utterance.rate = 1;
+    utterance.pitch = 1.1;
+    // Preferir voz em português se disponível
+    const vozes = window.speechSynthesis.getVoices();
+    const vozPT = vozes.find(v => v.lang.startsWith("pt"));
+    if (vozPT) utterance.voice = vozPT;
+    window.speechSynthesis.speak(utterance);
+  };
+
   // Fechar painel de notificações ao clicar fora
   useEffect(() => {
     if (!showNotifPanel) return;
@@ -600,6 +616,11 @@ export default function App({user,onLogout}) {
     setAllPedidos(prev=>prev.map(o=>o.idPedido===order.idPedido?{...o,statusInterno:newSt,notaRevisao:nota,feitoPorNome:newSt?meuNome:"",feitoPorCor:newSt?minhaCor:""}:o));
     if (supabase) await updatePedidoStatus(order.idPedido,user.id,newSt,nota,orgId,meuNome);
     showToast(newSt==="feito"?"✅ Marcado como Feito!":newSt==="vazio"?"📦 Marcado como Vazio!":newSt==="revisao"?"📋 Enviado para Revisão":"↩️ Desmarcado",newSt==="feito"?"#059669":newSt==="vazio"?"#6366f1":newSt==="revisao"?"#f59e0b":"#64748b");
+    // Falar frase personalizada ao MARCAR (não ao desmarcar)
+    if (newSt && membro) {
+      const frase = newSt==="feito" ? membro.frase_feito : newSt==="revisao" ? membro.frase_revisao : newSt==="vazio" ? membro.frase_vazio : null;
+      if (membro.som_ativado !== false) falarFrase(frase);
+    }
   };
 
   const tentarAbrirRevisao = (order) => {
@@ -1979,7 +2000,7 @@ export default function App({user,onLogout}) {
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead><tr style={{background:"#f8fafc"}}>
-                    {["Funcionário","Cor","Financeiro","Zerar Sistema","Carregar Planilha","Editar Status",""].map(h=><th key={h} style={TH}>{h}</th>)}
+                    {["Funcionário","Cor","Financeiro","Zerar Sistema","Carregar Planilha","Editar Status","🔊 Frases de Voz",""].map(h=><th key={h} style={TH}>{h}</th>)}
                   </tr></thead>
                   <tbody>
                     {membrosEquipe.map((m,i)=>(
@@ -2001,6 +2022,42 @@ export default function App({user,onLogout}) {
                             )}
                           </td>
                         ))}
+                        <td style={{...TD,minWidth:220}}>
+                          {!m.is_admin ? (
+                            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                              {[
+                                {key:"frase_feito",   icon:"✅", placeholder:"Ex: Parabéns Mylena!"},
+                                {key:"frase_revisao", icon:"📋", placeholder:"Ex: Revise no final do dia"},
+                                {key:"frase_vazio",   icon:"📦", placeholder:"Ex: Produto sem estoque"},
+                              ].map(f=>(
+                                <div key={f.key} style={{display:"flex",alignItems:"center",gap:4}}>
+                                  <span style={{fontSize:12}}>{f.icon}</span>
+                                  <input
+                                    defaultValue={m[f.key]||""}
+                                    placeholder={f.placeholder}
+                                    onBlur={async e=>{
+                                      const val = e.target.value.trim()||null;
+                                      if(val===(m[f.key]||null)) return;
+                                      setMembrosEquipe(prev=>prev.map(x=>x.id===m.id?{...x,[f.key]:val}:x));
+                                      await atualizarPermissoesMembro(m.id,{[f.key]:val});
+                                      showToast("🔊 Frase salva!","#059669");
+                                    }}
+                                    style={{flex:1,padding:"3px 7px",border:"1px solid #e2e8f0",borderRadius:7,fontSize:11,outline:"none"}}
+                                  />
+                                </div>
+                              ))}
+                              <label style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#64748b",cursor:"pointer",marginTop:2}}>
+                                <input type="checkbox" checked={m.som_ativado!==false}
+                                  onChange={async e=>{
+                                    const val=e.target.checked;
+                                    setMembrosEquipe(prev=>prev.map(x=>x.id===m.id?{...x,som_ativado:val}:x));
+                                    await atualizarPermissoesMembro(m.id,{som_ativado:val});
+                                  }} style={{width:13,height:13}} />
+                                Som ativado
+                              </label>
+                            </div>
+                          ) : <span style={{color:"#94a3b8",fontSize:11}}>—</span>}
+                        </td>
                         <td style={TD}>
                           {!m.is_admin && (
                             <div style={{display:"flex",gap:6}}>
