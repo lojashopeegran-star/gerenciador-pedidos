@@ -1842,9 +1842,12 @@ export default function App({user,onLogout}) {
 
         {/* ── TAB: EQUIPE ── */}
         {activeTab==="equipe"&&isAdminEquipe&&organizacao&&(()=>{
-          const hoje = new Date(); hoje.setHours(0,0,0,0);
-          const inicioSemana = new Date(hoje); inicioSemana.setDate(hoje.getDate()-hoje.getDay());
-          const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+          // Usar UTC para bater com os timestamps do Supabase (que são UTC)
+          const agora = new Date();
+          const hoje = new Date(Date.UTC(agora.getFullYear(), agora.getMonth(), agora.getDate()));
+          const diaAtual = agora.getDay();
+          const inicioSemana = new Date(Date.UTC(agora.getFullYear(), agora.getMonth(), agora.getDate() - diaAtual));
+          const inicioMes = new Date(Date.UTC(agora.getFullYear(), agora.getMonth(), 1));
 
           const statsPorMembro = membrosEquipe.map(m => {
             const feitosDoMembro  = produtividade.filter(p => p.feito_por_user_id===m.user_id && p.status_interno==="feito");
