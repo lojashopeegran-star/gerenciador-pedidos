@@ -334,7 +334,8 @@ export default function App({user,onLogout}) {
   const [filterMotivoDevolucao, setFilterMotivoDevolucao] = useState("all");
   const [clienteExpandido, setClienteExpandido] = useState(null); // chave "nomeUsuario__loja"
   const [filterSt,      setFilterSt]      = useState("all");
-  const [filterProduto, setFilterProduto] = useState("all");
+  const [filterProduto,     setFilterProduto]     = useState("all");
+  const [filterFuncionario, setFilterFuncionario] = useState("all");
   const [showProdPanel, setShowProdPanel] = useState(false);
   const [selected,      setSelected]      = useState(new Set());
   const [copied,        setCopied]        = useState(false);
@@ -730,6 +731,7 @@ export default function App({user,onLogout}) {
       (filterData==="all"   ||r.dataEnvio?.slice(0,10)===filterData)&&
       (filterSt==="all"     ||(filterSt==="meus_feitos" ? (r.statusInterno==="feito"&&r.feitoPorNome===meuNome) : r.statusInterno===filterSt))&&
       (filterProduto==="all"||r.produto===filterProduto)&&
+      (filterFuncionario==="all"||r.feitoPorNome===filterFuncionario)&&
       matchesSearch(r)
     );
   }).sort((a,b)=>{
@@ -1194,6 +1196,13 @@ export default function App({user,onLogout}) {
                   <option value="all">Todas as lojas</option>
                   {lojas.map(l=><option key={l} value={l}>{l}</option>)}
                 </select>
+                {organizacao&&membrosEquipe.length>0&&(
+                  <select value={filterFuncionario} onChange={e=>setFilterFuncionario(e.target.value)} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"7px 11px",fontSize:12,cursor:"pointer",background:"#fff"}}>
+                    <option value="all">👤 Todos os funcionários</option>
+                    <option value="">⏳ Sem responsável</option>
+                    {membrosEquipe.map(m=><option key={m.id} value={m.nome}>{m.nome}</option>)}
+                  </select>
+                )}
                 <select value={filterPrazo} onChange={e=>{setFilterPrazo(e.target.value);setFilterData("all");}} style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"7px 11px",fontSize:12,cursor:"pointer",background:"#fff"}}>
                   <option value="all">Todos os prazos</option>
                   <option value="red">🔴 Urgente</option>
@@ -1876,9 +1885,23 @@ export default function App({user,onLogout}) {
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
                         <span style={{fontSize:13,fontWeight:600,color:"#1e293b"}}>{s.membro.nome}{s.membro.is_admin&&<span style={{fontSize:10,color:"#7c3aed",marginLeft:6}}>(admin)</span>}</span>
-                        <span style={{fontSize:12,color:"#64748b"}}>
-                          <strong style={{color:"#059669"}}>{s.feitoHoje}</strong> hoje · <strong>{s.feitoSemana}</strong> semana · <strong>{s.feitoMes}</strong> mês · <strong>{s.feitoTotal}</strong> total
-                          {s.revisaoTotal>0&&<span style={{color:"#f59e0b"}}> · 📋{s.revisaoTotal}</span>}
+                        <span style={{fontSize:12,color:"#64748b",display:"flex",gap:6,flexWrap:"wrap"}}>
+                          <span style={{cursor:"pointer",padding:"2px 8px",borderRadius:20,background:"#ecfdf5"}}
+                            onClick={()=>{setActiveTab("abertos");setFilterSt("feito");setFilterFuncionario(s.membro.nome);setTimeout(()=>tableRef.current?.scrollIntoView({behavior:"smooth"}),100);}}>
+                            ✅ <strong style={{color:"#059669"}}>{s.feitoHoje}</strong> hoje · <strong>{s.feitoTotal}</strong> total
+                          </span>
+                          {(s.revisaoHoje>0||s.revisaoTotal>0)&&(
+                            <span style={{cursor:"pointer",padding:"2px 8px",borderRadius:20,background:"#fffbeb"}}
+                              onClick={()=>{setActiveTab("abertos");setFilterSt("revisao");setFilterFuncionario(s.membro.nome);setTimeout(()=>tableRef.current?.scrollIntoView({behavior:"smooth"}),100);}}>
+                              📋 <strong style={{color:"#f59e0b"}}>{s.revisaoHoje}</strong> hoje · <strong>{s.revisaoTotal}</strong> total
+                            </span>
+                          )}
+                          {(s.vazioHoje>0||s.vazioTotal>0)&&(
+                            <span style={{cursor:"pointer",padding:"2px 8px",borderRadius:20,background:"#f5f3ff"}}
+                              onClick={()=>{setActiveTab("abertos");setFilterSt("vazio");setFilterFuncionario(s.membro.nome);setTimeout(()=>tableRef.current?.scrollIntoView({behavior:"smooth"}),100);}}>
+                              📦 <strong style={{color:"#6366f1"}}>{s.vazioHoje}</strong> hoje · <strong>{s.vazioTotal}</strong> total
+                            </span>
+                          )}
                         </span>
                       </div>
                       <div style={{height:8,background:"#f1f5f9",borderRadius:6,overflow:"hidden"}}>
