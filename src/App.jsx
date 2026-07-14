@@ -1847,16 +1847,20 @@ export default function App({user,onLogout}) {
           const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
 
           const statsPorMembro = membrosEquipe.map(m => {
-            const feitosDoMembro = produtividade.filter(p => p.feito_por_user_id===m.user_id && p.status_interno==="feito");
+            const feitosDoMembro  = produtividade.filter(p => p.feito_por_user_id===m.user_id && p.status_interno==="feito");
             const revisaoDoMembro = produtividade.filter(p => p.feito_por_user_id===m.user_id && p.status_interno==="revisao");
+            const vazioDoMembro   = produtividade.filter(p => p.feito_por_user_id===m.user_id && p.status_interno==="vazio");
             const contarPeriodo = (lista, desde) => lista.filter(p => p.feito_em && new Date(p.feito_em) >= desde).length;
             return {
               membro: m,
-              feitoHoje:   contarPeriodo(feitosDoMembro, hoje),
-              feitoSemana: contarPeriodo(feitosDoMembro, inicioSemana),
-              feitoMes:    contarPeriodo(feitosDoMembro, inicioMes),
-              feitoTotal:  feitosDoMembro.length,
+              feitoHoje:    contarPeriodo(feitosDoMembro, hoje),
+              feitoSemana:  contarPeriodo(feitosDoMembro, inicioSemana),
+              feitoMes:     contarPeriodo(feitosDoMembro, inicioMes),
+              feitoTotal:   feitosDoMembro.length,
+              revisaoHoje:  contarPeriodo(revisaoDoMembro, hoje),
               revisaoTotal: revisaoDoMembro.length,
+              vazioHoje:    contarPeriodo(vazioDoMembro, hoje),
+              vazioTotal:   vazioDoMembro.length,
             };
           });
           const maxFeitoMes = Math.max(1, ...statsPorMembro.map(s=>s.feitoMes));

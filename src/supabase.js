@@ -145,11 +145,12 @@ export async function upsertPedidos(rows, userId, orgId, onProgress) {
 export async function updatePedidoStatus(idPedido, userId, statusInterno, nota = '', orgId, membroNome) {
   if (!supabase || !userId) return
   const updateData = { status_interno: statusInterno, nota_revisao: nota }
-  if (statusInterno === 'feito' || statusInterno === 'revisao') {
+  if (statusInterno === 'feito' || statusInterno === 'revisao' || statusInterno === 'vazio') {
     updateData.feito_por_user_id = userId
     updateData.feito_por_nome = membroNome || null
     updateData.feito_em = new Date().toISOString()
   } else {
+    // Ao desmarcar, mantém feito_por mas limpa o status
     updateData.feito_por_user_id = null
     updateData.feito_por_nome = null
     updateData.feito_em = null
@@ -405,6 +406,8 @@ export async function fetchProdutividade(orgId) {
     .select('feito_por_user_id, feito_por_nome, status_interno, feito_em')
     .eq('organizacao_id', orgId)
     .not('feito_por_user_id', 'is', null)
+    .not('feito_em', 'is', null)
+    .is('arquivado_em', null)
   if (error) { console.error('fetchProdutividade error:', error); return [] }
   return data || []
 }
