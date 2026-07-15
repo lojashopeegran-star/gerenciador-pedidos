@@ -407,7 +407,6 @@ export async function fetchProdutividade(orgId) {
     .eq('organizacao_id', orgId)
     .not('feito_por_user_id', 'is', null)
     .not('feito_em', 'is', null)
-    .is('arquivado_em', null)
   if (error) { console.error('fetchProdutividade error:', error); return [] }
   return data || []
 }
