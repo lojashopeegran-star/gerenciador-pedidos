@@ -615,7 +615,10 @@ export default function App({user,onLogout}) {
       return;
     }
     setAllPedidos(prev=>prev.map(o=>o.idPedido===order.idPedido?{...o,statusInterno:newSt,notaRevisao:nota,feitoPorNome:newSt?meuNome:"",feitoPorCor:newSt?minhaCor:""}:o));
-    if (supabase) await updatePedidoStatus(order.idPedido,user.id,newSt,nota,orgId,meuNome);
+    if (supabase) {
+      await updatePedidoStatus(order.idPedido,user.id,newSt,nota,orgId,meuNome);
+      if (orgId) fetchProdutividade(orgId).then(setProdutividade);
+    }
     showToast(newSt==="feito"?"✅ Marcado como Feito!":newSt==="vazio"?"📦 Marcado como Vazio!":newSt==="revisao"?"📋 Enviado para Revisão":"↩️ Desmarcado",newSt==="feito"?"#059669":newSt==="vazio"?"#6366f1":newSt==="revisao"?"#f59e0b":"#64748b");
     // Falar frase personalizada ao MARCAR (não ao desmarcar)
     if (newSt && membro) {
