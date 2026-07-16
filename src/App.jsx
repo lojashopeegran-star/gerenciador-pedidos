@@ -692,7 +692,7 @@ export default function App({user,onLogout}) {
       const prazoDate = r.dataEnvio ? r.dataEnvio.slice(0,10).split("-").reverse().join("-") : "";
       return [r.idPedido, r.destinatario||"", r.loja||"", r.variacao||"", prazoDate].join("-");
     });
-    navigator.clipboard.writeText(lines.join("\n")).then(()=>{
+    navigator.clipboard.writeText(lines.map(l=>"* "+l).join("\n")).then(()=>{
       setCopiedFull(true);
       setTimeout(()=>setCopiedFull(false),2000);
       showToast("Dados completos copiados!","#7c3aed");
