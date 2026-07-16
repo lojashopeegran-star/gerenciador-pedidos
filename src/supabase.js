@@ -401,12 +401,17 @@ export async function removerMembro(membroId) {
 // Relatório de produtividade: conta quantos pedidos cada membro marcou como feito/revisão
 export async function fetchProdutividade(orgId) {
   if (!supabase || !orgId) return []
+  // Busca apenas os últimos 30 dias — suficiente para hoje/semana/mês
+  const trintaDiasAtras = new Date()
+  trintaDiasAtras.setDate(trintaDiasAtras.getDate() - 30)
   const { data, error } = await supabase
     .from('pedidos')
     .select('feito_por_user_id, feito_por_nome, status_interno, feito_em')
     .eq('organizacao_id', orgId)
     .not('feito_por_user_id', 'is', null)
     .not('feito_em', 'is', null)
+    .gte('feito_em', trintaDiasAtras.toISOString())
+    .limit(5000)
   if (error) { console.error('fetchProdutividade error:', error); return [] }
   return data || []
 }
