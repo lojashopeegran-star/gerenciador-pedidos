@@ -55,7 +55,7 @@ export async function fetchPedidos(userId, orgId) {
     allData = allData.concat(data)
     if (data.length < pageSize) break
     from += pageSize
-    if (page > 20) { console.error('fetchPedidos: too many pages, stopping'); break }
+    if (page > 100) { console.error('fetchPedidos: too many pages, stopping'); break }
   }
   console.log('fetchPedidos total loaded:', allData.length)
   return allData.map(dbToRow)
