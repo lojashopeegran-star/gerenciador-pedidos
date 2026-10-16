@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -361,6 +361,21 @@ export default function App({user,onLogout}) {
     pode_carregar_planilha: true, pode_editar_status: true,
   });
   const [criandoFuncionario, setCriandoFuncionario] = useState(false);
+  // ── Estoque ────────────────────────────────────────────────────────────────
+  const [estoqueProdutos,    setEstoqueProdutos]    = useState([]);
+  const [estoqueMovimentos,  setEstoqueMovimentos]  = useState([]);
+  const [showEstoqueForm,    setShowEstoqueForm]    = useState(false);
+  const [editandoProduto,    setEditandoProduto]    = useState(null); // null = novo
+  const [estoqueProdNome,    setEstoqueProdNome]    = useState("");
+  const [estoqueProdUnidade, setEstoqueProdUnidade] = useState("un");
+  const [estoqueProdQtd,     setEstoqueProdQtd]     = useState("");
+  const [estoqueProdMin,     setEstoqueProdMin]     = useState("");
+  const [salvandoProduto,    setSalvandoProduto]    = useState(false);
+  const [showMovForm,        setShowMovForm]        = useState(null); // produtoId ou null
+  const [movTipo,            setMovTipo]            = useState("entrada");
+  const [movQtd,             setMovQtd]             = useState("");
+  const [movMotivo,          setMovMotivo]          = useState("");
+  const [salvandoMov,        setSalvandoMov]        = useState(false);
   const tableRef  = useRef(null);
   const notifRef  = useRef(null);
 
@@ -419,11 +434,13 @@ export default function App({user,onLogout}) {
         // Todos os membros precisam da lista da equipe para resolver as cores
         // de quem marcou cada pedido como feito — não só o admin.
         fetchMembrosDaOrganizacao(orgId).then(setMembrosEquipe);
+        fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
         if (m?.is_admin) {
           fetchProdutividade(orgId).then(setProdutividade);
           fetchAuditoria(orgId, true).then(setAuditoria);
           fetchGoogleCalendarStatus(orgId).then(setGoogleCalStatus);
           fetchAlarmeHorarios(orgId).then(setAlarmeHorarios);
+          fetchMovimentosEstoque(user.id, orgId, null, 100).then(setEstoqueMovimentos);
         }
       }
 
@@ -812,6 +829,7 @@ export default function App({user,onLogout}) {
     {id:"clientes",   icon:"👤",label:"Clientes",   badge:null,                     color:"#0d9488"},
     {id:"financeiro", icon:"💰",label:"Financeiro", badge:null,                     color:"#0891b2"},
     ...(isAdminEquipe&&organizacao ? [{id:"equipe", icon:"👥", label:"Equipe", badge:membrosEquipe.length||null, color:"#7c3aed"}] : []),
+    ...(isAdminEquipe ? [{id:"estoque", icon:"🏪", label:"Estoque", badge: estoqueProdutos.filter(p=>p.quantidade_atual<=p.quantidade_minima).length||null, color:"#0d9488"}] : []),
   ];
 
 
@@ -1093,6 +1111,24 @@ export default function App({user,onLogout}) {
             </div>
           );
         })()}
+
+        {/* Card estoque baixo — visível só para o admin quando tem item abaixo do mínimo */}
+        {isAdminEquipe&&estoqueProdutos.filter(p=>p.quantidade_atual<=p.quantidade_minima).length>0&&(
+          <div style={{background:"linear-gradient(135deg,#fff7ed,#fef3c7)",borderRadius:14,padding:"14px 18px",marginBottom:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",border:"1px solid #fde68a",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <span style={{fontSize:22}}>⚠️</span>
+              <div>
+                <div style={{fontSize:12,fontWeight:700,color:"#92400e"}}>Estoque Baixo!</div>
+                <div style={{fontSize:11,color:"#78350f"}}>
+                  {estoqueProdutos.filter(p=>p.quantidade_atual<=p.quantidade_minima).map(p=>p.nome).join(", ")}
+                </div>
+              </div>
+            </div>
+            <button onClick={()=>setActiveTab("estoque")} style={{background:"#f59e0b",color:"#fff",border:"none",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}>
+              Ver Estoque →
+            </button>
+          </div>
+        )}
 
         {/* Valor aberto card — visível só para o admin */}
         {isAdminEquipe&&(
@@ -2298,6 +2334,223 @@ export default function App({user,onLogout}) {
           </div>
         </div>
       )}
+
+      {/* ── TAB: ESTOQUE ── */}
+      {activeTab==="estoque"&&isAdminEquipe&&(()=>{
+        const baixo = (p) => p.quantidade_atual <= p.quantidade_minima;
+        const reloadEstoque = () => {
+          fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
+          fetchMovimentosEstoque(user.id, orgId, null, 100).then(setEstoqueMovimentos);
+        };
+        const abrirFormNovo = () => {
+          setEditandoProduto(null);
+          setEstoqueProdNome(""); setEstoqueProdUnidade("un"); setEstoqueProdQtd(""); setEstoqueProdMin("");
+          setShowEstoqueForm(true);
+        };
+        const abrirFormEditar = (p) => {
+          setEditandoProduto(p);
+          setEstoqueProdNome(p.nome); setEstoqueProdUnidade(p.unidade);
+          setEstoqueProdQtd(String(p.quantidade_atual)); setEstoqueProdMin(String(p.quantidade_minima));
+          setShowEstoqueForm(true);
+        };
+        const salvarProduto = async () => {
+          if (!estoqueProdNome.trim()) return;
+          setSalvandoProduto(true);
+          const res = await salvarEstoqueProduto(user.id, orgId, {
+            id: editandoProduto?.id,
+            nome: estoqueProdNome.trim(),
+            unidade: estoqueProdUnidade,
+            quantidade_atual: editandoProduto ? Number(estoqueProdQtd)||0 : Number(estoqueProdQtd)||0,
+            quantidade_minima: Number(estoqueProdMin)||0,
+          });
+          setSalvandoProduto(false);
+          if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
+          setShowEstoqueForm(false);
+          reloadEstoque();
+          showToast(editandoProduto?"✅ Produto atualizado!":"✅ Produto cadastrado!","#059669");
+        };
+        const excluirProduto = async (id) => {
+          if (!window.confirm("Remover este produto do estoque?")) return;
+          await excluirEstoqueProduto(id);
+          reloadEstoque();
+          showToast("🗑️ Produto removido.","#64748b");
+        };
+        const abrirMov = (produtoId, tipo) => {
+          setShowMovForm(produtoId); setMovTipo(tipo); setMovQtd(""); setMovMotivo("");
+        };
+        const salvarMov = async () => {
+          if (!movQtd || Number(movQtd)<=0) { showToast("❌ Informe a quantidade.","#991b1b"); return; }
+          setSalvandoMov(true);
+          const res = await registrarMovimentoEstoque(user.id, orgId, meuNome, {
+            produto_id: showMovForm,
+            tipo: movTipo,
+            quantidade: Number(movQtd),
+            motivo: movMotivo,
+          });
+          setSalvandoMov(false);
+          if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
+          setShowMovForm(null);
+          reloadEstoque();
+          showToast(movTipo==="entrada"?"📥 Entrada registrada!":"📤 Saída registrada!",movTipo==="entrada"?"#059669":"#f59e0b");
+        };
+        return (
+          <div>
+            {/* Header */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
+              <h2 style={{margin:0,fontSize:18,fontWeight:800,color:"#1e293b"}}>🏪 Controle de Estoque</h2>
+              <button onClick={abrirFormNovo} style={{background:"linear-gradient(135deg,#0d9488,#0891b2)",color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                + Novo Material
+              </button>
+            </div>
+
+            {/* Produtos */}
+            {estoqueProdutos.length===0 ? (
+              <div style={{background:"#fff",borderRadius:16,padding:40,textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
+                <div style={{fontSize:40,marginBottom:8}}>📦</div>
+                <div style={{fontSize:16,fontWeight:700,color:"#1e293b",marginBottom:6}}>Nenhum material cadastrado</div>
+                <div style={{fontSize:13,color:"#64748b",marginBottom:20}}>Cadastre papel fotográfico, caixas, envelopes e outros insumos.</div>
+                <button onClick={abrirFormNovo} style={{background:"#0d9488",color:"#fff",border:"none",borderRadius:10,padding:"10px 22px",fontSize:13,fontWeight:700,cursor:"pointer"}}>+ Cadastrar Primeiro Material</button>
+              </div>
+            ) : (
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14,marginBottom:24}}>
+                {estoqueProdutos.map(p=>(
+                  <div key={p.id} style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",border:`2px solid ${baixo(p)?"#fde68a":"#f1f5f9"}`,position:"relative"}}>
+                    {baixo(p)&&<span style={{position:"absolute",top:10,right:12,background:"#f59e0b",color:"#fff",borderRadius:20,padding:"2px 9px",fontSize:10,fontWeight:700}}>⚠️ Baixo</span>}
+                    <div style={{fontSize:15,fontWeight:700,color:"#1e293b",marginBottom:4,paddingRight:60}}>{p.nome}</div>
+                    <div style={{display:"flex",alignItems:"baseline",gap:6,marginBottom:10}}>
+                      <span style={{fontSize:32,fontWeight:800,color:baixo(p)?"#f59e0b":"#0d9488",lineHeight:1}}>{p.quantidade_atual}</span>
+                      <span style={{fontSize:13,color:"#64748b"}}>{p.unidade}</span>
+                      <span style={{fontSize:11,color:"#94a3b8",marginLeft:4}}>mín: {p.quantidade_minima}</span>
+                    </div>
+                    <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
+                      <button onClick={()=>abrirMov(p.id,"entrada")} style={{flex:1,padding:"6px 10px",background:"#d1fae5",color:"#065f46",border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>📥 Entrada</button>
+                      <button onClick={()=>abrirMov(p.id,"saida")} style={{flex:1,padding:"6px 10px",background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>📤 Saída</button>
+                      <button onClick={()=>abrirFormEditar(p)} style={{padding:"6px 9px",background:"#f1f5f9",color:"#374151",border:"none",borderRadius:8,fontSize:11,cursor:"pointer"}}>✏️</button>
+                      <button onClick={()=>excluirProduto(p.id)} style={{padding:"6px 9px",background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:8,fontSize:11,cursor:"pointer"}}>🗑️</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Histórico de movimentos */}
+            {estoqueMovimentos.length>0&&(
+              <div style={{background:"#fff",borderRadius:16,padding:"18px 20px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
+                <div style={{fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:12}}>📊 Últimos Movimentos</div>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr>
+                        {["Data","Produto","Tipo","Qtd","Motivo","Quem"].map(h=>(
+                          <th key={h} style={{...TH}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {estoqueMovimentos.map(m=>(
+                        <tr key={m.id} style={{borderBottom:"1px solid #f1f5f9"}}>
+                          <td style={TD}>{new Date(m.criado_em).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</td>
+                          <td style={TD}><strong>{m.estoque_produtos?.nome||"—"}</strong></td>
+                          <td style={TD}>
+                            <span style={{background:m.tipo==="entrada"?"#d1fae5":"#fde8e8",color:m.tipo==="entrada"?"#065f46":"#991b1b",borderRadius:20,padding:"2px 10px",fontWeight:700,fontSize:11}}>
+                              {m.tipo==="entrada"?"📥 Entrada":"📤 Saída"}
+                            </span>
+                          </td>
+                          <td style={TD}><strong>{m.quantidade}</strong> {m.estoque_produtos?.unidade||""}</td>
+                          <td style={TD}>{m.motivo||"—"}</td>
+                          <td style={TD}>{m.registrado_por||"—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Modal: form cadastro/edição */}
+            {showEstoqueForm&&(
+              <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+                <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:420,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+                  <h3 style={{margin:"0 0 18px",fontSize:16,fontWeight:700,color:"#1e293b"}}>{editandoProduto?"✏️ Editar Material":"+ Novo Material"}</h3>
+                  <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:600,color:"#64748b",marginBottom:4,display:"block"}}>Nome do material *</label>
+                      <input value={estoqueProdNome} onChange={e=>setEstoqueProdNome(e.target.value)} placeholder="Ex: Papel Fotográfico 10x15"
+                        style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",marginBottom:4,display:"block"}}>Unidade</label>
+                        <select value={estoqueProdUnidade} onChange={e=>setEstoqueProdUnidade(e.target.value)}
+                          style={{width:"100%",padding:"10px 8px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",background:"#fff"}}>
+                          {["un","cx","pct","rolo","m","kg","l"].map(u=><option key={u} value={u}>{u}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",marginBottom:4,display:"block"}}>Qtd atual</label>
+                        <input type="number" min="0" value={estoqueProdQtd} onChange={e=>setEstoqueProdQtd(e.target.value)}
+                          style={{width:"100%",padding:"10px 8px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",marginBottom:4,display:"block"}}>Qtd mínima</label>
+                        <input type="number" min="0" value={estoqueProdMin} onChange={e=>setEstoqueProdMin(e.target.value)}
+                          style={{width:"100%",padding:"10px 8px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:10,marginTop:20}}>
+                    <button onClick={()=>setShowEstoqueForm(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                    <button onClick={salvarProduto} disabled={!estoqueProdNome.trim()||salvandoProduto}
+                      style={{flex:1,padding:"10px 0",border:"none",borderRadius:10,background:estoqueProdNome.trim()?"#0d9488":"#e2e8f0",color:estoqueProdNome.trim()?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                      {salvandoProduto?"Salvando...":"Salvar"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal: registrar movimento */}
+            {showMovForm&&(()=>{
+              const prod = estoqueProdutos.find(p=>p.id===showMovForm);
+              return (
+                <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+                  <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:400,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+                    <h3 style={{margin:"0 0 6px",fontSize:16,fontWeight:700,color:"#1e293b"}}>{movTipo==="entrada"?"📥 Registrar Entrada":"📤 Registrar Saída"}</h3>
+                    <p style={{margin:"0 0 16px",fontSize:12,color:"#64748b"}}>{prod?.nome} · saldo atual: <strong>{prod?.quantidade_atual} {prod?.unidade}</strong></p>
+                    <div style={{display:"flex",gap:8,marginBottom:14}}>
+                      {["entrada","saida"].map(t=>(
+                        <button key={t} onClick={()=>setMovTipo(t)}
+                          style={{flex:1,padding:"9px",border:`2px solid ${movTipo===t?(t==="entrada"?"#059669":"#ef4444"):"#e2e8f0"}`,borderRadius:10,background:movTipo===t?(t==="entrada"?"#d1fae5":"#fde8e8"):"#fff",fontWeight:700,fontSize:12,cursor:"pointer",color:movTipo===t?(t==="entrada"?"#065f46":"#991b1b"):"#64748b"}}>
+                          {t==="entrada"?"📥 Entrada":"📤 Saída"}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",marginBottom:4,display:"block"}}>Quantidade *</label>
+                        <input type="number" min="1" value={movQtd} onChange={e=>setMovQtd(e.target.value)} autoFocus
+                          style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:14,outline:"none",boxSizing:"border-box",fontWeight:600,textAlign:"center"}} />
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",marginBottom:4,display:"block"}}>Motivo (opcional)</label>
+                        <input value={movMotivo} onChange={e=>setMovMotivo(e.target.value)} placeholder="Ex: compra, uso do dia, ajuste..."
+                          style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:10,marginTop:18}}>
+                      <button onClick={()=>setShowMovForm(null)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                      <button onClick={salvarMov} disabled={!movQtd||Number(movQtd)<=0||salvandoMov}
+                        style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:(movQtd&&Number(movQtd)>0)?(movTipo==="entrada"?"#059669":"#ef4444"):"#e2e8f0",color:(movQtd&&Number(movQtd)>0)?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                        {salvandoMov?"Salvando...":movTipo==="entrada"?"✅ Confirmar Entrada":"✅ Confirmar Saída"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        );
+      })()}
 
       {showFinanceGate&&<FinanceGate onUnlock={()=>{setFinanceUnlocked(true);setActiveTab("financeiro");setShowFinanceGate(false);}} />}
       {revisaoModal&&<RevisaoModal order={revisaoModal} onConfirm={nota=>{handleStatusChange(revisaoModal,"revisao",nota);setRevisaoModal(null);}} onClose={()=>setRevisaoModal(null)} onDesmarcar={order=>{setRevisaoModal(null);tentarDesmarcar(order,"","Revisão");}} />}

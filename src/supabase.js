@@ -502,3 +502,89 @@ export async function salvarAlarmeHorarios(horarios) {
   if (data?.error) return { error: data.error }
   return { success: true }
 }
+
+// ── Estoque ────────────────────────────────────────────────────────────────────
+export async function fetchEstoqueProdutos(userId, orgId) {
+  if (!supabase || !userId) return []
+  let query = supabase.from('estoque_produtos').select('*').eq('ativo', true)
+  query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
+  const { data, error } = await query.order('nome', { ascending: true })
+  if (error) { console.error('fetchEstoqueProdutos error:', error.message); return [] }
+  return data || []
+}
+
+export async function salvarEstoqueProduto(userId, orgId, produto) {
+  if (!supabase || !userId) return { error: 'Não autenticado' }
+  const rec = {
+    nome: produto.nome,
+    unidade: produto.unidade || 'un',
+    quantidade_atual: Number(produto.quantidade_atual) || 0,
+    quantidade_minima: Number(produto.quantidade_minima) || 0,
+    ativo: true,
+    user_id: userId,
+    ...(orgId ? { organizacao_id: orgId } : {}),
+  }
+  if (produto.id) {
+    const { error } = await supabase.from('estoque_produtos').update({ ...rec, atualizado_em: new Date().toISOString() }).eq('id', produto.id)
+    if (error) return { error: error.message }
+  } else {
+    const { error } = await supabase.from('estoque_produtos').insert(rec)
+    if (error) return { error: error.message }
+  }
+  return { success: true }
+}
+
+export async function excluirEstoqueProduto(produtoId) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { error } = await supabase.from('estoque_produtos').update({ ativo: false }).eq('id', produtoId)
+  if (error) return { error: error.message }
+  return { success: true }
+}
+
+export async function registrarMovimentoEstoque(userId, orgId, membroNome, movimento) {
+  if (!supabase || !userId) return { error: 'Não autenticado' }
+  const quantidade = Math.abs(Number(movimento.quantidade))
+  if (!quantidade) return { error: 'Quantidade inválida' }
+
+  // Busca saldo atual
+  const { data: prod, error: prodErr } = await supabase
+    .from('estoque_produtos').select('quantidade_atual').eq('id', movimento.produto_id).maybeSingle()
+  if (prodErr || !prod) return { error: 'Produto não encontrado' }
+
+  const delta = movimento.tipo === 'entrada' ? quantidade : -quantidade
+  const novoSaldo = Number(prod.quantidade_atual) + delta
+  if (novoSaldo < 0) return { error: 'Estoque insuficiente para saída' }
+
+  // Atualiza saldo
+  await supabase.from('estoque_produtos')
+    .update({ quantidade_atual: novoSaldo, atualizado_em: new Date().toISOString() })
+    .eq('id', movimento.produto_id)
+
+  // Registra movimento
+  const { error } = await supabase.from('estoque_movimentos').insert({
+    produto_id: movimento.produto_id,
+    organizacao_id: orgId || null,
+    user_id: userId,
+    tipo: movimento.tipo,
+    quantidade,
+    motivo: movimento.motivo || '',
+    referencia_pedido: movimento.referencia_pedido || null,
+    registrado_por: membroNome || '',
+  })
+  if (error) return { error: error.message }
+  return { success: true, novoSaldo }
+}
+
+export async function fetchMovimentosEstoque(userId, orgId, produtoId = null, limite = 50) {
+  if (!supabase || !userId) return []
+  let query = supabase.from('estoque_movimentos')
+    .select('*, estoque_produtos(nome, unidade)')
+    .order('criado_em', { ascending: false })
+    .limit(limite)
+  if (orgId) query = query.eq('organizacao_id', orgId)
+  else query = query.eq('user_id', userId)
+  if (produtoId) query = query.eq('produto_id', produtoId)
+  const { data, error } = await query
+  if (error) { console.error('fetchMovimentosEstoque error:', error.message); return [] }
+  return data || []
+}
