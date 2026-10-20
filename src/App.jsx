@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -378,6 +378,38 @@ export default function App({user,onLogout}) {
   const [salvandoMov,        setSalvandoMov]        = useState(false);
   const [estoqueSearch,      setEstoqueSearch]      = useState("");
 
+  // ── ESTOQUE+ (fornecedores, preços, PIN) ─────────────────────────────────
+  const [estoquePlusDesbloqueado, setEstoquePlusDesbloqueado] = useState(false);
+  const [estoquePlusConfig,       setEstoquePlusConfig]       = useState(null); // {pin_hash}
+  const [showEstoquePlusPin,      setShowEstoquePlusPin]      = useState(false); // tela de PIN
+  const [pinInput,                setPinInput]                = useState("");
+  const [pinErro,                 setPinErro]                 = useState("");
+  const [showDefinirPin,          setShowDefinirPin]          = useState(false); // modal configurar PIN
+  const [novoPin,                 setNovoPin]                 = useState("");
+  const [novoPinConfirm,          setNovoPinConfirm]          = useState("");
+  const [salvandoPin,             setSalvandoPin]             = useState(false);
+  const [fornecedores,            setFornecedores]            = useState([]);
+  const [showFornecedorForm,      setShowFornecedorForm]      = useState(false);
+  const [editandoFornecedor,      setEditandoFornecedor]      = useState(null);
+  const [fornNome,                setFornNome]                = useState("");
+  const [fornContato,             setFornContato]             = useState("");
+  const [fornSite,                setFornSite]                = useState("");
+  const [fornObs,                 setFornObs]                 = useState("");
+  const [salvandoForn,            setSalvandoForn]            = useState(false);
+  const [movimentosMes,           setMovimentosMes]           = useState([]);
+  const [mesSelecionado,          setMesSelecionado]          = useState(() => new Date().toISOString().slice(0,7));
+  // Edição de campos plus de um produto do estoque
+  const [showEstoqueProdPlus,     setShowEstoqueProdPlus]     = useState(false);
+  const [estoqueProdPlusId,       setEstoqueProdPlusId]       = useState(null);
+  const [estoqueProdFornId,       setEstoqueProdFornId]       = useState("");
+  const [estoqueProdPreco,        setEstoqueProdPreco]        = useState("");
+  const [estoqueProdLink,         setEstoqueProdLink]         = useState("");
+  const [estoqueProdObs,          setEstoqueProdObs]          = useState("");
+  const [estoqueProdCat,          setEstoqueProdCat]          = useState("");
+  const [salvandoProdPlus,        setSalvandoProdPlus]        = useState(false);
+  // Fornecedor autocomplete no modal entrada estoque
+  const [fornSugestoes,           setFornSugestoes]           = useState([]);
+
   // ── PRODUTOS / CALCULADORA ────────────────────────────────────────────────
   const [produtosCalc,          setProdutosCalc]              = useState([]);
   const [produtoAtivo,          setProdutoAtivo]          = useState(null); // produto selecionado para ver detalhes
@@ -466,6 +498,8 @@ export default function App({user,onLogout}) {
         fetchMembrosDaOrganizacao(orgId).then(setMembrosEquipe);
         fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
         fetchProdutos(user.id, orgId).then(setProdutosCalc);
+        fetchFornecedores(user.id, orgId).then(setFornecedores);
+        fetchEstoquePlusConfig(user.id, orgId).then(setEstoquePlusConfig);
         if (m?.is_admin) {
           fetchProdutividade(orgId).then(setProdutividade);
           fetchAuditoria(orgId, true).then(setAuditoria);
@@ -854,7 +888,7 @@ export default function App({user,onLogout}) {
 
   const TABS = [
     ...(isAdminEquipe ? [{id:"estoque",  icon:"🏪", label:"Estoque",  badge: estoqueProdutos.filter(p=>p.quantidade_atual<=p.quantidade_minima).length||null, color:"#0d9488"}] : []),
-    ...(isAdminEquipe ? [{id:"produtos", icon:"📦", label:"Produtos", badge: null, color:"#7c3aed"}] : []),
+    ...(isAdminEquipe ? [{id:"produtos", icon: estoquePlusDesbloqueado?"📦":"🔒", label:"Produtos", badge: null, color:"#7c3aed"}] : []),
     ...(isAdminEquipe&&organizacao ? [{id:"equipe",  icon:"👥", label:"Equipe",   badge: membrosEquipe.length||null, color:"#7c3aed"}] : []),
   ];
 
@@ -2362,7 +2396,48 @@ export default function App({user,onLogout}) {
       )}
 
       {/* ── TAB: PRODUTOS / CALCULADORA ── */}
-      {activeTab==="produtos"&&isAdminEquipe&&(()=>{
+      {activeTab==="produtos"&&isAdminEquipe&&!estoquePlusDesbloqueado&&(
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:320,padding:32}}>
+          <div style={{background:"#fff",borderRadius:20,padding:32,maxWidth:340,width:"100%",boxShadow:"0 4px 20px rgba(0,0,0,0.08)",textAlign:"center"}}>
+            <div style={{fontSize:44,marginBottom:10}}>🔒</div>
+            <h3 style={{margin:"0 0 6px",fontSize:17,fontWeight:800,color:"#1e293b"}}>Área Protegida</h3>
+            <p style={{margin:"0 0 20px",fontSize:12,color:"#64748b"}}>A aba Produtos contém cálculos e valores sigilosos. Digite o PIN para continuar.</p>
+            {!estoquePlusConfig ? (
+              <div>
+                <p style={{fontSize:12,color:"#f59e0b",marginBottom:12}}>Você ainda não definiu um PIN. Configure pelo botão <strong>🔒 Estoque+</strong> no Estoque.</p>
+                <button onClick={()=>{setActiveTab("estoque");setShowDefinirPin(true);}} style={{width:"100%",padding:"10px 0",background:"#7c3aed",color:"#fff",border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>Definir PIN agora</button>
+              </div>
+            ) : (
+              <div>
+                <input type="password" inputMode="numeric" maxLength={8} value={pinInput}
+                  onChange={e=>{setPinInput(e.target.value);setPinErro("");}}
+                  onKeyDown={async e=>{
+                    if (e.key==="Enter") {
+                      const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pinInput))
+                        .then(b=>Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join(""));
+                      if (hash===estoquePlusConfig?.pin_hash) {
+                        setEstoquePlusDesbloqueado(true); setPinInput(""); setPinErro("");
+                      } else { setPinErro("PIN incorreto."); setPinInput(""); }
+                    }
+                  }}
+                  autoFocus placeholder="••••"
+                  style={{width:"100%",padding:"12px 16px",border:`2px solid ${pinErro?"#ef4444":"#e2e8f0"}`,borderRadius:12,fontSize:22,outline:"none",textAlign:"center",letterSpacing:8,boxSizing:"border-box",marginBottom:8}} />
+                {pinErro&&<div style={{fontSize:12,color:"#ef4444",marginBottom:8}}>{pinErro}</div>}
+                <button onClick={async()=>{
+                  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pinInput))
+                    .then(b=>Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join(""));
+                  if (hash===estoquePlusConfig?.pin_hash) {
+                    setEstoquePlusDesbloqueado(true); setPinInput(""); setPinErro("");
+                  } else { setPinErro("PIN incorreto."); setPinInput(""); }
+                }} style={{width:"100%",padding:"12px 0",background:"#7c3aed",color:"#fff",border:"none",borderRadius:12,fontSize:14,fontWeight:800,cursor:"pointer"}}>
+                  Desbloquear
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {activeTab==="produtos"&&isAdminEquipe&&estoquePlusDesbloqueado&&(()=>{
         const reloadProdutos = () => fetchProdutos(user.id, orgId).then(setProdutosCalc);
 
         // Cálculo de custo de um produto
@@ -2964,6 +3039,13 @@ export default function App({user,onLogout}) {
                 <button onClick={abrirFormNovo} style={{background:"linear-gradient(135deg,#0d9488,#0891b2)",color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
                   + Novo Material
                 </button>
+                <button onClick={()=>{
+                  if (estoquePlusDesbloqueado) { setActiveTab("estoque_plus"); }
+                  else if (!estoquePlusConfig) { setShowDefinirPin(true); }
+                  else { setPinInput(""); setPinErro(""); setShowEstoquePlusPin(true); }
+                }} style={{background:"linear-gradient(135deg,#7c3aed,#6d28d9)",color:"#fff",border:"none",borderRadius:10,padding:"9px 14px",fontSize:13,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+                  🔒 Estoque+
+                </button>
               </div>
             </div>
 
@@ -3115,6 +3197,374 @@ export default function App({user,onLogout}) {
           </div>
         );
       })()}
+
+      {/* ── ABA ESTOQUE+ ──────────────────────────────────────────────────── */}
+      {activeTab==="estoque_plus"&&isAdminEquipe&&estoquePlusDesbloqueado&&(()=>{
+        // helpers
+        const hashPin = async (pin) => {
+          const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pin));
+          return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+        };
+
+        const reloadForn = () => fetchFornecedores(user.id, orgId).then(setFornecedores);
+        const reloadMov  = () => fetchMovimentosComPreco(user.id, orgId, mesSelecionado).then(setMovimentosMes);
+
+        const abrirFornForm = (f=null) => {
+          setEditandoFornecedor(f);
+          setFornNome(f?.nome||""); setFornContato(f?.contato||"");
+          setFornSite(f?.site_link||""); setFornObs(f?.observacoes||"");
+          setShowFornecedorForm(true);
+        };
+        const salvarForn = async () => {
+          if (!fornNome.trim()) return;
+          setSalvandoForn(true);
+          const res = await salvarFornecedor(user.id, orgId, {
+            id: editandoFornecedor?.id,
+            nome: fornNome.trim(), contato: fornContato, site_link: fornSite, observacoes: fornObs,
+          });
+          setSalvandoForn(false);
+          if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
+          setShowFornecedorForm(false);
+          reloadForn();
+          showToast(editandoFornecedor?"✅ Fornecedor atualizado!":"✅ Fornecedor cadastrado!","#059669");
+        };
+        const excluirForn = async (id) => {
+          if (!window.confirm("Remover este fornecedor?")) return;
+          await excluirFornecedor(id);
+          reloadForn();
+          showToast("🗑️ Fornecedor removido.","#64748b");
+        };
+
+        const abrirProdPlus = (p) => {
+          setEstoqueProdPlusId(p.id);
+          setEstoqueProdFornId(p.fornecedor_id||"");
+          setEstoqueProdPreco(p.preco_unitario?String(p.preco_unitario):"");
+          setEstoqueProdLink(p.link_produto||"");
+          setEstoqueProdObs(p.observacoes||"");
+          setEstoqueProdCat(p.categoria||"");
+          setShowEstoqueProdPlus(true);
+        };
+        const salvarProdPlus = async () => {
+          if (!estoqueProdPlusId) return;
+          setSalvandoProdPlus(true);
+          const res = await atualizarEstoqueProdutoPlus(estoqueProdPlusId, {
+            preco_unitario: estoqueProdPreco ? Number(estoqueProdPreco) : null,
+            fornecedor_id:  estoqueProdFornId || null,
+            link_produto:   estoqueProdLink || null,
+            observacoes:    estoqueProdObs || null,
+            categoria:      estoqueProdCat || null,
+          });
+          setSalvandoProdPlus(false);
+          if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
+          setShowEstoqueProdPlus(false);
+          fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
+          showToast("✅ Informações salvas!","#059669");
+        };
+
+        // totais do mês
+        const totalMes = movimentosMes.reduce((s,m)=>{
+          const preco = m.preco_unitario||0;
+          return s + (preco * m.quantidade);
+        }, 0);
+        const porForn = {};
+        movimentosMes.forEach(m=>{
+          const nome = m.fornecedores?.nome || "Sem fornecedor";
+          const val  = (m.preco_unitario||0)*m.quantidade;
+          porForn[nome] = (porForn[nome]||0) + val;
+        });
+
+        return (
+          <div>
+            {/* Header */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <button onClick={()=>setActiveTab("estoque")} style={{background:"#f1f5f9",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer",color:"#64748b"}}>← Voltar</button>
+                <h2 style={{margin:0,fontSize:18,fontWeight:800,color:"#7c3aed"}}>🔒 Estoque+</h2>
+                <span style={{background:"#ede9fe",color:"#6d28d9",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>Área restrita</span>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>setShowDefinirPin(true)} style={{background:"#f1f5f9",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"8px 14px",fontSize:12,cursor:"pointer"}}>⚙️ Alterar PIN</button>
+                <button onClick={()=>{setEstoquePlusDesbloqueado(false);setActiveTab("estoque");}} style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🔒 Trancar</button>
+              </div>
+            </div>
+
+            {/* Cards resumo do mês */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:12,marginBottom:20}}>
+              <div style={{background:"linear-gradient(135deg,#7c3aed,#6d28d9)",borderRadius:14,padding:"16px 18px",color:"#fff"}}>
+                <div style={{fontSize:11,opacity:.8,marginBottom:4}}>💰 Investido no mês</div>
+                <div style={{fontSize:26,fontWeight:800}}>R$ {totalMes.toFixed(2).replace(".",",")}</div>
+                <div style={{fontSize:11,opacity:.7}}>{mesSelecionado}</div>
+              </div>
+              <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
+                <div style={{fontSize:11,color:"#64748b",marginBottom:4}}>📦 Materiais cadastrados</div>
+                <div style={{fontSize:26,fontWeight:800,color:"#1e293b"}}>{estoqueProdutos.length}</div>
+                <div style={{fontSize:11,color:"#94a3b8"}}>itens no estoque</div>
+              </div>
+              <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
+                <div style={{fontSize:11,color:"#64748b",marginBottom:4}}>🏭 Fornecedores</div>
+                <div style={{fontSize:26,fontWeight:800,color:"#1e293b"}}>{fornecedores.length}</div>
+                <div style={{fontSize:11,color:"#94a3b8"}}>cadastrados</div>
+              </div>
+            </div>
+
+            {/* Seletor de mês + totais por fornecedor */}
+            <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>📊 Compras por fornecedor</div>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <input type="month" value={mesSelecionado} onChange={e=>{setMesSelecionado(e.target.value); fetchMovimentosComPreco(user.id,orgId,e.target.value).then(setMovimentosMes);}}
+                    style={{padding:"6px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none"}} />
+                  <button onClick={reloadMov} style={{background:"#ede9fe",color:"#7c3aed",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,cursor:"pointer"}}>🔄 Atualizar</button>
+                </div>
+              </div>
+              {Object.keys(porForn).length===0 ? (
+                <div style={{textAlign:"center",padding:"20px 0",color:"#94a3b8",fontSize:12}}>Nenhuma entrada com preço registrada em {mesSelecionado}.</div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {Object.entries(porForn).sort((a,b)=>b[1]-a[1]).map(([nome,val])=>(
+                    <div key={nome} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"#f8fafc",borderRadius:8}}>
+                      <span style={{fontSize:13,color:"#374151"}}>{nome}</span>
+                      <span style={{fontSize:13,fontWeight:700,color:"#7c3aed"}}>R$ {val.toFixed(2).replace(".",",")}</span>
+                    </div>
+                  ))}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"#ede9fe",borderRadius:8,marginTop:4}}>
+                    <span style={{fontSize:13,fontWeight:700,color:"#6d28d9"}}>Total do mês</span>
+                    <span style={{fontSize:14,fontWeight:800,color:"#6d28d9"}}>R$ {totalMes.toFixed(2).replace(".",",")}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Materiais com info de preço/fornecedor */}
+            <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12}}>🏷️ Preço e fornecedor por material</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:10}}>
+                {estoqueProdutos.map(p=>{
+                  const forn = fornecedores.find(f=>f.id===p.fornecedor_id);
+                  return (
+                    <div key={p.id} style={{border:"1.5px solid #e2e8f0",borderRadius:10,padding:"12px 14px"}}>
+                      <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:6}}>{p.nome}</div>
+                      {p.categoria&&<div style={{display:"inline-block",background:"#f1f5f9",borderRadius:20,padding:"1px 8px",fontSize:10,color:"#64748b",marginBottom:6}}>{p.categoria}</div>}
+                      <div style={{fontSize:12,color:"#374151",marginBottom:2}}>
+                        💰 Preço: {p.preco_unitario ? <strong style={{color:"#059669"}}>R$ {Number(p.preco_unitario).toFixed(2).replace(".",",")} / {p.unidade}</strong> : <span style={{color:"#94a3b8"}}>não informado</span>}
+                      </div>
+                      <div style={{fontSize:12,color:"#374151",marginBottom:2}}>
+                        🏭 Fornecedor: {forn ? <strong>{forn.nome}</strong> : <span style={{color:"#94a3b8"}}>não informado</span>}
+                      </div>
+                      {p.link_produto&&<div style={{fontSize:11,marginBottom:2}}><a href={p.link_produto} target="_blank" rel="noreferrer" style={{color:"#6d28d9"}}>🔗 Ver produto</a></div>}
+                      {p.observacoes&&<div style={{fontSize:11,color:"#64748b",fontStyle:"italic",marginBottom:4}}>"{p.observacoes}"</div>}
+                      <button onClick={()=>abrirProdPlus(p)} style={{marginTop:6,width:"100%",padding:"5px 0",background:"#ede9fe",color:"#7c3aed",border:"none",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer"}}>✏️ Editar info</button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Fornecedores */}
+            <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>🏭 Fornecedores</div>
+                <button onClick={()=>abrirFornForm()} style={{background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Novo Fornecedor</button>
+              </div>
+              {fornecedores.length===0 ? (
+                <div style={{textAlign:"center",padding:"20px 0",color:"#94a3b8",fontSize:12}}>Nenhum fornecedor cadastrado ainda.</div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {fornecedores.map(f=>(
+                    <div key={f.id} style={{border:"1.5px solid #e2e8f0",borderRadius:10,padding:"11px 14px",display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+                      <div>
+                        <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>{f.nome}</div>
+                        {f.contato&&<div style={{fontSize:11,color:"#64748b"}}>📞 {f.contato}</div>}
+                        {f.site_link&&<div style={{fontSize:11}}><a href={f.site_link} target="_blank" rel="noreferrer" style={{color:"#6d28d9"}}>🔗 {f.site_link.replace(/^https?:\/\//,"")}</a></div>}
+                        {f.observacoes&&<div style={{fontSize:11,color:"#94a3b8",fontStyle:"italic"}}>"{f.observacoes}"</div>}
+                      </div>
+                      <div style={{display:"flex",gap:6,flexShrink:0}}>
+                        <button onClick={()=>abrirFornForm(f)} style={{padding:"5px 9px",background:"#f1f5f9",border:"none",borderRadius:7,fontSize:11,cursor:"pointer"}}>✏️</button>
+                        <button onClick={()=>excluirForn(f.id)} style={{padding:"5px 9px",background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:7,fontSize:11,cursor:"pointer"}}>🗑️</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Modal: fornecedor form */}
+            {showFornecedorForm&&(
+              <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+                <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+                  <h3 style={{margin:"0 0 16px",fontSize:15,fontWeight:700}}>{editandoFornecedor?"✏️ Editar Fornecedor":"+ Novo Fornecedor"}</h3>
+                  <div style={{display:"flex",flexDirection:"column",gap:11}}>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Nome *</label>
+                      <input value={fornNome} onChange={e=>setFornNome(e.target.value)} placeholder="Ex: Shopee Shop Papel, ML Insumos..."
+                        style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                    </div>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Contato (WhatsApp / email)</label>
+                      <input value={fornContato} onChange={e=>setFornContato(e.target.value)} placeholder="Ex: 21 99999-0000"
+                        style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                    </div>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Link da loja / site</label>
+                      <input value={fornSite} onChange={e=>setFornSite(e.target.value)} placeholder="https://..."
+                        style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                    </div>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Observações</label>
+                      <input value={fornObs} onChange={e=>setFornObs(e.target.value)} placeholder="Ex: melhor preço em junho, frete grátis acima de R$100..."
+                        style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:10,marginTop:18}}>
+                    <button onClick={()=>setShowFornecedorForm(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                    <button onClick={salvarForn} disabled={!fornNome.trim()||salvandoForn}
+                      style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:fornNome.trim()?"#7c3aed":"#e2e8f0",color:fornNome.trim()?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                      {salvandoForn?"Salvando...":"Salvar fornecedor"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal: editar info plus de um produto */}
+            {showEstoqueProdPlus&&(()=>{
+              const prod = estoqueProdutos.find(p=>p.id===estoqueProdPlusId);
+              const filtForn = fornecedores.filter(f=>f.nome.toLowerCase().includes(fornNome.toLowerCase()));
+              return (
+                <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+                  <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+                    <h3 style={{margin:"0 0 4px",fontSize:15,fontWeight:700}}>✏️ Info financeiras</h3>
+                    <p style={{margin:"0 0 14px",fontSize:12,color:"#64748b"}}>{prod?.nome}</p>
+                    <div style={{display:"flex",flexDirection:"column",gap:11}}>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Preço de compra por {prod?.unidade||"un"} (R$)</label>
+                        <input type="number" min="0" step="0.01" value={estoqueProdPreco} onChange={e=>setEstoqueProdPreco(e.target.value)} placeholder="Ex: 0,80"
+                          style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Fornecedor</label>
+                        <select value={estoqueProdFornId} onChange={e=>setEstoqueProdFornId(e.target.value)}
+                          style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",background:"#fff",boxSizing:"border-box"}}>
+                          <option value="">— Selecionar fornecedor —</option>
+                          {fornecedores.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Categoria</label>
+                        <input value={estoqueProdCat} onChange={e=>setEstoqueProdCat(e.target.value)} placeholder="Ex: papel, embalagem, tinta, imã..."
+                          style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Link do produto</label>
+                        <input value={estoqueProdLink} onChange={e=>setEstoqueProdLink(e.target.value)} placeholder="https://shopee.com.br/..."
+                          style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Observações</label>
+                        <input value={estoqueProdObs} onChange={e=>setEstoqueProdObs(e.target.value)} placeholder="Ex: comprar só quando em promoção..."
+                          style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:10,marginTop:18}}>
+                      <button onClick={()=>setShowEstoqueProdPlus(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                      <button onClick={salvarProdPlus} disabled={salvandoProdPlus}
+                        style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:"#7c3aed",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                        {salvandoProdPlus?"Salvando...":"Salvar"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        );
+      })()}
+
+      {/* ── Modais PIN Estoque+ ───────────────────────────────────────────── */}
+      {showEstoquePlusPin&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10100,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:"#fff",borderRadius:20,padding:32,width:"100%",maxWidth:340,boxShadow:"0 20px 60px rgba(0,0,0,0.25)",textAlign:"center"}}>
+            <div style={{fontSize:44,marginBottom:10}}>🔒</div>
+            <h3 style={{margin:"0 0 6px",fontSize:17,fontWeight:800,color:"#1e293b"}}>Estoque+</h3>
+            <p style={{margin:"0 0 20px",fontSize:12,color:"#64748b"}}>Digite o PIN para acessar a área restrita</p>
+            <input type="password" inputMode="numeric" maxLength={8} value={pinInput}
+              onChange={e=>{setPinInput(e.target.value);setPinErro("");}}
+              onKeyDown={async e=>{
+                if (e.key==="Enter") {
+                  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pinInput))
+                    .then(b=>Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join(""));
+                  if (hash===estoquePlusConfig?.pin_hash) {
+                    setEstoquePlusDesbloqueado(true);
+                    setShowEstoquePlusPin(false);
+                    setActiveTab("estoque_plus");
+                    fetchMovimentosComPreco(user.id,orgId,mesSelecionado).then(setMovimentosMes);
+                  } else { setPinErro("PIN incorreto. Tente novamente."); setPinInput(""); }
+                }
+              }}
+              autoFocus
+              placeholder="••••"
+              style={{width:"100%",padding:"12px 16px",border:`2px solid ${pinErro?"#ef4444":"#e2e8f0"}`,borderRadius:12,fontSize:22,outline:"none",textAlign:"center",letterSpacing:8,boxSizing:"border-box",marginBottom:8}} />
+            {pinErro&&<div style={{fontSize:12,color:"#ef4444",marginBottom:8}}>{pinErro}</div>}
+            <button onClick={async()=>{
+              const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pinInput))
+                .then(b=>Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join(""));
+              if (hash===estoquePlusConfig?.pin_hash) {
+                setEstoquePlusDesbloqueado(true);
+                setShowEstoquePlusPin(false);
+                setActiveTab("estoque_plus");
+                fetchMovimentosComPreco(user.id,orgId,mesSelecionado).then(setMovimentosMes);
+              } else { setPinErro("PIN incorreto. Tente novamente."); setPinInput(""); }
+            }} style={{width:"100%",padding:"12px 0",background:"#7c3aed",color:"#fff",border:"none",borderRadius:12,fontSize:14,fontWeight:800,cursor:"pointer",marginBottom:10}}>
+              Desbloquear
+            </button>
+            <button onClick={()=>setShowEstoquePlusPin(false)} style={{background:"none",border:"none",color:"#94a3b8",fontSize:12,cursor:"pointer"}}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: definir / alterar PIN */}
+      {showDefinirPin&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10100,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:360,boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
+            <h3 style={{margin:"0 0 6px",fontSize:16,fontWeight:800,color:"#1e293b"}}>🔐 {estoquePlusConfig?"Alterar PIN":"Definir PIN do Estoque+"}</h3>
+            <p style={{margin:"0 0 16px",fontSize:12,color:"#64748b"}}>Crie um PIN numérico. Só você terá acesso ao Estoque+.</p>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Novo PIN (4 a 8 dígitos)</label>
+                <input type="password" inputMode="numeric" maxLength={8} value={novoPin} onChange={e=>setNovoPin(e.target.value)}
+                  placeholder="••••" style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:18,outline:"none",textAlign:"center",letterSpacing:6,boxSizing:"border-box"}} />
+              </div>
+              <div>
+                <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Confirmar PIN</label>
+                <input type="password" inputMode="numeric" maxLength={8} value={novoPinConfirm} onChange={e=>setNovoPinConfirm(e.target.value)}
+                  placeholder="••••" style={{width:"100%",padding:"10px 12px",border:`1.5px solid ${novoPinConfirm&&novoPinConfirm!==novoPin?"#ef4444":"#e2e8f0"}`,borderRadius:10,fontSize:18,outline:"none",textAlign:"center",letterSpacing:6,boxSizing:"border-box"}} />
+                {novoPinConfirm&&novoPinConfirm!==novoPin&&<span style={{fontSize:11,color:"#ef4444"}}>PINs não coincidem</span>}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:10,marginTop:18}}>
+              <button onClick={()=>{setShowDefinirPin(false);setNovoPin("");setNovoPinConfirm("");}} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+              <button disabled={novoPin.length<4||novoPin!==novoPinConfirm||salvandoPin}
+                onClick={async()=>{
+                  setSalvandoPin(true);
+                  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(novoPin))
+                    .then(b=>Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join(""));
+                  const res = await salvarEstoquePlusPin(user.id, orgId, hash);
+                  setSalvandoPin(false);
+                  if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
+                  setEstoquePlusConfig({pin_hash: hash});
+                  setShowDefinirPin(false); setNovoPin(""); setNovoPinConfirm("");
+                  setEstoquePlusDesbloqueado(true);
+                  setActiveTab("estoque_plus");
+                  fetchMovimentosComPreco(user.id,orgId,mesSelecionado).then(setMovimentosMes);
+                  showToast("✅ PIN definido! Estoque+ desbloqueado.","#059669");
+                }}
+                style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:(novoPin.length>=4&&novoPin===novoPinConfirm)?"#7c3aed":"#e2e8f0",color:(novoPin.length>=4&&novoPin===novoPinConfirm)?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                {salvandoPin?"Salvando...":"Salvar PIN"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showFinanceGate&&<FinanceGate onUnlock={()=>{setFinanceUnlocked(true);setActiveTab("financeiro");setShowFinanceGate(false);}} />}
       {revisaoModal&&<RevisaoModal order={revisaoModal} onConfirm={nota=>{handleStatusChange(revisaoModal,"revisao",nota);setRevisaoModal(null);}} onClose={()=>setRevisaoModal(null)} onDesmarcar={order=>{setRevisaoModal(null);tentarDesmarcar(order,"","Revisão");}} />}

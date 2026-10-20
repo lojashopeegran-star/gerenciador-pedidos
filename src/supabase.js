@@ -649,3 +649,81 @@ export async function excluirMateriaPrima(id) {
   const { error } = await supabase.from('produto_materias_primas').delete().eq('id', id)
   return error ? { error: error.message } : { success: true }
 }
+
+// ─── Fornecedores ────────────────────────────────────────────────────────────
+
+export async function fetchFornecedores(userId, orgId) {
+  let q = supabase.from('fornecedores').select('*').eq('ativo', true)
+  q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
+  const { data } = await q.order('nome', { ascending: true })
+  return data || []
+}
+
+export async function salvarFornecedor(userId, orgId, f) {
+  const payload = {
+    nome: f.nome?.trim(),
+    contato: f.contato?.trim() || null,
+    site_link: f.site_link?.trim() || null,
+    observacoes: f.observacoes?.trim() || null,
+  }
+  if (orgId) payload.organizacao_id = orgId; else payload.user_id = userId
+  if (f.id) {
+    const { error } = await supabase.from('fornecedores').update(payload).eq('id', f.id)
+    return error ? { error: error.message } : { success: true }
+  } else {
+    const { data, error } = await supabase.from('fornecedores').insert(payload).select().single()
+    return error ? { error: error.message } : { success: true, data }
+  }
+}
+
+export async function excluirFornecedor(id) {
+  const { error } = await supabase.from('fornecedores').update({ ativo: false }).eq('id', id)
+  return error ? { error: error.message } : { success: true }
+}
+
+// ─── Estoque+ config (PIN) ────────────────────────────────────────────────────
+
+export async function fetchEstoquePlusConfig(userId, orgId) {
+  let q = supabase.from('estoque_plus_config').select('*')
+  q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
+  const { data } = await q.maybeSingle()
+  return data || null
+}
+
+export async function salvarEstoquePlusPin(userId, orgId, pinHash) {
+  // Primeiro verifica se já existe
+  const atual = await fetchEstoquePlusConfig(userId, orgId)
+  const payload = { pin_hash: pinHash, atualizado_em: new Date().toISOString() }
+  if (orgId) payload.organizacao_id = orgId; else payload.user_id = userId
+  if (atual) {
+    const { error } = await supabase.from('estoque_plus_config').update(payload)
+      .eq(orgId ? 'organizacao_id' : 'user_id', orgId || userId)
+    return error ? { error: error.message } : { success: true }
+  } else {
+    const { error } = await supabase.from('estoque_plus_config').insert(payload)
+    return error ? { error: error.message } : { success: true }
+  }
+}
+
+// ─── Estoque Produtos com campos extras ──────────────────────────────────────
+
+export async function atualizarEstoqueProdutoPlus(produtoId, campos) {
+  // campos: { preco_unitario, fornecedor_id, link_produto, observacoes, categoria }
+  const { error } = await supabase.from('estoque_produtos').update(campos).eq('id', produtoId)
+  return error ? { error: error.message } : { success: true }
+}
+
+// ─── Movimentos com preço ─────────────────────────────────────────────────────
+
+export async function fetchMovimentosComPreco(userId, orgId, mes) {
+  // mes = "2026-10" (YYYY-MM)
+  const inicio = mes + '-01'
+  const fim = new Date(new Date(inicio).getFullYear(), new Date(inicio).getMonth()+1, 1).toISOString().slice(0,10)
+  let q = supabase.from('estoque_movimentos')
+    .select('*, estoque_produtos(nome, unidade), fornecedores(nome)')
+    .gte('criado_em', inicio).lt('criado_em', fim)
+    .eq('tipo', 'entrada')
+  q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
+  const { data } = await q.order('criado_em', { ascending: false })
+  return data || []
+}
