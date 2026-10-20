@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -316,7 +316,7 @@ export default function App({user,onLogout}) {
   const [saving,          setSaving]          = useState(false);
   const [uploadProgress,  setUploadProgress]  = useState(null); // null = idle, 0-100 = %
   const [toast,         setToast]         = useState(null);
-  const [activeTab,     setActiveTab]     = useState("abertos");
+  const [activeTab,     setActiveTab]     = useState("estoque");
   const [financeUnlocked,setFinanceUnlocked]=useState(false);
   const [showFinanceGate,setShowFinanceGate]=useState(false);
   const [revisaoModal,      setRevisaoModal]      = useState(null);
@@ -376,6 +376,29 @@ export default function App({user,onLogout}) {
   const [movQtd,             setMovQtd]             = useState("");
   const [movMotivo,          setMovMotivo]          = useState("");
   const [salvandoMov,        setSalvandoMov]        = useState(false);
+  const [estoqueSearch,      setEstoqueSearch]      = useState("");
+
+  // ── PRODUTOS / CALCULADORA ────────────────────────────────────────────────
+  const [produtosCalc,          setProdutosCalc]              = useState([]);
+  const [produtoAtivo,          setProdutoAtivo]          = useState(null); // produto selecionado para ver detalhes
+  const [showProdutoForm,       setShowProdutoForm]       = useState(false);
+  const [editandoProdutoCalc,   setEditandoProdutoCalc]   = useState(null);
+  const [prodNome,              setProdNome]              = useState("");
+  const [prodPreco,             setProdPreco]             = useState("");
+  const [prodTaxaPlat,          setProdTaxaPlat]          = useState("20");
+  const [prodTaxaImp,           setProdTaxaImp]           = useState("4");
+  const [prodTaxaAdiant,        setProdTaxaAdiant]        = useState("3.5");
+  const [prodTaxaFixa,          setProdTaxaFixa]          = useState("4");
+  const [salvandoProdutoCalc,   setSalvandoProdutoCalc]   = useState(false);
+  // Matéria-prima form
+  const [showMpForm,            setShowMpForm]            = useState(false);
+  const [editandoMp,            setEditandoMp]            = useState(null);
+  const [mpNome,                setMpNome]                = useState("");
+  const [mpCustoCompra,         setMpCustoCompra]         = useState("");
+  const [mpQtdPorCompra,        setMpQtdPorCompra]        = useState("");
+  const [mpQtdUsada,            setMpQtdUsada]            = useState("");
+  const [mpUnidade,             setMpUnidade]             = useState("folha");
+  const [salvandoMp,            setSalvandoMp]            = useState(false);
   const tableRef  = useRef(null);
   const notifRef  = useRef(null);
 
@@ -435,6 +458,7 @@ export default function App({user,onLogout}) {
         // de quem marcou cada pedido como feito — não só o admin.
         fetchMembrosDaOrganizacao(orgId).then(setMembrosEquipe);
         fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
+        fetchProdutos(user.id, orgId).then(setProdutosCalc);
         if (m?.is_admin) {
           fetchProdutividade(orgId).then(setProdutividade);
           fetchAuditoria(orgId, true).then(setAuditoria);
@@ -822,14 +846,9 @@ export default function App({user,onLogout}) {
   },[]).sort((a,b)=>a.mes.localeCompare(b.mes));
 
   const TABS = [
-    {id:"abertos",    icon:"📋",label:"Em Aberto",  badge:pedidosAbertos.length,    color:"#1d4ed8"},
-    {id:"enviados",   icon:"📦",label:"Enviados",   badge:pedidosEnviados.length,   color:"#059669"},
-    {id:"cancelados", icon:"❌",label:"Cancelados", badge:pedidosCancelados.length, color:"#6b7280"},
-    {id:"devolucoes", icon:"🔄",label:"Devoluções", badge:devolucoes.length,        color:"#ef4444"},
-    {id:"clientes",   icon:"👤",label:"Clientes",   badge:null,                     color:"#0d9488"},
-    {id:"financeiro", icon:"💰",label:"Financeiro", badge:null,                     color:"#0891b2"},
-    ...(isAdminEquipe&&organizacao ? [{id:"equipe", icon:"👥", label:"Equipe", badge:membrosEquipe.length||null, color:"#7c3aed"}] : []),
-    ...(isAdminEquipe ? [{id:"estoque", icon:"🏪", label:"Estoque", badge: estoqueProdutos.filter(p=>p.quantidade_atual<=p.quantidade_minima).length||null, color:"#0d9488"}] : []),
+    ...(isAdminEquipe ? [{id:"estoque",  icon:"🏪", label:"Estoque",  badge: estoqueProdutos.filter(p=>p.quantidade_atual<=p.quantidade_minima).length||null, color:"#0d9488"}] : []),
+    ...(isAdminEquipe ? [{id:"produtos", icon:"📦", label:"Produtos", badge: null, color:"#7c3aed"}] : []),
+    ...(isAdminEquipe&&organizacao ? [{id:"equipe",  icon:"👥", label:"Equipe",   badge: membrosEquipe.length||null, color:"#7c3aed"}] : []),
   ];
 
 
@@ -2335,9 +2354,404 @@ export default function App({user,onLogout}) {
         </div>
       )}
 
+      {/* ── TAB: PRODUTOS / CALCULADORA ── */}
+      {activeTab==="produtos"&&isAdminEquipe&&(()=>{
+        const reloadProdutos = () => fetchProdutos(user.id, orgId).then(setProdutosCalc);
+
+        // Cálculo de custo de um produto
+        const calcularCusto = (prod) => {
+          const mps = prod.produto_materias_primas || [];
+          return mps.reduce((acc, mp) => {
+            const custoPorUnidade = mp.qtd_por_unidade_compra > 0 ? mp.custo_unidade_compra / mp.qtd_por_unidade_compra : 0;
+            return acc + custoPorUnidade * mp.qtd_usada_por_produto;
+          }, 0);
+        };
+
+        // Cálculo do recebimento líquido após taxas Shopee
+        const calcularLiquido = (prod) => {
+          const pct = (Number(prod.taxa_plataforma_pct)||0) + (Number(prod.taxa_imposto_pct)||0) + (Number(prod.taxa_adiantamento_pct)||0);
+          const aposDesconto = prod.preco_venda * (1 - pct/100);
+          return aposDesconto - (Number(prod.taxa_fixa)||0);
+        };
+
+        const calcularMargem = (prod) => {
+          const custo = calcularCusto(prod);
+          const liquido = calcularLiquido(prod);
+          if (custo <= 0) return null;
+          return ((liquido / custo) * 100).toFixed(0);
+        };
+
+        const abrirFormNovoProd = () => {
+          setEditandoProdutoCalc(null);
+          setProdNome(""); setProdPreco(""); setProdTaxaPlat("20"); setProdTaxaImp("4"); setProdTaxaAdiant("3.5"); setProdTaxaFixa("4");
+          setShowProdutoForm(true);
+        };
+        const abrirFormEditarProd = (p) => {
+          setEditandoProdutoCalc(p);
+          setProdNome(p.nome); setProdPreco(String(p.preco_venda)); setProdTaxaPlat(String(p.taxa_plataforma_pct)); setProdTaxaImp(String(p.taxa_imposto_pct)); setProdTaxaAdiant(String(p.taxa_adiantamento_pct)); setProdTaxaFixa(String(p.taxa_fixa));
+          setShowProdutoForm(true);
+        };
+        const salvarProdutoCalc = async () => {
+          if (!prodNome.trim()) return;
+          setSalvandoProdutoCalc(true);
+          const res = await salvarProduto(user.id, orgId, {
+            id: editandoProdutoCalc?.id,
+            nome: prodNome.trim(),
+            preco_venda: Number(prodPreco)||0,
+            taxa_plataforma_pct: Number(prodTaxaPlat)||20,
+            taxa_imposto_pct: Number(prodTaxaImp)||4,
+            taxa_adiantamento_pct: Number(prodTaxaAdiant)||3.5,
+            taxa_fixa: Number(prodTaxaFixa)||4,
+          });
+          setSalvandoProdutoCalc(false);
+          if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
+          setShowProdutoForm(false);
+          await reloadProdutos();
+          // Se foi criado novo, abre direto no detalhe
+          if (!editandoProdutoCalc && res.id) {
+            const todos = await fetchProdutos(user.id, orgId);
+            setProdutosCalc(todos);
+            const novo = todos.find(p=>p.id===res.id);
+            if (novo) setProdutoAtivo(novo);
+          } else if (produtoAtivo) {
+            // Atualiza o produto ativo com dados novos
+            const todos = await fetchProdutos(user.id, orgId);
+            setProdutosCalc(todos);
+            const atualizado = todos.find(p=>p.id===produtoAtivo.id);
+            if (atualizado) setProdutoAtivo(atualizado);
+          }
+          showToast(editandoProdutoCalc?"✅ Produto atualizado!":"✅ Produto criado!","#059669");
+        };
+
+        const abrirMpForm = (mp = null) => {
+          setEditandoMp(mp);
+          setMpNome(mp?.nome||""); setMpCustoCompra(mp?String(mp.custo_unidade_compra):""); setMpQtdPorCompra(mp?String(mp.qtd_por_unidade_compra):""); setMpQtdUsada(mp?String(mp.qtd_usada_por_produto):""); setMpUnidade(mp?.unidade||"folha");
+          setShowMpForm(true);
+        };
+        const salvarMp = async () => {
+          if (!mpNome.trim()||!produtoAtivo) return;
+          setSalvandoMp(true);
+          const res = await salvarMateriaPrima(user.id, orgId, {
+            id: editandoMp?.id,
+            produto_id: produtoAtivo.id,
+            nome: mpNome.trim(),
+            custo_unidade_compra: Number(mpCustoCompra)||0,
+            qtd_por_unidade_compra: Number(mpQtdPorCompra)||1,
+            qtd_usada_por_produto: Number(mpQtdUsada)||1,
+            unidade: mpUnidade,
+            ordem: editandoMp?.ordem||0,
+          });
+          setSalvandoMp(false);
+          if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
+          setShowMpForm(false);
+          const todos = await fetchProdutos(user.id, orgId);
+          setProdutosCalc(todos);
+          const atualizado = todos.find(p=>p.id===produtoAtivo.id);
+          if (atualizado) setProdutoAtivo(atualizado);
+          showToast("✅ Matéria-prima salva!","#059669");
+        };
+        const excluirMp = async (mpId) => {
+          if (!window.confirm("Remover esta matéria-prima?")) return;
+          await excluirMateriaPrima(mpId);
+          const todos = await fetchProdutos(user.id, orgId);
+          setProdutosCalc(todos);
+          const atualizado = todos.find(p=>p.id===produtoAtivo.id);
+          if (atualizado) setProdutoAtivo(atualizado);
+          showToast("🗑️ Removida.","#64748b");
+        };
+
+        // Custo unitário de uma MP
+        const custoPorUso = (mp) => mp.qtd_por_unidade_compra > 0 ? (mp.custo_unidade_compra / mp.qtd_por_unidade_compra) * mp.qtd_usada_por_produto : 0;
+
+        // Se tem produto ativo, mostra o detalhe
+        if (produtoAtivo) {
+          const custo = calcularCusto(produtoAtivo);
+          const liquido = calcularLiquido(produtoAtivo);
+          const margem = calcularMargem(produtoAtivo);
+          const pct = (Number(produtoAtivo.taxa_plataforma_pct)||0)+(Number(produtoAtivo.taxa_imposto_pct)||0)+(Number(produtoAtivo.taxa_adiantamento_pct)||0);
+          const aposDesconto = produtoAtivo.preco_venda*(1-pct/100);
+          return (
+            <div>
+              {/* Header detalhe */}
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+                <button onClick={()=>setProdutoAtivo(null)} style={{background:"#f1f5f9",border:"none",borderRadius:10,padding:"8px 14px",fontSize:13,cursor:"pointer",color:"#374151",fontWeight:600}}>← Voltar</button>
+                <h2 style={{margin:0,fontSize:17,fontWeight:800,color:"#1e293b",flex:1}}>{produtoAtivo.nome}</h2>
+                <button onClick={()=>abrirFormEditarProd(produtoAtivo)} style={{background:"#f1f5f9",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12,cursor:"pointer",color:"#374151"}}>✏️ Editar produto</button>
+              </div>
+
+              {/* Cards de resumo */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:12,marginBottom:20}}>
+                {[
+                  {label:"Preço de venda",value:`R$ ${Number(produtoAtivo.preco_venda).toFixed(2)}`,color:"#1e293b",bg:"#f8fafc"},
+                  {label:`Taxas (${pct}% + R$${produtoAtivo.taxa_fixa})`,value:`- R$ ${(produtoAtivo.preco_venda-aposDesconto+Number(produtoAtivo.taxa_fixa)).toFixed(2)}`,color:"#991b1b",bg:"#fde8e8"},
+                  {label:"Você recebe",value:`R$ ${liquido.toFixed(2)}`,color:"#059669",bg:"#d1fae5"},
+                  {label:"Custo de produção",value:`R$ ${custo.toFixed(2)}`,color:"#f59e0b",bg:"#fffbeb"},
+                  {label:"Lucro por unidade",value:`R$ ${(liquido-custo).toFixed(2)}`,color:liquido-custo>=0?"#0d9488":"#ef4444",bg:liquido-custo>=0?"#f0fdfa":"#fde8e8"},
+                  {label:"Margem de lucro",value:margem!==null?`${margem}%`:"—",color:Number(margem)>=100?"#059669":Number(margem)>=50?"#f59e0b":"#ef4444",bg:"#f8fafc"},
+                ].map(c=>(
+                  <div key={c.label} style={{background:c.bg,borderRadius:12,padding:"12px 14px",border:"1px solid #e2e8f0"}}>
+                    <div style={{fontSize:10,fontWeight:600,color:"#64748b",marginBottom:4}}>{c.label}</div>
+                    <div style={{fontSize:18,fontWeight:800,color:c.color}}>{c.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Decomposição das taxas Shopee */}
+              <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",marginBottom:16,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:10}}>🏷️ Cálculo das taxas Shopee</div>
+                <div style={{display:"flex",flexDirection:"column",gap:5,fontSize:12,color:"#374151"}}>
+                  <div style={{display:"flex",justifyContent:"space-between"}}><span>Preço de venda</span><strong>R$ {Number(produtoAtivo.preco_venda).toFixed(2)}</strong></div>
+                  <div style={{display:"flex",justifyContent:"space-between",color:"#ef4444"}}><span>- Comissão plataforma ({produtoAtivo.taxa_plataforma_pct}%)</span><span>- R$ {(produtoAtivo.preco_venda*produtoAtivo.taxa_plataforma_pct/100).toFixed(2)}</span></div>
+                  <div style={{display:"flex",justifyContent:"space-between",color:"#ef4444"}}><span>- Imposto ({produtoAtivo.taxa_imposto_pct}%)</span><span>- R$ {(produtoAtivo.preco_venda*produtoAtivo.taxa_imposto_pct/100).toFixed(2)}</span></div>
+                  <div style={{display:"flex",justifyContent:"space-between",color:"#ef4444"}}><span>- Adiantamento ({produtoAtivo.taxa_adiantamento_pct}%)</span><span>- R$ {(produtoAtivo.preco_venda*produtoAtivo.taxa_adiantamento_pct/100).toFixed(2)}</span></div>
+                  <div style={{display:"flex",justifyContent:"space-between",color:"#ef4444",borderTop:"1px solid #fee2e2",paddingTop:4}}><span>= Após % de taxas</span><strong>R$ {aposDesconto.toFixed(2)}</strong></div>
+                  <div style={{display:"flex",justifyContent:"space-between",color:"#ef4444"}}><span>- Taxa fixa por pedido</span><span>- R$ {Number(produtoAtivo.taxa_fixa).toFixed(2)}</span></div>
+                  <div style={{display:"flex",justifyContent:"space-between",color:"#059669",fontWeight:700,borderTop:"1px solid #d1fae5",paddingTop:4}}><span>= Você recebe líquido</span><strong>R$ {liquido.toFixed(2)}</strong></div>
+                </div>
+              </div>
+
+              {/* Matérias-primas */}
+              <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>🧱 Matérias-primas</div>
+                  <button onClick={()=>abrirMpForm()} style={{background:"#0d9488",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Adicionar</button>
+                </div>
+                {(produtoAtivo.produto_materias_primas||[]).length===0 ? (
+                  <div style={{textAlign:"center",padding:"20px 0",color:"#94a3b8",fontSize:13}}>Nenhuma matéria-prima ainda. Clique em + Adicionar.</div>
+                ) : (
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr>{["Material","Custo da compra","Qtd na compra","Custo unitário","Qtd usada","Custo p/ produto",""].map(h=><th key={h} style={TH}>{h}</th>)}</tr>
+                      </thead>
+                      <tbody>
+                        {(produtoAtivo.produto_materias_primas||[]).map(mp=>{
+                          const unitario = mp.qtd_por_unidade_compra>0 ? mp.custo_unidade_compra/mp.qtd_por_unidade_compra : 0;
+                          const custo_uso = unitario * mp.qtd_usada_por_produto;
+                          return (
+                            <tr key={mp.id} style={{borderBottom:"1px solid #f1f5f9"}}>
+                              <td style={TD}><strong>{mp.nome}</strong></td>
+                              <td style={TD}>R$ {Number(mp.custo_unidade_compra).toFixed(2)}</td>
+                              <td style={TD}>{mp.qtd_por_unidade_compra} {mp.unidade}</td>
+                              <td style={TD}>R$ {unitario.toFixed(4)}/{mp.unidade}</td>
+                              <td style={TD}>{mp.qtd_usada_por_produto} {mp.unidade}</td>
+                              <td style={{...TD,fontWeight:700,color:"#f59e0b"}}>R$ {custo_uso.toFixed(4)}</td>
+                              <td style={TD}>
+                                <div style={{display:"flex",gap:6}}>
+                                  <button onClick={()=>abrirMpForm(mp)} style={{background:"#f1f5f9",border:"none",borderRadius:6,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>✏️</button>
+                                  <button onClick={()=>excluirMp(mp.id)} style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:6,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>🗑️</button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        <tr style={{background:"#f8fafc",fontWeight:700}}>
+                          <td colSpan={5} style={{...TD,color:"#374151"}}>Total custo de produção</td>
+                          <td style={{...TD,fontSize:14,color:"#f59e0b"}}>R$ {custo.toFixed(4)}</td>
+                          <td style={TD}/>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal matéria-prima */}
+              {showMpForm&&(
+                <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+                  <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:460,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+                    <h3 style={{margin:"0 0 4px",fontSize:15,fontWeight:700}}>{editandoMp?"✏️ Editar matéria-prima":"+ Nova matéria-prima"}</h3>
+                    <p style={{margin:"0 0 16px",fontSize:12,color:"#64748b"}}>Produto: <strong>{produtoAtivo.nome}</strong></p>
+                    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Nome do material *</label>
+                        <input value={mpNome} onChange={e=>setMpNome(e.target.value)} placeholder="Ex: Papel micro poroso, Imã, Envelope..."
+                          style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                        <div>
+                          <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Custo da unidade de compra (R$) *</label>
+                          <input type="number" min="0" step="0.01" value={mpCustoCompra} onChange={e=>setMpCustoCompra(e.target.value)} placeholder="Ex: 800,00"
+                            style={{width:"100%",padding:"9px 10px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                          <span style={{fontSize:10,color:"#94a3b8"}}>Quanto você paga na caixa/pacote</span>
+                        </div>
+                        <div>
+                          <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Qtd que vem nessa compra *</label>
+                          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                            <input type="number" min="0.001" step="any" value={mpQtdPorCompra} onChange={e=>setMpQtdPorCompra(e.target.value)} placeholder="Ex: 1000"
+                              style={{flex:1,padding:"9px 10px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                            <select value={mpUnidade} onChange={e=>setMpUnidade(e.target.value)}
+                              style={{padding:"9px 8px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:12,outline:"none",background:"#fff"}}>
+                              {["folha","pedaço","un","cx","pct","rolo","m","cm","kg","g","l","ml"].map(u=><option key={u} value={u}>{u}</option>)}
+                            </select>
+                          </div>
+                          <span style={{fontSize:10,color:"#94a3b8"}}>Total de {mpUnidade||"un"} na caixa/pacote</span>
+                        </div>
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Quantidade usada por produto final *</label>
+                        <input type="number" min="0.001" step="any" value={mpQtdUsada} onChange={e=>setMpQtdUsada(e.target.value)} placeholder="Ex: 2 (pedaços de imã por foto)"
+                          style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                        <span style={{fontSize:10,color:"#94a3b8"}}>
+                          {mpCustoCompra&&mpQtdPorCompra&&mpQtdUsada ? `→ R$ ${((Number(mpCustoCompra)/Number(mpQtdPorCompra))*Number(mpQtdUsada)).toFixed(4)} por produto` : "Quantos(as) "+mpUnidade+" vai em cada produto"}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:10,marginTop:18}}>
+                      <button onClick={()=>setShowMpForm(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                      <button onClick={salvarMp} disabled={!mpNome.trim()||!mpCustoCompra||!mpQtdPorCompra||!mpQtdUsada||salvandoMp}
+                        style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:(mpNome.trim()&&mpCustoCompra&&mpQtdPorCompra&&mpQtdUsada)?"#0d9488":"#e2e8f0",color:(mpNome.trim()&&mpCustoCompra&&mpQtdPorCompra&&mpQtdUsada)?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                        {salvandoMp?"Salvando...":"Salvar matéria-prima"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Modal editar produto */}
+              {showProdutoForm&&(
+                <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+                  <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+                    <h3 style={{margin:"0 0 16px",fontSize:15,fontWeight:700}}>✏️ Editar produto</h3>
+                    <div style={{display:"flex",flexDirection:"column",gap:11}}>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Nome do produto *</label>
+                        <input value={prodNome} onChange={e=>setProdNome(e.target.value)} style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Preço de venda (R$)</label>
+                        <input type="number" min="0" step="0.01" value={prodPreco} onChange={e=>setProdPreco(e.target.value)} style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                      <div style={{background:"#f8fafc",borderRadius:10,padding:"12px 14px"}}>
+                        <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:8}}>Taxas da plataforma</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                          {[["Comissão plataforma (%)",prodTaxaPlat,setProdTaxaPlat],["Imposto (%)",prodTaxaImp,setProdTaxaImp],["Adiantamento (%)",prodTaxaAdiant,setProdTaxaAdiant],["Taxa fixa (R$)",prodTaxaFixa,setProdTaxaFixa]].map(([lbl,val,setter])=>(
+                            <div key={lbl}>
+                              <label style={{fontSize:10,fontWeight:600,color:"#64748b",display:"block",marginBottom:2}}>{lbl}</label>
+                              <input type="number" min="0" step="0.01" value={val} onChange={e=>setter(e.target.value)} style={{width:"100%",padding:"7px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{display:"flex",gap:10,marginTop:18}}>
+                      <button onClick={()=>setShowProdutoForm(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                      <button onClick={salvarProdutoCalc} disabled={!prodNome.trim()||salvandoProdutoCalc}
+                        style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:prodNome.trim()?"#7c3aed":"#e2e8f0",color:prodNome.trim()?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                        {salvandoProdutoCalc?"Salvando...":"Salvar"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        // Lista de produtos
+        return (
+          <div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
+              <h2 style={{margin:0,fontSize:18,fontWeight:800,color:"#1e293b"}}>📦 Produtos</h2>
+              <button onClick={abrirFormNovoProd} style={{background:"linear-gradient(135deg,#7c3aed,#6d28d9)",color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                + Novo Produto
+              </button>
+            </div>
+
+            {produtosCalc.length===0 ? (
+              <div style={{background:"#fff",borderRadius:16,padding:40,textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
+                <div style={{fontSize:40,marginBottom:8}}>📦</div>
+                <div style={{fontSize:16,fontWeight:700,color:"#1e293b",marginBottom:6}}>Nenhum produto cadastrado</div>
+                <div style={{fontSize:13,color:"#64748b",marginBottom:20}}>Cadastre seus produtos para calcular custo, margem e lucro automaticamente.</div>
+                <button onClick={abrirFormNovoProd} style={{background:"#7c3aed",color:"#fff",border:"none",borderRadius:10,padding:"10px 22px",fontSize:13,fontWeight:700,cursor:"pointer"}}>+ Cadastrar Primeiro Produto</button>
+              </div>
+            ) : (
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14}}>
+                {produtosCalc.map(p=>{
+                  const custo = calcularCusto(p);
+                  const liquido = calcularLiquido(p);
+                  const margem = calcularMargem(p);
+                  const lucro = liquido - custo;
+                  return (
+                    <div key={p.id} onClick={()=>setProdutoAtivo(p)} style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",cursor:"pointer",border:"2px solid #f1f5f9",transition:"border-color 0.15s"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor="#7c3aed"}
+                      onMouseLeave={e=>e.currentTarget.style.borderColor="#f1f5f9"}>
+                      <div style={{fontSize:15,fontWeight:700,color:"#1e293b",marginBottom:10}}>{p.nome}</div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+                        <div style={{background:"#f8fafc",borderRadius:8,padding:"8px 10px"}}>
+                          <div style={{fontSize:9,fontWeight:600,color:"#94a3b8",marginBottom:2}}>PREÇO VENDA</div>
+                          <div style={{fontSize:14,fontWeight:800,color:"#1e293b"}}>R$ {Number(p.preco_venda).toFixed(2)}</div>
+                        </div>
+                        <div style={{background:"#fffbeb",borderRadius:8,padding:"8px 10px"}}>
+                          <div style={{fontSize:9,fontWeight:600,color:"#94a3b8",marginBottom:2}}>CUSTO PRODUÇÃO</div>
+                          <div style={{fontSize:14,fontWeight:800,color:"#f59e0b"}}>R$ {custo.toFixed(2)}</div>
+                        </div>
+                        <div style={{background:"#d1fae5",borderRadius:8,padding:"8px 10px"}}>
+                          <div style={{fontSize:9,fontWeight:600,color:"#94a3b8",marginBottom:2}}>VOCÊ RECEBE</div>
+                          <div style={{fontSize:14,fontWeight:800,color:"#059669"}}>R$ {liquido.toFixed(2)}</div>
+                        </div>
+                        <div style={{background:Number(margem)>=100?"#d1fae5":Number(margem)>=50?"#fffbeb":"#fde8e8",borderRadius:8,padding:"8px 10px"}}>
+                          <div style={{fontSize:9,fontWeight:600,color:"#94a3b8",marginBottom:2}}>MARGEM LUCRO</div>
+                          <div style={{fontSize:14,fontWeight:800,color:Number(margem)>=100?"#059669":Number(margem)>=50?"#f59e0b":"#ef4444"}}>{margem!==null?margem+"%":"—"}</div>
+                        </div>
+                      </div>
+                      <div style={{fontSize:11,color:"#64748b",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                        <span>{(p.produto_materias_primas||[]).length} matéria(s)-prima</span>
+                        <span style={{color:"#7c3aed",fontWeight:600}}>Ver detalhes →</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Modal novo produto */}
+            {showProdutoForm&&(
+              <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+                <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+                  <h3 style={{margin:"0 0 16px",fontSize:15,fontWeight:700}}>+ Novo Produto</h3>
+                  <div style={{display:"flex",flexDirection:"column",gap:11}}>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Nome do produto *</label>
+                      <input value={prodNome} onChange={e=>setProdNome(e.target.value)} placeholder="Ex: Mini Fotos com Imã" style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                    </div>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Preço de venda na Shopee (R$)</label>
+                      <input type="number" min="0" step="0.01" value={prodPreco} onChange={e=>setProdPreco(e.target.value)} placeholder="Ex: 15.00" style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                    </div>
+                    <div style={{background:"#f8fafc",borderRadius:10,padding:"12px 14px"}}>
+                      <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:8}}>Taxas da plataforma (Shopee padrão)</div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                        {[["Comissão plataforma (%)",prodTaxaPlat,setProdTaxaPlat],["Imposto (%)",prodTaxaImp,setProdTaxaImp],["Adiantamento (%)",prodTaxaAdiant,setProdTaxaAdiant],["Taxa fixa (R$)",prodTaxaFixa,setProdTaxaFixa]].map(([lbl,val,setter])=>(
+                          <div key={lbl}>
+                            <label style={{fontSize:10,fontWeight:600,color:"#64748b",display:"block",marginBottom:2}}>{lbl}</label>
+                            <input type="number" min="0" step="0.01" value={val} onChange={e=>setter(e.target.value)} style={{width:"100%",padding:"7px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <p style={{fontSize:11,color:"#94a3b8",margin:"12px 0 0"}}>Após criar, você adiciona as matérias-primas para calcular o custo.</p>
+                  <div style={{display:"flex",gap:10,marginTop:14}}>
+                    <button onClick={()=>setShowProdutoForm(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                    <button onClick={salvarProdutoCalc} disabled={!prodNome.trim()||salvandoProdutoCalc}
+                      style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:prodNome.trim()?"#7c3aed":"#e2e8f0",color:prodNome.trim()?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                      {salvandoProdutoCalc?"Criando...":"Criar produto →"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* ── TAB: ESTOQUE ── */}
       {activeTab==="estoque"&&isAdminEquipe&&(()=>{
         const baixo = (p) => p.quantidade_atual <= p.quantidade_minima;
+        const produtosFiltrados = estoqueProdutos.filter(p =>
+          p.nome.toLowerCase().includes(estoqueSearch.toLowerCase())
+        );
         const reloadEstoque = () => {
           fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
           fetchMovimentosEstoque(user.id, orgId, null, 100).then(setEstoqueMovimentos);
@@ -2398,22 +2812,32 @@ export default function App({user,onLogout}) {
             {/* Header */}
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
               <h2 style={{margin:0,fontSize:18,fontWeight:800,color:"#1e293b"}}>🏪 Controle de Estoque</h2>
-              <button onClick={abrirFormNovo} style={{background:"linear-gradient(135deg,#0d9488,#0891b2)",color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-                + Novo Material
-              </button>
+              <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+                <div style={{position:"relative"}}>
+                  <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:"#94a3b8"}}>🔍</span>
+                  <input
+                    value={estoqueSearch} onChange={e=>setEstoqueSearch(e.target.value)}
+                    placeholder="Pesquisar material..."
+                    style={{paddingLeft:32,paddingRight:12,paddingTop:8,paddingBottom:8,border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",width:190,background:"#fff"}}
+                  />
+                </div>
+                <button onClick={abrirFormNovo} style={{background:"linear-gradient(135deg,#0d9488,#0891b2)",color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                  + Novo Material
+                </button>
+              </div>
             </div>
 
             {/* Produtos */}
-            {estoqueProdutos.length===0 ? (
+            {produtosFiltrados.length===0 ? (
               <div style={{background:"#fff",borderRadius:16,padding:40,textAlign:"center",boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
                 <div style={{fontSize:40,marginBottom:8}}>📦</div>
-                <div style={{fontSize:16,fontWeight:700,color:"#1e293b",marginBottom:6}}>Nenhum material cadastrado</div>
-                <div style={{fontSize:13,color:"#64748b",marginBottom:20}}>Cadastre papel fotográfico, caixas, envelopes e outros insumos.</div>
-                <button onClick={abrirFormNovo} style={{background:"#0d9488",color:"#fff",border:"none",borderRadius:10,padding:"10px 22px",fontSize:13,fontWeight:700,cursor:"pointer"}}>+ Cadastrar Primeiro Material</button>
+                <div style={{fontSize:16,fontWeight:700,color:"#1e293b",marginBottom:6}}>{estoqueSearch ? "Nenhum resultado para \""+estoqueSearch+"\"" : "Nenhum material cadastrado"}</div>
+                <div style={{fontSize:13,color:"#64748b",marginBottom:20}}>{estoqueSearch ? "Tente outro termo de pesquisa." : "Cadastre papel fotográfico, caixas, envelopes e outros insumos."}</div>
+                {!estoqueSearch && <button onClick={abrirFormNovo} style={{background:"#0d9488",color:"#fff",border:"none",borderRadius:10,padding:"10px 22px",fontSize:13,fontWeight:700,cursor:"pointer"}}>+ Cadastrar Primeiro Material</button>}
               </div>
             ) : (
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:14,marginBottom:24}}>
-                {estoqueProdutos.map(p=>(
+                {produtosFiltrados.map(p=>(
                   <div key={p.id} style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",border:`2px solid ${baixo(p)?"#fde68a":"#f1f5f9"}`,position:"relative"}}>
                     {baixo(p)&&<span style={{position:"absolute",top:10,right:12,background:"#f59e0b",color:"#fff",borderRadius:20,padding:"2px 9px",fontSize:10,fontWeight:700}}>⚠️ Baixo</span>}
                     <div style={{fontSize:15,fontWeight:700,color:"#1e293b",marginBottom:4,paddingRight:60}}>{p.nome}</div>

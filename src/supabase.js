@@ -588,3 +588,64 @@ export async function fetchMovimentosEstoque(userId, orgId, produtoId = null, li
   if (error) { console.error('fetchMovimentosEstoque error:', error.message); return [] }
   return data || []
 }
+
+// ── PRODUTOS / CALCULADORA ──────────────────────────────────────────────────
+
+export async function fetchProdutos(userId, orgId) {
+  let query = supabase.from('produtos').select('*, produto_materias_primas(*)').eq('ativo', true)
+  query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
+  const { data, error } = await query.order('nome', { ascending: true })
+  if (error) { console.error('fetchProdutos error:', error.message); return [] }
+  return data || []
+}
+
+export async function salvarProduto(userId, orgId, produto) {
+  const payload = {
+    nome: produto.nome,
+    descricao: produto.descricao || null,
+    preco_venda: produto.preco_venda || 0,
+    taxa_plataforma_pct: produto.taxa_plataforma_pct ?? 20,
+    taxa_imposto_pct: produto.taxa_imposto_pct ?? 4,
+    taxa_adiantamento_pct: produto.taxa_adiantamento_pct ?? 3.5,
+    taxa_fixa: produto.taxa_fixa ?? 4,
+    ativo: true,
+  }
+  if (orgId) payload.organizacao_id = orgId; else payload.user_id = userId
+  if (produto.id) {
+    const { error } = await supabase.from('produtos').update(payload).eq('id', produto.id)
+    return error ? { error: error.message } : { success: true, id: produto.id }
+  } else {
+    const { data, error } = await supabase.from('produtos').insert(payload).select('id').single()
+    return error ? { error: error.message } : { success: true, id: data.id }
+  }
+}
+
+export async function excluirProduto(produtoId) {
+  const { error } = await supabase.from('produtos').update({ ativo: false }).eq('id', produtoId)
+  return error ? { error: error.message } : { success: true }
+}
+
+export async function salvarMateriaPrima(userId, orgId, materiaPrima) {
+  const payload = {
+    produto_id: materiaPrima.produto_id,
+    nome: materiaPrima.nome,
+    custo_unidade_compra: materiaPrima.custo_unidade_compra || 0,
+    qtd_por_unidade_compra: materiaPrima.qtd_por_unidade_compra || 1,
+    qtd_usada_por_produto: materiaPrima.qtd_usada_por_produto || 1,
+    unidade: materiaPrima.unidade || 'un',
+    ordem: materiaPrima.ordem || 0,
+  }
+  if (orgId) payload.organizacao_id = orgId; else payload.user_id = userId
+  if (materiaPrima.id) {
+    const { error } = await supabase.from('produto_materias_primas').update(payload).eq('id', materiaPrima.id)
+    return error ? { error: error.message } : { success: true }
+  } else {
+    const { error } = await supabase.from('produto_materias_primas').insert(payload)
+    return error ? { error: error.message } : { success: true }
+  }
+}
+
+export async function excluirMateriaPrima(id) {
+  const { error } = await supabase.from('produto_materias_primas').delete().eq('id', id)
+  return error ? { error: error.message } : { success: true }
+}
