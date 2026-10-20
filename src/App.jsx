@@ -399,6 +399,13 @@ export default function App({user,onLogout}) {
   const [mpQtdUsada,            setMpQtdUsada]            = useState("");
   const [mpUnidade,             setMpUnidade]             = useState("folha");
   const [salvandoMp,            setSalvandoMp]            = useState(false);
+  const [mpModoDimensao,        setMpModoDimensao]        = useState(false);
+  // campos modo dimensão (rolo/folha)
+  const [mpRoloLargura,         setMpRoloLargura]         = useState(""); // cm
+  const [mpRoloComprimento,     setMpRoloComprimento]     = useState(""); // m
+  const [mpCorteL,              setMpCorteL]              = useState(""); // cm largura do corte
+  const [mpCorteC,              setMpCorteC]              = useState(""); // cm comprimento do corte
+  const [mpUnidadeCorte,        setMpUnidadeCorte]        = useState("folha");
   const tableRef  = useRef(null);
   const notifRef  = useRef(null);
 
@@ -2426,7 +2433,59 @@ export default function App({user,onLogout}) {
         const abrirMpForm = (mp = null) => {
           setEditandoMp(mp);
           setMpNome(mp?.nome||""); setMpCustoCompra(mp?String(mp.custo_unidade_compra):""); setMpQtdPorCompra(mp?String(mp.qtd_por_unidade_compra):""); setMpQtdUsada(mp?String(mp.qtd_usada_por_produto):""); setMpUnidade(mp?.unidade||"folha");
+          setMpModoDimensao(false); setMpRoloLargura(""); setMpRoloComprimento(""); setMpCorteL(""); setMpCorteC(""); setMpUnidadeCorte("folha");
           setShowMpForm(true);
+        };
+        // Cálculo do modo dimensão — gera sugestões de melhor aproveitamento
+        const calcDimensao = () => {
+          const rl = Number(mpRoloLargura); const rc = Number(mpRoloComprimento)*100;
+          const cl = Number(mpCorteL); const cc = Number(mpCorteC);
+          if (!rl||!rc||!cl||!cc) return null;
+          const custo_compra = Number(mpCustoCompra)||0;
+          // Gera variações: corte normal, invertido, e com margens de ajuste ±10%
+          const opcoes = [];
+          const variantes = [
+            {label:"Corte padrão", larg:cl, comp:cc},
+            {label:"Corte girado 90°", larg:cc, comp:cl},
+          ];
+          // Adiciona frações úteis (metade da largura, etc.) se gerarem mais peças
+          if (cl !== cc) {
+            variantes.push({label:"Metade da largura", larg:cl/2, comp:cc});
+            variantes.push({label:"Metade do comprimento", larg:cl, comp:cc/2});
+          }
+          variantes.forEach(v => {
+            if (!v.larg||!v.comp) return;
+            const cols = Math.floor(rl/v.larg);
+            const lins = Math.floor(rc/v.comp);
+            const tot  = cols*lins;
+            if (tot<=0) return;
+            const sobra_larg = rl - cols*v.larg;
+            const sobra_comp = rc - lins*v.comp;
+            const aproveitamento = ((rl*rc - sobra_larg*rc - sobra_comp*rl + sobra_larg*sobra_comp)/(rl*rc)*100);
+            opcoes.push({
+              label: v.label,
+              colunas: cols, linhas: lins, total: tot,
+              custo_cada: custo_compra>0&&tot>0 ? custo_compra/tot : 0,
+              aproveitamento: Math.round(aproveitamento),
+              sobra_larg: sobra_larg.toFixed(1), sobra_comp: sobra_comp.toFixed(1),
+              larg_usada: v.larg, comp_usada: v.comp,
+            });
+          });
+          // Ordena por total de peças (melhor aproveitamento primeiro)
+          opcoes.sort((a,b)=>b.total-a.total);
+          // Remove duplicatas por total
+          const vistos = new Set();
+          const unicas = opcoes.filter(o=>{ if(vistos.has(o.total)) return false; vistos.add(o.total); return true; });
+          return unicas.length>0 ? unicas : null;
+        };
+        const [dimOpcaoSelecionada, setDimOpcaoSelecionada] = React.useState(0);
+        const aplicarDimensao = (idx=0) => {
+          const opcoes = calcDimensao();
+          if (!opcoes||!opcoes[idx]) return;
+          const r = opcoes[idx];
+          setMpQtdPorCompra(String(r.total));
+          setMpUnidade(mpUnidadeCorte);
+          setMpModoDimensao(false);
         };
         const salvarMp = async () => {
           if (!mpNome.trim()||!produtoAtivo) return;
@@ -2557,56 +2616,137 @@ export default function App({user,onLogout}) {
               </div>
 
               {/* Modal matéria-prima */}
-              {showMpForm&&(
-                <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-                  <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:460,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
-                    <h3 style={{margin:"0 0 4px",fontSize:15,fontWeight:700}}>{editandoMp?"✏️ Editar matéria-prima":"+ Nova matéria-prima"}</h3>
-                    <p style={{margin:"0 0 16px",fontSize:12,color:"#64748b"}}>Produto: <strong>{produtoAtivo.nome}</strong></p>
-                    <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                      <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Nome do material *</label>
-                        <input value={mpNome} onChange={e=>setMpNome(e.target.value)} placeholder="Ex: Papel micro poroso, Imã, Envelope..."
-                          style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
-                      </div>
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+              {showMpForm&&(()=>{
+                const dim = calcDimensao();
+                return (
+                  <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto"}}>
+                    <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:500,boxShadow:"0 20px 60px rgba(0,0,0,0.2)",margin:"auto"}}>
+                      <h3 style={{margin:"0 0 3px",fontSize:15,fontWeight:700}}>{editandoMp?"✏️ Editar matéria-prima":"+ Nova matéria-prima"}</h3>
+                      <p style={{margin:"0 0 14px",fontSize:12,color:"#64748b"}}>Produto: <strong>{produtoAtivo.nome}</strong></p>
+
+                      <div style={{display:"flex",flexDirection:"column",gap:11}}>
+                        {/* Nome */}
+                        <div>
+                          <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Nome do material *</label>
+                          <input value={mpNome} onChange={e=>setMpNome(e.target.value)} placeholder="Ex: Manta Imã, Papel micro poroso, Envelope..."
+                            style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                        </div>
+
+                        {/* Custo */}
                         <div>
                           <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Custo da unidade de compra (R$) *</label>
-                          <input type="number" min="0" step="0.01" value={mpCustoCompra} onChange={e=>setMpCustoCompra(e.target.value)} placeholder="Ex: 800,00"
-                            style={{width:"100%",padding:"9px 10px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
-                          <span style={{fontSize:10,color:"#94a3b8"}}>Quanto você paga na caixa/pacote</span>
+                          <input type="number" min="0" step="0.01" value={mpCustoCompra} onChange={e=>setMpCustoCompra(e.target.value)} placeholder="Ex: 700,00"
+                            style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                          <span style={{fontSize:10,color:"#94a3b8"}}>Quanto você paga no rolo/caixa/pacote inteiro</span>
                         </div>
+
+                        {/* Toggle modo dimensão */}
+                        <button onClick={()=>setMpModoDimensao(v=>!v)}
+                          style={{background:mpModoDimensao?"#ede9fe":"#f1f5f9",border:`1.5px solid ${mpModoDimensao?"#7c3aed":"#e2e8f0"}`,borderRadius:10,padding:"8px 14px",fontSize:12,fontWeight:600,cursor:"pointer",color:mpModoDimensao?"#7c3aed":"#64748b",display:"flex",alignItems:"center",gap:8,width:"100%",justifyContent:"center"}}>
+                          📐 {mpModoDimensao?"Ocultar calculadora de rolo/folha":"Calcular quantas peças saem de um rolo ou folha grande"}
+                        </button>
+
+                        {/* Calculadora de dimensão */}
+                        {mpModoDimensao&&(
+                          <div style={{background:"#faf5ff",border:"1.5px solid #e9d5ff",borderRadius:12,padding:"14px 16px"}}>
+                            <div style={{fontSize:12,fontWeight:700,color:"#7c3aed",marginBottom:10}}>📐 Calculadora de corte</div>
+                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+                              <div>
+                                <label style={{fontSize:10,fontWeight:600,color:"#64748b",display:"block",marginBottom:2}}>Largura do rolo/folha (cm)</label>
+                                <input type="number" min="0" step="0.1" value={mpRoloLargura} onChange={e=>setMpRoloLargura(e.target.value)} placeholder="Ex: 64"
+                                  style={{width:"100%",padding:"7px 10px",border:"1.5px solid #ddd6fe",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                              </div>
+                              <div>
+                                <label style={{fontSize:10,fontWeight:600,color:"#64748b",display:"block",marginBottom:2}}>Comprimento do rolo (metros)</label>
+                                <input type="number" min="0" step="0.1" value={mpRoloComprimento} onChange={e=>setMpRoloComprimento(e.target.value)} placeholder="Ex: 40"
+                                  style={{width:"100%",padding:"7px 10px",border:"1.5px solid #ddd6fe",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                              </div>
+                              <div>
+                                <label style={{fontSize:10,fontWeight:600,color:"#64748b",display:"block",marginBottom:2}}>Largura do corte (cm)</label>
+                                <input type="number" min="0" step="0.1" value={mpCorteL} onChange={e=>setMpCorteL(e.target.value)} placeholder="Ex: 21 (A4)"
+                                  style={{width:"100%",padding:"7px 10px",border:"1.5px solid #ddd6fe",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                              </div>
+                              <div>
+                                <label style={{fontSize:10,fontWeight:600,color:"#64748b",display:"block",marginBottom:2}}>Altura do corte (cm)</label>
+                                <input type="number" min="0" step="0.1" value={mpCorteC} onChange={e=>setMpCorteC(e.target.value)} placeholder="Ex: 29.7 (A4)"
+                                  style={{width:"100%",padding:"7px 10px",border:"1.5px solid #ddd6fe",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                              </div>
+                            </div>
+                            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                              <label style={{fontSize:10,fontWeight:600,color:"#64748b"}}>Nome da peça cortada:</label>
+                              <select value={mpUnidadeCorte} onChange={e=>setMpUnidadeCorte(e.target.value)}
+                                style={{padding:"5px 8px",border:"1.5px solid #ddd6fe",borderRadius:8,fontSize:12,outline:"none",background:"#fff"}}>
+                                {["folha","pedaço","un","tira","quadrado","retângulo"].map(u=><option key={u} value={u}>{u}</option>)}
+                              </select>
+                            </div>
+                            {(()=>{
+                              const opcoes = calcDimensao();
+                              if (!opcoes) return <div style={{fontSize:11,color:"#94a3b8",textAlign:"center",padding:"6px 0"}}>Preencha as dimensões acima para ver o resultado</div>;
+                              return (
+                                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                                  <div style={{fontSize:10,fontWeight:700,color:"#7c3aed",marginBottom:2}}>💡 Sugestões de aproveitamento:</div>
+                                  {opcoes.map((o,i)=>(
+                                    <div key={i} style={{background: i===0?"#f5f3ff":"#fff", border:`1.5px solid ${i===0?"#7c3aed":"#e9d5ff"}`,borderRadius:9,padding:"9px 11px",cursor:"pointer",transition:"all .15s"}}
+                                      onClick={()=>setDimOpcaoSelecionada(i)}>
+                                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                                        <span style={{fontSize:11,fontWeight:700,color: i===0?"#6d28d9":"#374151"}}>{i===0?"🥇 ":i===1?"🥈 ":"🥉 "}{o.label}</span>
+                                        <span style={{fontSize:10,background: o.aproveitamento>=90?"#d1fae5":o.aproveitamento>=70?"#fef3c7":"#fee2e2",color: o.aproveitamento>=90?"#065f46":o.aproveitamento>=70?"#92400e":"#991b1b",borderRadius:6,padding:"1px 7px",fontWeight:700}}>{o.aproveitamento}% aproveit.</span>
+                                      </div>
+                                      <div style={{fontSize:11,color:"#374151"}}>
+                                        {o.colunas} col × {o.linhas} lin = <strong style={{color:"#7c3aed"}}>{o.total} {mpUnidadeCorte}s</strong>
+                                        {mpCustoCompra&&<span style={{color:"#059669",fontWeight:700}}> · R$ {o.custo_cada.toFixed(4)}/{mpUnidadeCorte}</span>}
+                                      </div>
+                                      <div style={{fontSize:10,color:"#94a3b8",marginTop:1}}>Sobra: {o.sobra_larg}cm na largura · {o.sobra_comp}cm no comprimento</div>
+                                      <button onClick={e=>{e.stopPropagation();aplicarDimensao(i);}}
+                                        style={{marginTop:6,padding:"5px 12px",border:"none",borderRadius:7,background:i===0?"#7c3aed":"#6d28d9",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",width:"100%"}}>
+                                        ✅ Usar este ({o.total} {mpUnidadeCorte}s)
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+
+                        {/* Qtd por compra */}
                         <div>
                           <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Qtd que vem nessa compra *</label>
                           <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                            <input type="number" min="0.001" step="any" value={mpQtdPorCompra} onChange={e=>setMpQtdPorCompra(e.target.value)} placeholder="Ex: 1000"
+                            <input type="number" min="0.001" step="any" value={mpQtdPorCompra} onChange={e=>setMpQtdPorCompra(e.target.value)} placeholder="Ex: 402 folhas A4"
                               style={{flex:1,padding:"9px 10px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
                             <select value={mpUnidade} onChange={e=>setMpUnidade(e.target.value)}
                               style={{padding:"9px 8px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:12,outline:"none",background:"#fff"}}>
                               {["folha","pedaço","un","cx","pct","rolo","m","cm","kg","g","l","ml"].map(u=><option key={u} value={u}>{u}</option>)}
                             </select>
                           </div>
-                          <span style={{fontSize:10,color:"#94a3b8"}}>Total de {mpUnidade||"un"} na caixa/pacote</span>
+                          {mpCustoCompra&&mpQtdPorCompra&&<span style={{fontSize:10,color:"#059669",fontWeight:600}}>→ R$ {(Number(mpCustoCompra)/Number(mpQtdPorCompra)).toFixed(4)} por {mpUnidade}</span>}
+                        </div>
+
+                        {/* Qtd usada */}
+                        <div>
+                          <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Quantidade usada por produto final *</label>
+                          <input type="number" min="0.001" step="any" value={mpQtdUsada} onChange={e=>setMpQtdUsada(e.target.value)} placeholder="Ex: 1 folha, 2 pedaços..."
+                            style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                          <span style={{fontSize:10,color:"#94a3b8"}}>
+                            {mpCustoCompra&&mpQtdPorCompra&&mpQtdUsada
+                              ? <span style={{color:"#f59e0b",fontWeight:700}}>→ custo por produto: R$ {((Number(mpCustoCompra)/Number(mpQtdPorCompra))*Number(mpQtdUsada)).toFixed(4)}</span>
+                              : `Quantos(as) ${mpUnidade} vai em cada produto`}
+                          </span>
                         </div>
                       </div>
-                      <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Quantidade usada por produto final *</label>
-                        <input type="number" min="0.001" step="any" value={mpQtdUsada} onChange={e=>setMpQtdUsada(e.target.value)} placeholder="Ex: 2 (pedaços de imã por foto)"
-                          style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
-                        <span style={{fontSize:10,color:"#94a3b8"}}>
-                          {mpCustoCompra&&mpQtdPorCompra&&mpQtdUsada ? `→ R$ ${((Number(mpCustoCompra)/Number(mpQtdPorCompra))*Number(mpQtdUsada)).toFixed(4)} por produto` : "Quantos(as) "+mpUnidade+" vai em cada produto"}
-                        </span>
+
+                      <div style={{display:"flex",gap:10,marginTop:18}}>
+                        <button onClick={()=>setShowMpForm(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                        <button onClick={salvarMp} disabled={!mpNome.trim()||!mpCustoCompra||!mpQtdPorCompra||!mpQtdUsada||salvandoMp}
+                          style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:(mpNome.trim()&&mpCustoCompra&&mpQtdPorCompra&&mpQtdUsada)?"#0d9488":"#e2e8f0",color:(mpNome.trim()&&mpCustoCompra&&mpQtdPorCompra&&mpQtdUsada)?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                          {salvandoMp?"Salvando...":"Salvar matéria-prima"}
+                        </button>
                       </div>
                     </div>
-                    <div style={{display:"flex",gap:10,marginTop:18}}>
-                      <button onClick={()=>setShowMpForm(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
-                      <button onClick={salvarMp} disabled={!mpNome.trim()||!mpCustoCompra||!mpQtdPorCompra||!mpQtdUsada||salvandoMp}
-                        style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:(mpNome.trim()&&mpCustoCompra&&mpQtdPorCompra&&mpQtdUsada)?"#0d9488":"#e2e8f0",color:(mpNome.trim()&&mpCustoCompra&&mpQtdPorCompra&&mpQtdUsada)?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-                        {salvandoMp?"Salvando...":"Salvar matéria-prima"}
-                      </button>
-                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Modal editar produto */}
               {showProdutoForm&&(
