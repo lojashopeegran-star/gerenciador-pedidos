@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from "react";
-import * as XLSX from "xlsx";
+// XLSX carregado sob demanda para não bloquear o primeiro carregamento
+let _XLSX = null;
+const getXLSX = async () => { if (!_XLSX) _XLSX = await import("xlsx"); return _XLSX; };
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -40,7 +42,8 @@ function norm(s) {
 
 // ── Parse spreadsheet with flexible column matching ───────────────────────────
 function parseSheet(sheet, colMap, loja) {
-  const raw = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  // XLSX já foi carregado antes de chamar parseSheet (via DropZone)
+  const raw = _XLSX.utils.sheet_to_json(sheet, { defval: "" });
   if (!raw.length) return [];
   const sheetKeys = Object.keys(raw[0]);
   const normKeys  = sheetKeys.map(k => norm(k));
@@ -226,7 +229,7 @@ function ExpandCell({value,maxLen=22}) {
 
 function DropZone({label,sublabel,onFile,file,color,disabled}) {
   const ref=useRef(); const [drag,setDrag]=useState(false);
-  const handle=f=>{if(!f)return;const r=new FileReader();r.onload=e=>{const wb=XLSX.read(e.target.result,{type:"binary"});onFile(wb.Sheets[wb.SheetNames[0]],f.name);};r.readAsBinaryString(f);};
+  const handle=f=>{if(!f)return;const r=new FileReader();r.onload=async e=>{const XL=await getXLSX();const wb=XL.read(e.target.result,{type:"binary"});onFile(wb.Sheets[wb.SheetNames[0]],f.name);};r.readAsBinaryString(f);};
   return (
     <div onClick={()=>!disabled&&ref.current.click()} onDragOver={e=>{if(!disabled){e.preventDefault();setDrag(true);}}} onDragLeave={()=>setDrag(false)} onDrop={e=>{e.preventDefault();setDrag(false);if(!disabled)handle(e.dataTransfer.files[0]);}}>
       <input ref={ref} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={e=>handle(e.target.files[0])} />
@@ -410,6 +413,32 @@ export default function App({user,onLogout}) {
   // Fornecedor autocomplete no modal entrada estoque
   const [fornSugestoes,           setFornSugestoes]           = useState([]);
 
+  // ── FINANCEIRO ────────────────────────────────────────────────────────────
+  const [custosFixos,         setCustosFixos]         = useState([]);
+  const [showCustoForm,       setShowCustoForm]       = useState(false);
+  const [editandoCusto,       setEditandoCusto]       = useState(null);
+  const [custoNome,           setCustoNome]           = useState("");
+  const [custoCategoria,      setCustoCategoria]      = useState("outros");
+  const [custoValor,          setCustoValor]          = useState("");
+  const [custoRecorrente,     setCustoRecorrente]     = useState(true);
+  const [custoObs,            setCustoObs]            = useState("");
+  const [salvandoCusto,       setSalvandoCusto]       = useState(false);
+  const [finMes,              setFinMes]              = useState(() => new Date().toISOString().slice(0,7));
+  const [finMovimentos,       setFinMovimentos]       = useState([]);
+  // Chat com Claude
+  const [chatMsgs,            setChatMsgs]            = useState([]);
+  const [chatInput,           setChatInput]           = useState("");
+  const [chatCarregando,      setChatCarregando]      = useState(false);
+  const [chatAnalise,         setChatAnalise]         = useState(""); // análise automática
+  const [chatAnaliseLoading,  setChatAnaliseLoading]  = useState(false);
+  const chatEndRef = useRef(null);
+  // Vendas ERP
+  const [erpVendas,           setErpVendas]           = useState(null);   // { total, quantidade, imagemUrl }
+  const [erpImagemPreview,    setErpImagemPreview]    = useState(null);
+  const [erpAnalisando,       setErpAnalisando]       = useState(false);
+  const [erpResultado,        setErpResultado]        = useState(null);   // { totalVendas, lucroLiquido, margemMedia, ... }
+  const erpFileRef = useRef(null);
+
   // ── PRODUTOS / CALCULADORA ────────────────────────────────────────────────
   const [produtosCalc,          setProdutosCalc]              = useState([]);
   const [produtoAtivo,          setProdutoAtivo]          = useState(null); // produto selecionado para ver detalhes
@@ -500,6 +529,8 @@ export default function App({user,onLogout}) {
         fetchProdutos(user.id, orgId).then(setProdutosCalc);
         fetchFornecedores(user.id, orgId).then(setFornecedores);
         fetchEstoquePlusConfig(user.id, orgId).then(setEstoquePlusConfig);
+        fetchCustosFixos(user.id, orgId).then(setCustosFixos);
+        fetchChatFinanceiro(user.id, orgId).then(setChatMsgs);
         if (m?.is_admin) {
           fetchProdutividade(orgId).then(setProdutividade);
           fetchAuditoria(orgId, true).then(setAuditoria);
@@ -743,7 +774,7 @@ export default function App({user,onLogout}) {
     }
   };
   // ── Exportar dados para Excel ──────────────────────────────────────────────
-  const exportToExcel = (rows, filename, columnsMap) => {
+  const exportToExcel = async (rows, filename, columnsMap) => {
     if (!rows.length) { showToast("Nada para exportar.","#d97706"); return; }
     const data = rows.map(r => {
       const obj = {};
@@ -752,10 +783,11 @@ export default function App({user,onLogout}) {
       }
       return obj;
     });
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Dados");
-    XLSX.writeFile(wb, `${filename}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    const XL = await getXLSX();
+    const ws = XL.utils.json_to_sheet(data);
+    const wb = XL.utils.book_new();
+    XL.utils.book_append_sheet(wb, ws, "Dados");
+    XL.writeFile(wb, `${filename}_${new Date().toISOString().slice(0,10)}.xlsx`);
     showToast(`📥 ${rows.length} linha(s) exportada(s)!`,"#059669");
   };
 
@@ -889,6 +921,7 @@ export default function App({user,onLogout}) {
   const TABS = [
     ...(isAdminEquipe ? [{id:"estoque",  icon:"🏪", label:"Estoque",  badge: estoqueProdutos.filter(p=>p.quantidade_atual<=p.quantidade_minima).length||null, color:"#0d9488"}] : []),
     ...(isAdminEquipe ? [{id:"produtos", icon: estoquePlusDesbloqueado?"📦":"🔒", label:"Produtos", badge: null, color:"#7c3aed"}] : []),
+    ...(isAdminEquipe ? [{id:"financeiro", icon: estoquePlusDesbloqueado?"💰":"🔒", label:"Financeiro", badge: null, color:"#059669"}] : []),
     ...(isAdminEquipe&&organizacao ? [{id:"equipe",  icon:"👥", label:"Equipe",   badge: membrosEquipe.length||null, color:"#7c3aed"}] : []),
   ];
 
@@ -1061,44 +1094,19 @@ export default function App({user,onLogout}) {
 
       <div style={{maxWidth:1600,margin:"0 auto",padding:"20px 28px"}}>
 
-        {/* Upload */}
-        <div style={{background:"#fff",borderRadius:18,padding:18,marginBottom:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
-          <div style={{display:"flex",alignItems:"center",marginBottom:12}}>
-            <div style={{fontSize:11,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:0.5}}>Carregar Planilhas</div>
-            <div style={{display:"flex",gap:8,marginLeft:"auto",alignItems:"center"}}>
-              {qtdArquivados>0&&(
-                <button onClick={()=>setShowConfirmRestore(true)} style={{background:"#ecfdf5",color:"#065f46",border:"1px solid #6ee7b7",borderRadius:10,padding:"6px 14px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
-                  ♻️ Restaurar ({qtdArquivados})
-                </button>
-              )}
-              {podeZerarSistema&&<button onClick={()=>setShowConfirmClear(true)} style={{background:"#fde8e8",color:"#991b1b",border:"1px solid #fca5a5",borderRadius:10,padding:"6px 14px",fontSize:11,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
-                🗑️ Zerar Sistema
-              </button>}
-            </div>
+        {/* Ações do sistema */}
+        {(qtdArquivados>0||podeZerarSistema)&&(
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginBottom:12}}>
+            {qtdArquivados>0&&(
+              <button onClick={()=>setShowConfirmRestore(true)} style={{background:"#ecfdf5",color:"#065f46",border:"1px solid #6ee7b7",borderRadius:10,padding:"6px 14px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+                ♻️ Restaurar ({qtdArquivados})
+              </button>
+            )}
+            {podeZerarSistema&&<button onClick={()=>setShowConfirmClear(true)} style={{background:"#fde8e8",color:"#991b1b",border:"1px solid #fca5a5",borderRadius:10,padding:"6px 14px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+              🗑️ Zerar Sistema
+            </button>}
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
-            {lojas.map(loja=>(
-              <div key={`ped_${loja}`} style={{border:"1px solid #e2e8f0",borderRadius:12,padding:10}}>
-                <div style={{fontSize:11,fontWeight:700,color:"#1d4ed8",marginBottom:7,display:"flex",alignItems:"center",gap:5}}>
-                  <span style={{background:"#eff6ff",borderRadius:6,padding:"1px 8px"}}>{loja}</span>
-                  <span style={{color:"#64748b",fontWeight:400}}>· Pedidos</span>
-                </div>
-                <DropZone label="Carregar Planilha" sublabel="A Enviar / Enviado / Entregue / Cancelado" color="#1d4ed8"
-                  file={uploadNames[`ped_${loja}`]} onFile={(s,n)=>handlePlanilha(s,n,loja)} disabled={!podeCarregarPlanilha} />
-              </div>
-            ))}
-            {lojas.map(loja=>(
-              <div key={`dev_${loja}`} style={{border:"1px solid #fee2e2",borderRadius:12,padding:10}}>
-                <div style={{fontSize:11,fontWeight:700,color:"#ef4444",marginBottom:7,display:"flex",alignItems:"center",gap:5}}>
-                  <span style={{background:"#fef2f2",borderRadius:6,padding:"1px 8px"}}>{loja}</span>
-                  <span style={{color:"#64748b",fontWeight:400}}>· Devoluções</span>
-                </div>
-                <DropZone label="Planilha de Devolução" sublabel="Devolução e Reembolso" color="#ef4444"
-                  file={uploadNames[`dev_${loja}`]} onFile={(s,n)=>handleDevolucao(s,n,loja)} disabled={!podeCarregarPlanilha} />
-              </div>
-            ))}
-          </div>
-        </div>
+        )}
 
         {/* ── Alerta de prazos vencendo hoje ── */}
         {(() => {
@@ -1129,11 +1137,7 @@ export default function App({user,onLogout}) {
         {/* Stats */}
         {(()=>{
           const todosCards = [
-            {label:"Em Aberto",  value:pedidosAbertos.length,    color:"#1d4ed8",icon:"📋",tab:"abertos",  action:()=>{setFilterSt("all");setFilterPrazo("all");}},
-            {label:"Feitos",     value:feitoCount,                color:"#059669",icon:"✅",tab:"abertos",  action:()=>setFilterSt("feito")},
-            ...(organizacao ? [{label:"Meus Feitos", value:pedidosAbertos.filter(r=>r.feitoPorNome===meuNome).length, color:minhaCor,icon:"⭐",tab:"abertos",action:()=>setFilterSt("meus_feitos")}] : []),
-            {label:"Em Revisão", value:revisaoCount,              color:"#f59e0b",icon:"📋",tab:"abertos",  action:()=>setFilterSt("revisao")},
-            {label:"Vazios",     value:vazioCount,                color:"#6366f1",icon:"📦",tab:"abertos",  action:()=>setFilterSt("vazio")},
+            {label:"Pedidos",    value:pedidosAbertos.length,     color:"#1d4ed8",icon:"📋",tab:"abertos",  action:()=>{setFilterSt("all");setFilterPrazo("all");}},
             {label:"Urgentes",   value:`${urgentFeitos}/${urgentCount}`, color:"#ef4444",icon:"🔴",tab:"abertos",  action:()=>{setFilterSt("all");setFilterPrazo("red");}},
             {label:"Enviados",   value:pedidosEnviados.length,    color:"#059669",icon:"📦",tab:"enviados", action:()=>{}},
             {label:"Cancelados", value:pedidosCancelados.length,  color:"#6b7280",icon:"❌",tab:"cancelados",action:()=>{}},
@@ -3074,6 +3078,20 @@ export default function App({user,onLogout}) {
                       <button onClick={()=>abrirFormEditar(p)} style={{padding:"6px 9px",background:"#f1f5f9",color:"#374151",border:"none",borderRadius:8,fontSize:11,cursor:"pointer"}}>✏️</button>
                       <button onClick={()=>excluirProduto(p.id)} style={{padding:"6px 9px",background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:8,fontSize:11,cursor:"pointer"}}>🗑️</button>
                     </div>
+                    {/* Botão WhatsApp para fornecedor — só aparece quando estoque está baixo e há fornecedor com contato */}
+                    {baixo(p)&&p.fornecedores?.contato&&(()=>{
+                      const faltam = Math.max(0, (p.quantidade_minima||0) - (p.quantidade_atual||0));
+                      const telefone = p.fornecedores.contato.replace(/\D/g,"");
+                      const msg = encodeURIComponent(`Oi, tudo bem? Preciso de ${faltam} ${p.unidade||"unidade(s)"} de *${p.nome}*. Pode me passar disponibilidade e prazo? Obrigado!`);
+                      const url = `https://wa.me/${telefone.startsWith("55")?telefone:"55"+telefone}?text=${msg}`;
+                      return (
+                        <a href={url} target="_blank" rel="noopener noreferrer"
+                          style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,width:"100%",marginTop:6,padding:"7px 0",background:"#dcfce7",color:"#15803d",border:"1px solid #86efac",borderRadius:8,fontSize:11,fontWeight:700,textDecoration:"none",cursor:"pointer"}}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="#15803d"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
+                          WhatsApp fornecedor (+{faltam} {p.unidade||"un"})
+                        </a>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>
@@ -3565,6 +3583,445 @@ export default function App({user,onLogout}) {
           </div>
         </div>
       )}
+
+      {/* ── ABA FINANCEIRO ──────────────────────────────────────────────── */}
+      {activeTab==="financeiro"&&isAdminEquipe&&!estoquePlusDesbloqueado&&(
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:320,padding:32}}>
+          <div style={{background:"#fff",borderRadius:20,padding:32,maxWidth:340,width:"100%",boxShadow:"0 4px 20px rgba(0,0,0,0.08)",textAlign:"center"}}>
+            <div style={{fontSize:44,marginBottom:10}}>🔒</div>
+            <h3 style={{margin:"0 0 6px",fontSize:17,fontWeight:800,color:"#1e293b"}}>Financeiro</h3>
+            <p style={{margin:"0 0 20px",fontSize:12,color:"#64748b"}}>Área protegida. Digite o PIN para acessar.</p>
+            {!estoquePlusConfig ? (
+              <div>
+                <p style={{fontSize:12,color:"#f59e0b",marginBottom:12}}>Configure o PIN pelo botão <strong>🔒 Estoque+</strong> na aba Estoque.</p>
+                <button onClick={()=>{setActiveTab("estoque");setShowDefinirPin(true);}} style={{width:"100%",padding:"10px 0",background:"#059669",color:"#fff",border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>Definir PIN agora</button>
+              </div>
+            ) : (
+              <div>
+                <input type="password" inputMode="numeric" maxLength={8} value={pinInput}
+                  onChange={e=>{setPinInput(e.target.value);setPinErro("");}}
+                  onKeyDown={async e=>{
+                    if (e.key==="Enter") {
+                      const hash = await crypto.subtle.digest("SHA-256",new TextEncoder().encode(pinInput)).then(b=>Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join(""));
+                      if (hash===estoquePlusConfig?.pin_hash){setEstoquePlusDesbloqueado(true);setPinInput("");setPinErro("");fetchCustosFixos(user.id,orgId).then(setCustosFixos);fetchMovimentosComPreco(user.id,orgId,finMes).then(setFinMovimentos);}
+                      else{setPinErro("PIN incorreto.");setPinInput("");}
+                    }
+                  }}
+                  autoFocus placeholder="••••"
+                  style={{width:"100%",padding:"12px 16px",border:`2px solid ${pinErro?"#ef4444":"#e2e8f0"}`,borderRadius:12,fontSize:22,outline:"none",textAlign:"center",letterSpacing:8,boxSizing:"border-box",marginBottom:8}} />
+                {pinErro&&<div style={{fontSize:12,color:"#ef4444",marginBottom:8}}>{pinErro}</div>}
+                <button onClick={async()=>{
+                  const hash = await crypto.subtle.digest("SHA-256",new TextEncoder().encode(pinInput)).then(b=>Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join(""));
+                  if (hash===estoquePlusConfig?.pin_hash){setEstoquePlusDesbloqueado(true);setPinInput("");setPinErro("");fetchCustosFixos(user.id,orgId).then(setCustosFixos);fetchMovimentosComPreco(user.id,orgId,finMes).then(setFinMovimentos);}
+                  else{setPinErro("PIN incorreto.");setPinInput("");}
+                }} style={{width:"100%",padding:"12px 0",background:"#059669",color:"#fff",border:"none",borderRadius:12,fontSize:14,fontWeight:800,cursor:"pointer"}}>
+                  Desbloquear
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {activeTab==="financeiro"&&isAdminEquipe&&estoquePlusDesbloqueado&&(()=>{
+        const CATS = [
+          {id:"aluguel",     icon:"🏠", label:"Aluguel"},
+          {id:"luz",         icon:"💡", label:"Luz"},
+          {id:"agua",        icon:"💧", label:"Água"},
+          {id:"internet",    icon:"📶", label:"Internet"},
+          {id:"funcionario", icon:"👤", label:"Funcionário"},
+          {id:"cartao",      icon:"💳", label:"Cartão"},
+          {id:"emprestimo",  icon:"🏦", label:"Empréstimo"},
+          {id:"outros",      icon:"📋", label:"Outros"},
+        ];
+        const catInfo = (id) => CATS.find(c=>c.id===id)||{icon:"📋",label:id};
+
+        const totalFixos = custosFixos.reduce((s,c)=>s+Number(c.valor),0);
+        const totalMaterial = finMovimentos.reduce((s,m)=>s+(m.preco_unitario||0)*m.quantidade,0);
+        const totalGeral = totalFixos + totalMaterial;
+
+        const porCategoria = {};
+        custosFixos.forEach(c=>{ porCategoria[c.categoria]=(porCategoria[c.categoria]||0)+Number(c.valor); });
+        const porFornecedor = {};
+        finMovimentos.forEach(m=>{ const n=m.fornecedores?.nome||"Sem fornecedor"; porFornecedor[n]=(porFornecedor[n]||0)+(m.preco_unitario||0)*m.quantidade; });
+
+        const reloadFin = () => {
+          fetchCustosFixos(user.id,orgId).then(setCustosFixos);
+          fetchMovimentosComPreco(user.id,orgId,finMes).then(setFinMovimentos);
+        };
+
+        const abrirCustoForm = (c=null) => {
+          setEditandoCusto(c);
+          setCustoNome(c?.nome||""); setCustoCategoria(c?.categoria||"outros");
+          setCustoValor(c?.valor?String(c.valor):""); setCustoRecorrente(c?.recorrente!==false);
+          setCustoObs(c?.observacoes||"");
+          setShowCustoForm(true);
+        };
+        const salvarCusto = async () => {
+          if (!custoNome.trim()||!custoValor) return;
+          setSalvandoCusto(true);
+          const res = await salvarCustoFixo(user.id,orgId,{id:editandoCusto?.id,nome:custoNome,categoria:custoCategoria,valor:custoValor,recorrente:custoRecorrente,observacoes:custoObs});
+          setSalvandoCusto(false);
+          if (res.error){showToast("❌ "+res.error,"#991b1b");return;}
+          setShowCustoForm(false);
+          fetchCustosFixos(user.id,orgId).then(setCustosFixos);
+          showToast(editandoCusto?"✅ Custo atualizado!":"✅ Custo cadastrado!","#059669");
+        };
+        const excluirCusto = async (id) => {
+          if (!window.confirm("Remover este custo?")) return;
+          await excluirCustoFixo(id);
+          fetchCustosFixos(user.id,orgId).then(setCustosFixos);
+          showToast("🗑️ Custo removido.","#64748b");
+        };
+
+        // Chat
+        const contextoFinanceiro = {
+          mes: finMes,
+          custos_fixos: custosFixos,
+          total_fixos: totalFixos,
+          total_material: totalMaterial,
+          total_geral: totalGeral,
+          por_categoria: porCategoria,
+          por_fornecedor: porFornecedor,
+          produtos_estoque: estoqueProdutos,
+        };
+
+        const gerarAnalise = async () => {
+          if (chatAnaliseLoading) return;
+          setChatAnaliseLoading(true);
+          setChatAnalise("");
+          const res = await chamarClaudeFinanceiro([{role:"user",content:`Analise os custos de ${finMes} e me dê um resumo executivo com: 1) situação geral dos custos, 2) maior gasto, 3) um alerta ou dica de otimização. Seja direto, máx 4 linhas.`}], contextoFinanceiro);
+          setChatAnaliseLoading(false);
+          if (res.reply) setChatAnalise(res.reply);
+          else setChatAnalise("⚠️ " + (res.error||"Erro ao gerar análise. Verifique a chave da API."));
+        };
+
+        const enviarChat = async () => {
+          const msg = chatInput.trim();
+          if (!msg || chatCarregando) return;
+          setChatInput("");
+          const novaMsgs = [...chatMsgs, {role:"user", content:msg}];
+          setChatMsgs(novaMsgs);
+          await salvarMensagemChat(user.id,orgId,"user",msg);
+          setChatCarregando(true);
+          const historico = novaMsgs.slice(-10).map(m=>({role:m.role,content:m.content}));
+          const res = await chamarClaudeFinanceiro(historico, contextoFinanceiro);
+          setChatCarregando(false);
+          const reply = res.reply || ("⚠️ " + (res.error||"Erro desconhecido"));
+          setChatMsgs(prev=>[...prev,{role:"assistant",content:reply}]);
+          await salvarMensagemChat(user.id,orgId,"assistant",reply);
+          setTimeout(()=>chatEndRef.current?.scrollIntoView({behavior:"smooth"}),100);
+        };
+
+        return (
+          <div>
+            {/* Header */}
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:10}}>
+              <h2 style={{margin:0,fontSize:18,fontWeight:800,color:"#059669"}}>💰 Financeiro</h2>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <input type="month" value={finMes} onChange={e=>{setFinMes(e.target.value);fetchMovimentosComPreco(user.id,orgId,e.target.value).then(setFinMovimentos);}}
+                  style={{padding:"7px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none"}} />
+                <button onClick={reloadFin} style={{background:"#d1fae5",color:"#065f46",border:"none",borderRadius:8,padding:"7px 12px",fontSize:12,cursor:"pointer"}}>🔄</button>
+                <button onClick={()=>{setEstoquePlusDesbloqueado(false);}} style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:10,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🔒 Trancar</button>
+              </div>
+            </div>
+
+            {/* Cards resumo */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))",gap:12,marginBottom:20}}>
+              <div style={{background:"linear-gradient(135deg,#059669,#0d9488)",borderRadius:14,padding:"16px 18px",color:"#fff"}}>
+                <div style={{fontSize:11,opacity:.8,marginBottom:4}}>📋 Custos fixos</div>
+                <div style={{fontSize:24,fontWeight:800}}>R$ {totalFixos.toFixed(2).replace(".",",")}</div>
+              </div>
+              <div style={{background:"linear-gradient(135deg,#7c3aed,#6d28d9)",borderRadius:14,padding:"16px 18px",color:"#fff"}}>
+                <div style={{fontSize:11,opacity:.8,marginBottom:4}}>📦 Material (estoque)</div>
+                <div style={{fontSize:24,fontWeight:800}}>R$ {totalMaterial.toFixed(2).replace(".",",")}</div>
+              </div>
+              <div style={{background:"linear-gradient(135deg,#dc2626,#b91c1c)",borderRadius:14,padding:"16px 18px",color:"#fff"}}>
+                <div style={{fontSize:11,opacity:.8,marginBottom:4}}>💸 Custo total {finMes}</div>
+                <div style={{fontSize:24,fontWeight:800}}>R$ {totalGeral.toFixed(2).replace(".",",")}</div>
+              </div>
+            </div>
+
+            {/* Análise automática do Claude */}
+            <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>🤖 Análise do Claude</div>
+                <button onClick={gerarAnalise} disabled={chatAnaliseLoading}
+                  style={{background:"linear-gradient(135deg,#7c3aed,#6d28d9)",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontSize:11,fontWeight:700,cursor:"pointer",opacity:chatAnaliseLoading?.6:1}}>
+                  {chatAnaliseLoading?"⏳ Analisando...":"✨ Gerar análise"}
+                </button>
+              </div>
+              {chatAnalise ? (
+                <div style={{background:"#f5f3ff",border:"1px solid #ddd6fe",borderRadius:10,padding:"12px 14px",fontSize:13,color:"#374151",lineHeight:1.6,whiteSpace:"pre-wrap"}}>
+                  {chatAnalise}
+                </div>
+              ) : (
+                <div style={{textAlign:"center",padding:"12px 0",fontSize:12,color:"#94a3b8"}}>Clique em "Gerar análise" para o Claude analisar seus custos de {finMes}.</div>
+              )}
+            </div>
+
+            {/* Custos fixos */}
+            <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>📋 Custos Fixos</div>
+                <button onClick={()=>abrirCustoForm()} style={{background:"#059669",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Adicionar</button>
+              </div>
+              {custosFixos.length===0 ? (
+                <div style={{textAlign:"center",padding:"20px 0",color:"#94a3b8",fontSize:12}}>Nenhum custo fixo cadastrado.</div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {CATS.filter(cat=>custosFixos.some(c=>c.categoria===cat.id)).map(cat=>{
+                    const itens = custosFixos.filter(c=>c.categoria===cat.id);
+                    const subtotal = itens.reduce((s,c)=>s+Number(c.valor),0);
+                    return (
+                      <div key={cat.id}>
+                        <div style={{fontSize:11,fontWeight:700,color:"#64748b",padding:"4px 0 2px",display:"flex",justifyContent:"space-between"}}>
+                          <span>{cat.icon} {cat.label}</span>
+                          <span>R$ {subtotal.toFixed(2).replace(".",",")}</span>
+                        </div>
+                        {itens.map(c=>(
+                          <div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"#f8fafc",borderRadius:8,marginBottom:3}}>
+                            <div>
+                              <span style={{fontSize:13,color:"#374151"}}>{c.nome}</span>
+                              {!c.recorrente&&<span style={{fontSize:10,background:"#fef3c7",color:"#92400e",borderRadius:6,padding:"1px 6px",marginLeft:6}}>único</span>}
+                              {c.observacoes&&<div style={{fontSize:10,color:"#94a3b8",fontStyle:"italic"}}>{c.observacoes}</div>}
+                            </div>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <span style={{fontSize:13,fontWeight:700,color:"#059669"}}>R$ {Number(c.valor).toFixed(2).replace(".",",")}</span>
+                              <button onClick={()=>abrirCustoForm(c)} style={{padding:"3px 7px",background:"#f1f5f9",border:"none",borderRadius:6,fontSize:11,cursor:"pointer"}}>✏️</button>
+                              <button onClick={()=>excluirCusto(c.id)} style={{padding:"3px 7px",background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:6,fontSize:11,cursor:"pointer"}}>🗑️</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                  <div style={{display:"flex",justifyContent:"space-between",padding:"10px 10px",background:"#d1fae5",borderRadius:8,marginTop:4}}>
+                    <span style={{fontSize:13,fontWeight:700,color:"#065f46"}}>Total fixos</span>
+                    <span style={{fontSize:14,fontWeight:800,color:"#065f46"}}>R$ {totalFixos.toFixed(2).replace(".",",")}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Material por fornecedor */}
+            {Object.keys(porFornecedor).length>0&&(
+              <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:10}}>📦 Material por fornecedor</div>
+                <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                  {Object.entries(porFornecedor).sort((a,b)=>b[1]-a[1]).map(([nome,val])=>(
+                    <div key={nome} style={{display:"flex",justifyContent:"space-between",padding:"7px 10px",background:"#f8fafc",borderRadius:8}}>
+                      <span style={{fontSize:13,color:"#374151"}}>{nome}</span>
+                      <span style={{fontSize:13,fontWeight:700,color:"#7c3aed"}}>R$ {val.toFixed(2).replace(".",",")}</span>
+                    </div>
+                  ))}
+                  <div style={{display:"flex",justifyContent:"space-between",padding:"8px 10px",background:"#ede9fe",borderRadius:8,marginTop:2}}>
+                    <span style={{fontSize:13,fontWeight:700,color:"#6d28d9"}}>Total material</span>
+                    <span style={{fontSize:14,fontWeight:800,color:"#6d28d9"}}>R$ {totalMaterial.toFixed(2).replace(".",",")}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Upload do ERP — Cálculo de lucro */}
+            <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
+              <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:4}}>📊 Resultado do mês — Print do ERP</div>
+              <div style={{fontSize:11,color:"#64748b",marginBottom:12}}>Carregue um print/screenshot do seu ERP mostrando o total de vendas válidas. O Claude irá ler os valores e calcular seu lucro líquido descontando custos.</div>
+              <input ref={erpFileRef} type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{
+                const file = e.target.files[0];
+                if (!file) return;
+                const url = URL.createObjectURL(file);
+                setErpImagemPreview(url);
+                setErpResultado(null);
+                // converte para base64
+                const reader = new FileReader();
+                reader.onload = ev => {
+                  const base64 = ev.target.result.split(",")[1];
+                  setErpVendas({base64, tipo: file.type});
+                };
+                reader.readAsDataURL(file);
+              }} />
+              <div style={{display:"flex",gap:10,alignItems:"flex-start",flexWrap:"wrap"}}>
+                <div>
+                  <button onClick={()=>erpFileRef.current?.click()}
+                    style={{background:"#ede9fe",color:"#6d28d9",border:"2px dashed #a78bfa",borderRadius:10,padding:"10px 18px",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:7}}>
+                    📎 Carregar print do ERP
+                  </button>
+                  {erpImagemPreview&&(
+                    <div style={{marginTop:8,position:"relative",display:"inline-block"}}>
+                      <img src={erpImagemPreview} alt="ERP preview" style={{maxWidth:220,maxHeight:140,borderRadius:10,border:"1.5px solid #e2e8f0",objectFit:"contain"}} />
+                      <button onClick={()=>{setErpImagemPreview(null);setErpVendas(null);setErpResultado(null);if(erpFileRef.current)erpFileRef.current.value="";}}
+                        style={{position:"absolute",top:4,right:4,background:"#ef4444",color:"#fff",border:"none",borderRadius:"50%",width:20,height:20,fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+                    </div>
+                  )}
+                </div>
+                {erpVendas&&(
+                  <button onClick={async()=>{
+                    setErpAnalisando(true);
+                    setErpResultado(null);
+                    // Chama Claude com a imagem + contexto financeiro
+                    const prompt = `Analise este print de ERP/sistema de vendas. Extraia o total de vendas do mês e calcule o lucro líquido usando estas informações da loja:\n\n- Mês: ${finMes}\n- Total de custos fixos: R$ ${totalFixos.toFixed(2)}\n- Total gasto com material/estoque: R$ ${totalMaterial.toFixed(2)}\n- Custo total: R$ ${totalGeral.toFixed(2)}\n\nResponda em JSON com o formato:\n{"total_vendas": número, "lucro_bruto": número, "lucro_liquido": número, "margem_percent": número, "observacao": "texto"}\n\nOnde:\n- total_vendas = valor total de vendas que você leu na imagem\n- lucro_bruto = total_vendas - total_material\n- lucro_liquido = total_vendas - custo_total (fixos + material)\n- margem_percent = (lucro_liquido / total_vendas) * 100\n\nSe não conseguir ler o valor na imagem, coloque 0 em total_vendas e explique na observação.`;
+                    try {
+                      const { data: { session } } = await supabase.auth.getSession();
+                      const token = session?.access_token;
+                      const resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/claude-financeiro`, {
+                        method:"POST",
+                        headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},
+                        body: JSON.stringify({
+                          messages:[{role:"user",content:[
+                            {type:"image",source:{type:"base64",media_type:erpVendas.tipo,data:erpVendas.base64}},
+                            {type:"text",text:prompt}
+                          ]}],
+                          contexto:{mes:finMes,total_fixos:totalFixos,total_material:totalMaterial,total_geral:totalGeral}
+                        })
+                      });
+                      const json = await resp.json();
+                      const reply = json.reply || "";
+                      // tenta extrair JSON da resposta
+                      const match = reply.match(/\{[\s\S]*\}/);
+                      if (match) {
+                        try { setErpResultado(JSON.parse(match[0])); }
+                        catch { setErpResultado({total_vendas:0,lucro_bruto:0,lucro_liquido:0,margem_percent:0,observacao:reply}); }
+                      } else {
+                        setErpResultado({total_vendas:0,lucro_bruto:0,lucro_liquido:0,margem_percent:0,observacao:reply||"Não foi possível analisar a imagem."});
+                      }
+                    } catch(err) {
+                      setErpResultado({total_vendas:0,lucro_bruto:0,lucro_liquido:0,margem_percent:0,observacao:"Erro: "+err.message});
+                    }
+                    setErpAnalisando(false);
+                  }} disabled={erpAnalisando}
+                    style={{padding:"10px 18px",background:erpAnalisando?"#e2e8f0":"linear-gradient(135deg,#7c3aed,#059669)",color:erpAnalisando?"#94a3b8":"#fff",border:"none",borderRadius:10,fontSize:12,fontWeight:700,cursor:"pointer",alignSelf:"flex-start"}}>
+                    {erpAnalisando?"⏳ Calculando...":"🤖 Calcular lucro"}
+                  </button>
+                )}
+              </div>
+              {erpResultado&&(
+                <div style={{marginTop:14}}>
+                  {erpResultado.total_vendas>0 ? (
+                    <div>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(150px,1fr))",gap:10,marginBottom:12}}>
+                        <div style={{background:"#d1fae5",borderRadius:12,padding:"12px 14px"}}>
+                          <div style={{fontSize:10,color:"#065f46",fontWeight:600,marginBottom:3}}>💰 Vendas totais</div>
+                          <div style={{fontSize:20,fontWeight:800,color:"#065f46"}}>R$ {Number(erpResultado.total_vendas).toFixed(2).replace(".",",")}</div>
+                        </div>
+                        <div style={{background:erpResultado.lucro_liquido>=0?"#d1fae5":"#fee2e2",borderRadius:12,padding:"12px 14px"}}>
+                          <div style={{fontSize:10,color:erpResultado.lucro_liquido>=0?"#065f46":"#991b1b",fontWeight:600,marginBottom:3}}>💸 Lucro líquido</div>
+                          <div style={{fontSize:20,fontWeight:800,color:erpResultado.lucro_liquido>=0?"#065f46":"#991b1b"}}>R$ {Number(erpResultado.lucro_liquido).toFixed(2).replace(".",",")}</div>
+                        </div>
+                        <div style={{background:"#ede9fe",borderRadius:12,padding:"12px 14px"}}>
+                          <div style={{fontSize:10,color:"#6d28d9",fontWeight:600,marginBottom:3}}>📈 Margem</div>
+                          <div style={{fontSize:20,fontWeight:800,color:"#6d28d9"}}>{Number(erpResultado.margem_percent).toFixed(1)}%</div>
+                        </div>
+                        <div style={{background:"#fef3c7",borderRadius:12,padding:"12px 14px"}}>
+                          <div style={{fontSize:10,color:"#92400e",fontWeight:600,marginBottom:3}}>📦 Lucro bruto</div>
+                          <div style={{fontSize:20,fontWeight:800,color:"#92400e"}}>R$ {Number(erpResultado.lucro_bruto).toFixed(2).replace(".",",")}</div>
+                        </div>
+                      </div>
+                      {erpResultado.observacao&&<div style={{background:"#f5f3ff",border:"1px solid #ddd6fe",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#374151",fontStyle:"italic"}}>{erpResultado.observacao}</div>}
+                    </div>
+                  ) : (
+                    <div style={{background:"#fef3c7",border:"1px solid #fde68a",borderRadius:10,padding:"10px 14px",fontSize:12,color:"#92400e"}}>
+                      ⚠️ {erpResultado.observacao||"Não foi possível ler os valores na imagem. Tente um print mais nítido."}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Chat com Claude */}
+            <div style={{background:"#fff",borderRadius:14,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",overflow:"hidden",marginBottom:20}}>
+              <div style={{padding:"14px 18px",borderBottom:"1px solid #f1f5f9",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>💬 Chat com Claude</div>
+                {chatMsgs.length>0&&<button onClick={async()=>{if(window.confirm("Limpar histórico do chat?")){{await limparChatFinanceiro(user.id,orgId);setChatMsgs([]);setChatAnalise("");}}}} style={{background:"#f1f5f9",color:"#64748b",border:"none",borderRadius:7,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>🗑️ Limpar</button>}
+              </div>
+              <div style={{height:280,overflowY:"auto",padding:"14px 16px",display:"flex",flexDirection:"column",gap:10,background:"#fafafa"}}>
+                {chatMsgs.length===0&&(
+                  <div style={{textAlign:"center",color:"#94a3b8",fontSize:12,margin:"auto"}}>
+                    <div style={{fontSize:32,marginBottom:8}}>🤖</div>
+                    <div>Pergunte sobre seus custos, rentabilidade ou qualquer coisa financeira da loja!</div>
+                    <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:4}}>
+                      {["Qual meu custo operacional este mês?","Quanto preciso vender para cobrir os custos?","Qual fornecedor estou gastando mais?"].map(s=>(
+                        <button key={s} onClick={()=>setChatInput(s)}
+                          style={{background:"#ede9fe",color:"#6d28d9",border:"none",borderRadius:8,padding:"6px 10px",fontSize:11,cursor:"pointer",textAlign:"left"}}>
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {chatMsgs.map((m,i)=>(
+                  <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
+                    <div style={{maxWidth:"80%",background:m.role==="user"?"#7c3aed":"#fff",color:m.role==="user"?"#fff":"#374151",borderRadius:m.role==="user"?"16px 16px 4px 16px":"16px 16px 16px 4px",padding:"10px 14px",fontSize:12,lineHeight:1.6,boxShadow:"0 1px 3px rgba(0,0,0,0.1)",whiteSpace:"pre-wrap"}}>
+                      {m.content}
+                    </div>
+                  </div>
+                ))}
+                {chatCarregando&&(
+                  <div style={{display:"flex",justifyContent:"flex-start"}}>
+                    <div style={{background:"#fff",borderRadius:"16px 16px 16px 4px",padding:"10px 14px",fontSize:12,color:"#94a3b8",boxShadow:"0 1px 3px rgba(0,0,0,0.1)"}}>⏳ Claude está pensando...</div>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+              <div style={{padding:"10px 14px",borderTop:"1px solid #f1f5f9",display:"flex",gap:8}}>
+                <input value={chatInput} onChange={e=>setChatInput(e.target.value)}
+                  onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&enviarChat()}
+                  placeholder="Pergunte sobre seus custos..." disabled={chatCarregando}
+                  style={{flex:1,padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none"}} />
+                <button onClick={enviarChat} disabled={!chatInput.trim()||chatCarregando}
+                  style={{padding:"9px 16px",background:chatInput.trim()?"#7c3aed":"#e2e8f0",color:chatInput.trim()?"#fff":"#94a3b8",border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                  Enviar
+                </button>
+              </div>
+            </div>
+
+            {/* Modal custo fixo */}
+            {showCustoForm&&(
+              <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+                <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:420,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+                  <h3 style={{margin:"0 0 16px",fontSize:15,fontWeight:700}}>{editandoCusto?"✏️ Editar custo":"+ Novo custo fixo"}</h3>
+                  <div style={{display:"flex",flexDirection:"column",gap:11}}>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Nome *</label>
+                      <input value={custoNome} onChange={e=>setCustoNome(e.target.value)} placeholder="Ex: Aluguel sala, Salário Mylena..."
+                        style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Categoria</label>
+                        <select value={custoCategoria} onChange={e=>setCustoCategoria(e.target.value)}
+                          style={{width:"100%",padding:"9px 10px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",background:"#fff",boxSizing:"border-box"}}>
+                          {[{id:"aluguel",l:"🏠 Aluguel"},{id:"luz",l:"💡 Luz"},{id:"agua",l:"💧 Água"},{id:"internet",l:"📶 Internet"},{id:"funcionario",l:"👤 Funcionário"},{id:"cartao",l:"💳 Cartão"},{id:"emprestimo",l:"🏦 Empréstimo"},{id:"outros",l:"📋 Outros"}].map(c=><option key={c.id} value={c.id}>{c.l}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Valor mensal (R$) *</label>
+                        <input type="number" min="0" step="0.01" value={custoValor} onChange={e=>setCustoValor(e.target.value)} placeholder="0,00"
+                          style={{width:"100%",padding:"9px 10px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Observações</label>
+                      <input value={custoObs} onChange={e=>setCustoObs(e.target.value)} placeholder="Ex: vence dia 10, parcela 3/12..."
+                        style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                    </div>
+                    <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#64748b",cursor:"pointer"}}>
+                      <input type="checkbox" checked={custoRecorrente} onChange={e=>setCustoRecorrente(e.target.checked)} style={{width:16,height:16}} />
+                      Custo recorrente (aparece todo mês)
+                    </label>
+                  </div>
+                  <div style={{display:"flex",gap:10,marginTop:18}}>
+                    <button onClick={()=>setShowCustoForm(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                    <button onClick={salvarCusto} disabled={!custoNome.trim()||!custoValor||salvandoCusto}
+                      style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:(custoNome.trim()&&custoValor)?"#059669":"#e2e8f0",color:(custoNome.trim()&&custoValor)?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                      {salvandoCusto?"Salvando...":"Salvar custo"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {showFinanceGate&&<FinanceGate onUnlock={()=>{setFinanceUnlocked(true);setActiveTab("financeiro");setShowFinanceGate(false);}} />}
       {revisaoModal&&<RevisaoModal order={revisaoModal} onConfirm={nota=>{handleStatusChange(revisaoModal,"revisao",nota);setRevisaoModal(null);}} onClose={()=>setRevisaoModal(null)} onDesmarcar={order=>{setRevisaoModal(null);tentarDesmarcar(order,"","Revisão");}} />}

@@ -506,7 +506,7 @@ export async function salvarAlarmeHorarios(horarios) {
 // ── Estoque ────────────────────────────────────────────────────────────────────
 export async function fetchEstoqueProdutos(userId, orgId) {
   if (!supabase || !userId) return []
-  let query = supabase.from('estoque_produtos').select('*').eq('ativo', true)
+  let query = supabase.from('estoque_produtos').select('*, fornecedores(id, nome, contato)').eq('ativo', true)
   query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
   const { data, error } = await query.order('nome', { ascending: true })
   if (error) { console.error('fetchEstoqueProdutos error:', error.message); return [] }
@@ -726,4 +726,81 @@ export async function fetchMovimentosComPreco(userId, orgId, mes) {
   q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
   const { data } = await q.order('criado_em', { ascending: false })
   return data || []
+}
+
+// ─── Custos Fixos ─────────────────────────────────────────────────────────────
+
+export async function fetchCustosFixos(userId, orgId) {
+  let q = supabase.from('custos_fixos').select('*').eq('ativo', true)
+  q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
+  const { data } = await q.order('categoria').order('nome')
+  return data || []
+}
+
+export async function salvarCustoFixo(userId, orgId, custo) {
+  const payload = {
+    nome:        custo.nome?.trim(),
+    categoria:   custo.categoria || 'outros',
+    valor:       Number(custo.valor) || 0,
+    recorrente:  custo.recorrente !== false,
+    observacoes: custo.observacoes?.trim() || null,
+  }
+  if (orgId) payload.organizacao_id = orgId; else payload.user_id = userId
+  if (custo.id) {
+    const { error } = await supabase.from('custos_fixos').update({ ...payload, atualizado_em: new Date().toISOString() }).eq('id', custo.id)
+    return error ? { error: error.message } : { success: true }
+  } else {
+    const { error } = await supabase.from('custos_fixos').insert(payload)
+    return error ? { error: error.message } : { success: true }
+  }
+}
+
+export async function excluirCustoFixo(id) {
+  const { error } = await supabase.from('custos_fixos').update({ ativo: false }).eq('id', id)
+  return error ? { error: error.message } : { success: true }
+}
+
+// ─── Chat financeiro com Claude (via Edge Function) ───────────────────────────
+
+export async function chamarClaudeFinanceiro(mensagens, contexto) {
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+  if (!token) return { error: 'Não autenticado' }
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+  const res = await fetch(`${supabaseUrl}/functions/v1/claude-financeiro`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ messages: mensagens, contexto }),
+  })
+  if (!res.ok) {
+    const err = await res.text()
+    return { error: err }
+  }
+  const data = await res.json()
+  return data.error ? { error: data.error } : { reply: data.reply }
+}
+
+export async function fetchChatFinanceiro(userId, orgId, limit = 40) {
+  let q = supabase.from('financeiro_chat').select('*')
+  q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
+  const { data } = await q.order('criado_em', { ascending: true }).limit(limit)
+  return data || []
+}
+
+export async function salvarMensagemChat(userId, orgId, role, content) {
+  const payload = { role, content }
+  if (orgId) payload.organizacao_id = orgId; else payload.user_id = userId
+  const { error } = await supabase.from('financeiro_chat').insert(payload)
+  return error ? { error: error.message } : { success: true }
+}
+
+export async function limparChatFinanceiro(userId, orgId) {
+  let q = supabase.from('financeiro_chat').delete()
+  q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
+  const { error } = await q
+  return error ? { error: error.message } : { success: true }
 }
