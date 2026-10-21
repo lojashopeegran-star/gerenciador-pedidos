@@ -7,14 +7,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          // React core — sempre cacheado entre deploys
-          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom') || id.includes('node_modules/scheduler')) {
-            return 'vendor-react';
-          }
-          // Supabase client — raramente muda
-          if (id.includes('node_modules/@supabase')) {
-            return 'vendor-supabase';
-          }
           // Recharts + D3 — carregados sob demanda pela aba Faturamento
           if (id.includes('node_modules/recharts') || id.includes('node_modules/d3') || id.includes('node_modules/victory') || id.includes('node_modules/internmap') || id.includes('node_modules/robust-predicates')) {
             return 'vendor-recharts';
