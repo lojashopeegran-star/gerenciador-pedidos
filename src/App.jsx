@@ -1341,7 +1341,7 @@ export default function App({user,onLogout}) {
                         </tr>
                       );
                     })}
-                    {filtered.length===0&&<tr><td colSpan={12} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>{pedidosAbertos.length===0?"📭 Nenhum pedido. Carregue uma planilha!":"Nenhum pedido com esses filtros."}</td></tr>}
+                    {filtered.length===0&&<tr><td colSpan={12} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>{pedidosAbertos.length===0?"📭 Nenhum pedido ainda.":"Nenhum pedido com esses filtros."}</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -1744,7 +1744,7 @@ export default function App({user,onLogout}) {
                       </>
                       );
                     })}
-                    {rankingArr.length===0&&<tr><td colSpan={6} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>Nenhum dado de cliente encontrado. Carregue uma planilha com a coluna "Nome de usuário (comprador)".</td></tr>}
+                    {rankingArr.length===0&&<tr><td colSpan={6} style={{textAlign:"center",padding:36,color:"#94a3b8",fontSize:13}}>Nenhum dado de cliente encontrado.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -1789,7 +1789,7 @@ export default function App({user,onLogout}) {
                     </BarChart>
                   </ResponsiveContainer>
                 )}</ChartLoader>
-              ):<div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:13}}>Carregue planilhas para ver o faturamento.</div>}
+              ):<div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:13}}>Nenhum dado de faturamento encontrado.</div>}
             </div>
 
             {/* ── Gráfico: Pedidos por dia (últimos 30 dias com dados) ── */}
@@ -2048,14 +2048,14 @@ export default function App({user,onLogout}) {
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead><tr style={{background:"#f8fafc"}}>
-                    {["Funcionário","Cor","Financeiro","Zerar Sistema","Carregar Planilha","Editar Status","🔊 Frases de Voz",""].map(h=><th key={h} style={TH}>{h}</th>)}
+                    {["Funcionário","Cor","Financeiro","Zerar Sistema","Editar Status","🔊 Frases de Voz",""].map(h=><th key={h} style={TH}>{h}</th>)}
                   </tr></thead>
                   <tbody>
                     {membrosEquipe.map((m,i)=>(
                       <tr key={m.id} style={{background:i%2===0?"#fff":"#f8fafc",borderBottom:"1px solid #f1f5f9"}}>
                         <td style={TD}><strong>{m.nome}</strong><div style={{fontSize:10,color:"#94a3b8"}}>{m.email}</div></td>
                         <td style={{...TD,textAlign:"center"}}><div style={{width:18,height:18,borderRadius:"50%",background:m.cor,margin:"0 auto"}}/></td>
-                        {["pode_ver_financeiro","pode_zerar_sistema","pode_carregar_planilha","pode_editar_status"].map(perm=>(
+                        {["pode_ver_financeiro","pode_zerar_sistema","pode_editar_status"].map(perm=>(
                           <td key={perm} style={{...TD,textAlign:"center"}}>
                             {m.is_admin ? <span style={{color:"#94a3b8"}}>—</span> : (
                               <input type="checkbox" checked={!!m[perm]} disabled={m.is_admin}
@@ -2264,7 +2264,7 @@ export default function App({user,onLogout}) {
               {[
                 {key:"pode_ver_financeiro",    label:"Pode ver o Financeiro"},
                 {key:"pode_zerar_sistema",     label:"Pode zerar o sistema"},
-                {key:"pode_carregar_planilha", label:"Pode carregar planilhas"},
+
                 {key:"pode_editar_status",     label:"Pode marcar Feito/Revisão"},
               ].map(p=>(
                 <label key={p.key} style={{display:"flex",alignItems:"center",gap:8,fontSize:13,color:"#374151",cursor:"pointer"}}>
@@ -3729,7 +3729,7 @@ export default function App({user,onLogout}) {
             {/* Análise automática do Claude */}
             <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>🤖 Análise do Claude</div>
+                <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>🤖 Análise do Gemini</div>
                 <button onClick={gerarAnalise} disabled={chatAnaliseLoading}
                   style={{background:"linear-gradient(135deg,#7c3aed,#6d28d9)",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontSize:11,fontWeight:700,cursor:"pointer",opacity:chatAnaliseLoading?.6:1}}>
                   {chatAnaliseLoading?"⏳ Analisando...":"✨ Gerar análise"}
@@ -3740,7 +3740,7 @@ export default function App({user,onLogout}) {
                   {chatAnalise}
                 </div>
               ) : (
-                <div style={{textAlign:"center",padding:"12px 0",fontSize:12,color:"#94a3b8"}}>Clique em "Gerar análise" para o Claude analisar seus custos de {finMes}.</div>
+                <div style={{textAlign:"center",padding:"12px 0",fontSize:12,color:"#94a3b8"}}>Clique em "Gerar análise" para o Gemini analisar seus custos de {finMes}.</div>
               )}
             </div>
 
