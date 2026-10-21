@@ -1773,17 +1773,6 @@ export default function App({user,onLogout}) {
                   </div>
                 );
               })}
-              <div style={{background:"#eff6ff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
-                <div style={{fontSize:26,marginBottom:4}}>💰</div>
-                <div style={{fontSize:22,fontWeight:800,color:"#0891b2"}}>{fmtBRL(faturamento.reduce((s,f)=>s+Number(f.valor),0))}</div>
-                <div style={{fontSize:11,color:"#64748b",fontWeight:600}}>Total Geral</div>
-              </div>
-              <div style={{background:"#f0fdf4",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
-                <div style={{fontSize:26,marginBottom:4}}>🎯</div>
-                <div style={{fontSize:22,fontWeight:800,color:"#059669"}}>{fmtBRL(faturamento.reduce((s,f)=>s+Number(f.valor),0)/(allPedidos.length||1))}</div>
-                <div style={{fontSize:11,color:"#64748b",fontWeight:600}}>Ticket Médio Geral</div>
-                {totalDev>0&&<div style={{fontSize:11,fontWeight:700,color:"#ef4444",marginTop:4}}>Devol.: -{fmtBRL(totalDev)}</div>}
-              </div>
             </div>
             <div style={{background:"#fff",borderRadius:18,padding:20,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
               <div style={{fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:16}}>💰 Faturamento Mensal por Loja</div>
