@@ -592,12 +592,98 @@ export async function fetchMovimentosEstoque(userId, orgId, produtoId = null, li
 
 // ── PRODUTOS / CALCULADORA ──────────────────────────────────────────────────
 
+// ── Biblioteca de matérias-primas (compartilhada entre produtos) ─────────────
+export async function fetchMateriasPrimas(userId, orgId) {
+  let q = supabase.from('materias_primas').select('*').eq('ativo', true)
+  q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
+  const { data, error } = await q.order('nome', { ascending: true })
+  if (error) { console.error('fetchMateriasPrimas error:', error.message); return [] }
+  return data || []
+}
+
+export async function salvarMateriaPrimaLib(userId, orgId, mp) {
+  const payload = {
+    nome: mp.nome,
+    custo_unidade_compra: mp.custo_unidade_compra || 0,
+    qtd_por_unidade_compra: mp.qtd_por_unidade_compra || 1,
+    unidade: mp.unidade || 'un',
+  }
+  if (orgId) payload.organizacao_id = orgId; else payload.user_id = userId
+  if (mp.id) {
+    const { error } = await supabase.from('materias_primas').update(payload).eq('id', mp.id)
+    return error ? { error: error.message } : { success: true, id: mp.id }
+  }
+  const { data, error } = await supabase.from('materias_primas').insert(payload).select('id').single()
+  return error ? { error: error.message } : { success: true, id: data.id }
+}
+
+// Exclusão lógica: produtos que já usam a matéria-prima continuam calculando o custo
+export async function excluirMateriaPrimaLib(id) {
+  const { error } = await supabase.from('materias_primas').update({ ativo: false }).eq('id', id)
+  return error ? { error: error.message } : { success: true }
+}
+
+// Salva produto + variações + vínculos de matérias-primas de cada variação
+// variacoes: [{ id?, nome, preco_venda, mps: [{ materia_prima_id, nome, qtd_usada }] }]
+export async function salvarProdutoCompleto(userId, orgId, produto, variacoes) {
+  const base = await salvarProduto(userId, orgId, {
+    ...produto,
+    preco_venda: variacoes[0]?.preco_venda || 0,
+  })
+  if (base.error) return base
+  const produtoId = base.id
+  const owner = orgId ? { organizacao_id: orgId } : { user_id: userId }
+
+  const { data: existentes } = await supabase.from('produto_variacoes').select('id').eq('produto_id', produtoId)
+  const idsMantidos = new Set(variacoes.filter(v => v.id).map(v => v.id))
+  const remover = (existentes || []).map(v => v.id).filter(id => !idsMantidos.has(id))
+  if (remover.length) {
+    const { error } = await supabase.from('produto_variacoes').delete().in('id', remover)
+    if (error) return { error: error.message }
+  }
+
+  for (let i = 0; i < variacoes.length; i++) {
+    const v = variacoes[i]
+    const payload = { produto_id: produtoId, nome: v.nome || 'Padrão', preco_venda: v.preco_venda || 0, ordem: i, ...owner }
+    let variacaoId = v.id
+    if (variacaoId) {
+      const { error } = await supabase.from('produto_variacoes').update(payload).eq('id', variacaoId)
+      if (error) return { error: error.message }
+    } else {
+      const { data, error } = await supabase.from('produto_variacoes').insert(payload).select('id').single()
+      if (error) return { error: error.message }
+      variacaoId = data.id
+    }
+    const { error: eDel } = await supabase.from('produto_materias_primas').delete().eq('variacao_id', variacaoId)
+    if (eDel) return { error: eDel.message }
+    const linhas = (v.mps || []).filter(m => m.materia_prima_id && Number(m.qtd_usada) > 0).map((m, idx) => ({
+      produto_id: produtoId,
+      variacao_id: variacaoId,
+      materia_prima_id: m.materia_prima_id,
+      nome: m.nome || '',
+      qtd_usada_por_produto: Number(m.qtd_usada),
+      ordem: idx,
+      ...owner,
+    }))
+    if (linhas.length) {
+      const { error } = await supabase.from('produto_materias_primas').insert(linhas)
+      if (error) return { error: error.message }
+    }
+  }
+  return { success: true, id: produtoId }
+}
+
 export async function fetchProdutos(userId, orgId) {
-  let query = supabase.from('produtos').select('*, produto_materias_primas(*)').eq('ativo', true)
+  let query = supabase.from('produtos')
+    .select('*, produto_variacoes(*, produto_materias_primas(*, materias_primas(*)))')
+    .eq('ativo', true)
   query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
   const { data, error } = await query.order('nome', { ascending: true })
   if (error) { console.error('fetchProdutos error:', error.message); return [] }
-  return data || []
+  return (data || []).map(p => ({
+    ...p,
+    produto_variacoes: (p.produto_variacoes || []).slice().sort((a, b) => (a.ordem || 0) - (b.ordem || 0)),
+  }))
 }
 
 export async function salvarProduto(userId, orgId, produto) {
