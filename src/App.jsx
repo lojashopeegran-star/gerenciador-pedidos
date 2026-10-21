@@ -2,16 +2,6 @@ import { useState, useRef, useEffect, lazy, Suspense } from "react";
 // XLSX carregado sob demanda para não bloquear o primeiro carregamento
 let _XLSX = null;
 const getXLSX = async () => { if (!_XLSX) _XLSX = await import("xlsx"); return _XLSX; };
-// Recharts carregado sob demanda — só usado na aba Faturamento
-let _RC = null;
-const getRC = async () => { if (!_RC) _RC = await import("recharts"); return _RC; };
-// Componente wrapper para gráficos — renderiza só após recharts carregar
-function ChartLoader({ children }) {
-  const [RC, setRC] = useState(null);
-  useEffect(() => { getRC().then(setRC); }, []);
-  if (!RC) return <div style={{height:260,display:"flex",alignItems:"center",justifyContent:"center",color:"#94a3b8",fontSize:13}}>Carregando gráfico...</div>;
-  return children(RC);
-}
 import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
@@ -397,6 +387,7 @@ export default function App({user,onLogout}) {
   const [estoqueProdMin,     setEstoqueProdMin]     = useState("");
   const [salvandoProduto,    setSalvandoProduto]    = useState(false);
   const [abrirPlusAposSalvar, setAbrirPlusAposSalvar] = useState(false);
+  const [dimOpcaoSelecionada, setDimOpcaoSelecionada] = useState(0);
   const [showMovForm,        setShowMovForm]        = useState(null); // produtoId ou null
   const [movTipo,            setMovTipo]            = useState("entrada");
   const [movQtd,             setMovQtd]             = useState("");
@@ -1754,111 +1745,6 @@ export default function App({user,onLogout}) {
           );
         })()}
 
-        {/* ── TAB: FINANCEIRO ── */}
-        {activeTab==="financeiro"&&financeUnlocked&&(
-          <div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:18}}>
-              {lojas.map(loja=>{
-                const totalFat=faturamento.filter(f=>f.loja===loja).reduce((s,f)=>s+Number(f.valor),0);
-                const totalPed=allPedidos.filter(r=>r.loja===loja).length||1;
-                const ticket=totalFat/totalPed;
-                return (
-                  <div key={loja} style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
-                    <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:8,textTransform:"uppercase",letterSpacing:0.5}}>{loja}</div>
-                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                      <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,color:"#94a3b8"}}>Total acum.</span><span style={{fontSize:14,fontWeight:800,color:"#1d4ed8"}}>{fmtBRL(totalFat)}</span></div>
-                      <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,color:"#94a3b8"}}>Pedidos</span><span style={{fontSize:13,fontWeight:700}}>{allPedidos.filter(r=>r.loja===loja).length}</span></div>
-                      <div style={{height:1,background:"#e2e8f0",margin:"2px 0"}}/>
-                      <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:11,color:"#94a3b8"}}>🎯 Ticket Médio</span><span style={{fontSize:14,fontWeight:800,color:"#059669"}}>{fmtBRL(ticket)}</span></div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{background:"#fff",borderRadius:18,padding:20,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
-              <div style={{fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:16}}>💰 Faturamento Mensal por Loja</div>
-              {chartData.length>0?(
-                <ChartLoader>{({BarChart,Bar,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend})=>(
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={chartData} margin={{top:0,right:10,left:10,bottom:0}}>
-                      <XAxis dataKey="mes" tick={{fontSize:11}} />
-                      <YAxis tick={{fontSize:11}} tickFormatter={v=>v>=1000?`R$${(v/1000).toFixed(1)}k`:`R$${v}`} />
-                      <Tooltip formatter={(v,n)=>[fmtBRL(v),n]} />
-                      <Legend />
-                      <Bar dataKey="Gran Shop"   fill="#1d4ed8" radius={[4,4,0,0]} />
-                      <Bar dataKey="Aishael Mix" fill="#7c3aed" radius={[4,4,0,0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}</ChartLoader>
-              ):<div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:13}}>Nenhum dado de faturamento encontrado.</div>}
-            </div>
-
-            {/* ── Gráfico: Pedidos por dia (últimos 30 dias com dados) ── */}
-            <div style={{background:"#fff",borderRadius:18,padding:20,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginTop:18}}>
-              <div style={{fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:16}}>📊 Pedidos por Dia</div>
-              {(() => {
-                const porDia = {};
-                for (const r of allPedidos) {
-                  const d = r.dataCriacao?.slice(0,10);
-                  if (!d) continue;
-                  if (!porDia[d]) porDia[d] = { dia: d, total: 0, cancelados: 0 };
-                  porDia[d].total++;
-                  if (isCancelado(r)) porDia[d].cancelados++;
-                }
-                const dadosDia = Object.values(porDia).sort((a,b)=>a.dia.localeCompare(b.dia)).slice(-30)
-                  .map(d => ({ ...d, diaLabel: d.dia.slice(8,10)+"/"+d.dia.slice(5,7) }));
-                if (dadosDia.length===0) return <div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:13}}>Sem dados suficientes ainda.</div>;
-                return (
-                  <ChartLoader>{({LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend,CartesianGrid})=>(
-                    <ResponsiveContainer width="100%" height={240}>
-                      <LineChart data={dadosDia} margin={{top:5,right:10,left:10,bottom:0}}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis dataKey="diaLabel" tick={{fontSize:10}} />
-                        <YAxis tick={{fontSize:11}} allowDecimals={false} />
-                        <Tooltip />
-                        <Legend />
-                        <Line type="monotone" dataKey="total" name="Pedidos" stroke="#1d4ed8" strokeWidth={2} dot={false} />
-                        <Line type="monotone" dataKey="cancelados" name="Cancelados" stroke="#ef4444" strokeWidth={2} dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  )}</ChartLoader>
-                );
-              })()}
-            </div>
-
-            {/* ── Gráfico: Taxa de cancelamento ao longo do tempo ── */}
-            <div style={{background:"#fff",borderRadius:18,padding:20,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginTop:18}}>
-              <div style={{fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:16}}>📉 Taxa de Cancelamento por Mês</div>
-              {(() => {
-                const porMes = {};
-                for (const r of allPedidos) {
-                  const m = r.mesReferencia;
-                  if (!m) continue;
-                  if (!porMes[m]) porMes[m] = { mes: m, total: 0, cancelados: 0 };
-                  porMes[m].total++;
-                  if (isCancelado(r)) porMes[m].cancelados++;
-                }
-                const dadosMes = Object.values(porMes).sort((a,b)=>a.mes.localeCompare(b.mes))
-                  .map(d => ({ ...d, mesLabel: mesLabel(d.mes), taxa: d.total ? Number(((d.cancelados/d.total)*100).toFixed(1)) : 0 }));
-                if (dadosMes.length===0) return <div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:13}}>Sem dados suficientes ainda.</div>;
-                return (
-                  <ChartLoader>{({LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,CartesianGrid})=>(
-                    <ResponsiveContainer width="100%" height={240}>
-                      <LineChart data={dadosMes} margin={{top:5,right:10,left:10,bottom:0}}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                        <XAxis dataKey="mesLabel" tick={{fontSize:11}} />
-                        <YAxis tick={{fontSize:11}} unit="%" />
-                        <Tooltip formatter={v=>`${v}%`} />
-                        <Line type="monotone" dataKey="taxa" name="Taxa de cancelamento" stroke="#ef4444" strokeWidth={2} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  )}</ChartLoader>
-                );
-              })()}
-            </div>
-          </div>
-        )}
-
         {/* ── TAB: EQUIPE ── */}
         {activeTab==="equipe"&&isAdminEquipe&&organizacao&&(()=>{
           // Usar UTC para bater com os timestamps do Supabase (que são UTC)
@@ -2473,7 +2359,6 @@ export default function App({user,onLogout}) {
           const unicas = opcoes.filter(o=>{ if(vistos.has(o.total)) return false; vistos.add(o.total); return true; });
           return unicas.length>0 ? unicas : null;
         };
-        const [dimOpcaoSelecionada, setDimOpcaoSelecionada] = React.useState(0);
         const aplicarDimensao = (idx=0) => {
           const opcoes = calcDimensao();
           if (!opcoes||!opcoes[idx]) return;
@@ -3422,6 +3307,70 @@ export default function App({user,onLogout}) {
                     <button onClick={salvarForn} disabled={!fornNome.trim()||salvandoForn}
                       style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:fornNome.trim()?"#7c3aed":"#e2e8f0",color:fornNome.trim()?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
                       {salvandoForn?"Salvando...":"Salvar fornecedor"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal: novo material (Estoque+) */}
+            {showEstoqueForm&&abrirPlusAposSalvar&&(
+              <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+                <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:420,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+                  <h3 style={{margin:"0 0 14px",fontSize:16,fontWeight:700,color:"#1e293b"}}>+ Novo Material</h3>
+                  <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:600,color:"#64748b",marginBottom:4,display:"block"}}>Nome do material *</label>
+                      <input value={estoqueProdNome} onChange={e=>setEstoqueProdNome(e.target.value)} autoFocus placeholder="Ex: Papel Fotográfico 10x15"
+                        style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",marginBottom:4,display:"block"}}>Unidade</label>
+                        <select value={estoqueProdUnidade} onChange={e=>setEstoqueProdUnidade(e.target.value)}
+                          style={{width:"100%",padding:"10px 8px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",background:"#fff"}}>
+                          {["un","cx","pct","rolo","m","kg","l"].map(u=><option key={u} value={u}>{u}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",marginBottom:4,display:"block"}}>Qtd atual</label>
+                        <input type="number" min="0" value={estoqueProdQtd} onChange={e=>setEstoqueProdQtd(e.target.value)}
+                          style={{width:"100%",padding:"10px 8px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",marginBottom:4,display:"block"}}>Qtd mínima</label>
+                        <input type="number" min="0" value={estoqueProdMin} onChange={e=>setEstoqueProdMin(e.target.value)}
+                          style={{width:"100%",padding:"10px 8px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:10,marginTop:20}}>
+                    <button onClick={()=>{setShowEstoqueForm(false);setAbrirPlusAposSalvar(false);}} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                    <button disabled={!estoqueProdNome.trim()||salvandoProduto} onClick={async()=>{
+                      if (!estoqueProdNome.trim()) return;
+                      setSalvandoProduto(true);
+                      const res = await salvarEstoqueProduto(user.id, orgId, {
+                        nome: estoqueProdNome.trim(),
+                        unidade: estoqueProdUnidade,
+                        quantidade_atual: Number(estoqueProdQtd)||0,
+                        quantidade_minima: Number(estoqueProdMin)||0,
+                      });
+                      setSalvandoProduto(false);
+                      if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
+                      const produtos = await fetchEstoqueProdutos(user.id, orgId);
+                      setEstoqueProdutos(produtos);
+                      setShowEstoqueForm(false);
+                      setAbrirPlusAposSalvar(false);
+                      const novo = res.data?.[0];
+                      if (novo) {
+                        setEstoqueProdPlusId(novo.id);
+                        setEstoqueProdFornId(""); setEstoqueProdPreco(""); setEstoqueProdLink(""); setEstoqueProdObs(""); setEstoqueProdCat("");
+                        setShowEstoqueProdPlus(true);
+                      }
+                      showToast("✅ Material cadastrado!","#059669");
+                    }}
+                      style={{flex:1,padding:"10px 0",border:"none",borderRadius:10,background:estoqueProdNome.trim()?"#7c3aed":"#e2e8f0",color:estoqueProdNome.trim()?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                      {salvandoProduto?"Salvando...":"Salvar"}
                     </button>
                   </div>
                 </div>
