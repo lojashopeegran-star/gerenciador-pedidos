@@ -2990,8 +2990,6 @@ export default function App({user,onLogout}) {
                     <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
                       <button onClick={()=>abrirMov(p.id,"entrada")} style={{flex:1,padding:"6px 10px",background:"#d1fae5",color:"#065f46",border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>📥 Entrada</button>
                       <button onClick={()=>abrirMov(p.id,"saida")} style={{flex:1,padding:"6px 10px",background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>📤 Saída</button>
-                      <button onClick={()=>abrirFormEditar(p)} style={{padding:"6px 9px",background:"#f1f5f9",color:"#374151",border:"none",borderRadius:8,fontSize:11,cursor:"pointer"}}>✏️</button>
-                      <button onClick={()=>excluirProduto(p.id)} style={{padding:"6px 9px",background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:8,fontSize:11,cursor:"pointer"}}>🗑️</button>
                     </div>
                   </div>
                 ))}
@@ -3111,8 +3109,12 @@ export default function App({user,onLogout}) {
                   <div style={{display:"flex",flexDirection:"column",gap:12}}>
                     <div>
                       <label style={{fontSize:11,fontWeight:600,color:"#64748b",marginBottom:4,display:"block"}}>Nome do material *</label>
-                      <input value={estoqueProdNome} onChange={e=>setEstoqueProdNome(e.target.value)} placeholder="Ex: Papel Fotográfico 10x15"
-                        style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      {editandoProduto ? (
+                        <div style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,background:"#f8fafc",color:"#64748b",boxSizing:"border-box"}}>{estoqueProdNome}</div>
+                      ) : (
+                        <input value={estoqueProdNome} onChange={e=>setEstoqueProdNome(e.target.value)} placeholder="Ex: Papel Fotográfico 10x15"
+                          style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      )}
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
                       <div>
