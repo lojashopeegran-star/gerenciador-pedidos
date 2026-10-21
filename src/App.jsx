@@ -644,6 +644,35 @@ export default function App({user,onLogout}) {
   const podeEditarStatus     = membro ? membro.pode_editar_status     : true;
   const isAdminEquipe        = membro ? membro.is_admin : true;
   const orgId                = membro?.organizacao_id || null;
+  const [pedidosMes, setPedidosMes] = useState(null);
+  const [ups, setUps] = useState({total:0,linhas:[]});
+  const [upsBusca, setUpsBusca] = useState("");
+  const [upsBuscaAtiva, setUpsBuscaAtiva] = useState("");
+  const [upsStatus, setUpsStatus] = useState("");
+  const [upsLoja, setUpsLoja] = useState("");
+  const [upsVinculo, setUpsVinculo] = useState("");
+  const [upsPag, setUpsPag] = useState(0);
+  const [upsCarregando, setUpsCarregando] = useState(false);
+  const [upsVincular, setUpsVincular] = useState(null);
+  const [upsEscolha, setUpsEscolha] = useState("");
+  const [upsSalvando, setUpsSalvando] = useState(false);
+  const UPS_POR_PAG = 50;
+  const [projSalvaEm, setProjSalvaEm] = useState(null);
+  const [salvandoProj, setSalvandoProj] = useState(false);
+  const [alertaContas, setAlertaContas] = useState({custos:[],pagos:[],mes:""});
+  const [consumo30, setConsumo30] = useState({});
+  const [showVinc, setShowVinc] = useState(false);
+  const [vincLista, setVincLista] = useState([]);
+  const [vincCarregando, setVincCarregando] = useState(false);
+  const [vincBusca, setVincBusca] = useState("");
+  const [vincSo, setVincSo] = useState("pendentes");
+  const [baixaInfo, setBaixaInfo] = useState(null);
+  const [baixaBusy, setBaixaBusy] = useState(false);
+  const [showHistorico, setShowHistorico] = useState(false);
+  const [operacoes, setOperacoes] = useState([]);
+  const [carregandoOps, setCarregandoOps] = useState(false);
+  const [desfazendoKey, setDesfazendoKey] = useState(null);
+  const [filtroHist, setFiltroHist] = useState("todos");
   useEffect(() => {
     if (!user || !orgId) return;
     fetchPagamentosCustos(user.id, orgId, finMes).then(setCustosPagos);
@@ -739,35 +768,6 @@ export default function App({user,onLogout}) {
   const logOp = (op) => registrarOperacao(orgId, user?.id, meuNome, op);
 
   // ── Histórico de operações (desfazer) ───────────────────────────────────────
-  const [pedidosMes, setPedidosMes] = useState(null);
-  const [ups, setUps] = useState({total:0,linhas:[]});
-  const [upsBusca, setUpsBusca] = useState("");
-  const [upsBuscaAtiva, setUpsBuscaAtiva] = useState("");
-  const [upsStatus, setUpsStatus] = useState("");
-  const [upsLoja, setUpsLoja] = useState("");
-  const [upsVinculo, setUpsVinculo] = useState("");
-  const [upsPag, setUpsPag] = useState(0);
-  const [upsCarregando, setUpsCarregando] = useState(false);
-  const [upsVincular, setUpsVincular] = useState(null);
-  const [upsEscolha, setUpsEscolha] = useState("");
-  const [upsSalvando, setUpsSalvando] = useState(false);
-  const UPS_POR_PAG = 50;
-  const [projSalvaEm, setProjSalvaEm] = useState(null);
-  const [salvandoProj, setSalvandoProj] = useState(false);
-  const [alertaContas, setAlertaContas] = useState({custos:[],pagos:[],mes:""});
-  const [consumo30, setConsumo30] = useState({});
-  const [showVinc, setShowVinc] = useState(false);
-  const [vincLista, setVincLista] = useState([]);
-  const [vincCarregando, setVincCarregando] = useState(false);
-  const [vincBusca, setVincBusca] = useState("");
-  const [vincSo, setVincSo] = useState("pendentes");
-  const [baixaInfo, setBaixaInfo] = useState(null);
-  const [baixaBusy, setBaixaBusy] = useState(false);
-  const [showHistorico, setShowHistorico] = useState(false);
-  const [operacoes, setOperacoes] = useState([]);
-  const [carregandoOps, setCarregandoOps] = useState(false);
-  const [desfazendoKey, setDesfazendoKey] = useState(null);
-  const [filtroHist, setFiltroHist] = useState("todos");
   const recarregarTudo = async () => {
     if (!user) return;
     const [ep, em, fo, cf, mp, pr, fm, fs, pg, mm] = await Promise.all([
