@@ -1187,3 +1187,11 @@ export async function salvarProjecao(orgId, mes, dados, nome) {
     { onConflict: 'organizacao_id,mes' })
   return error ? { error: error.message } : { success: true }
 }
+
+export async function fetchPedidosUpseller(orgId, f = {}) {
+  const { data, error } = await supabase.rpc('pedidos_upseller_lista', {
+    p_org: orgId, p_busca: f.busca || null, p_status: f.status || null, p_loja: f.loja || null,
+    p_vinculo: f.vinculo || null, p_limit: f.limite || 50, p_offset: f.offset || 0,
+  })
+  return error ? { error: error.message } : (data || { total: 0, linhas: [] })
+}

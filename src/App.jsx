@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, lazy, Suspense } from "react";
 // XLSX carregado sob demanda para não bloquear o primeiro carregamento
 let _XLSX = null;
 const getXLSX = async () => { if (!_XLSX) _XLSX = await import("xlsx"); return _XLSX; };
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchPedidosMes, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchPedidosMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -657,6 +657,34 @@ export default function App({user,onLogout}) {
       .then(([cf,pg,cons])=>{ setAlertaContas({custos:cf||[],pagos:pg||[],mes}); setConsumo30(cons||{}); })
       .catch(()=>{});
   }, [orgId, user?.id, isAdminEquipe, custosFixos.length, custosPagos.length, estoqueProdutos.length]);
+  useEffect(() => { const t = setTimeout(()=>{ setUpsBuscaAtiva(upsBusca.trim()); setUpsPag(0); }, 400); return ()=>clearTimeout(t); }, [upsBusca]);
+  const carregarUps = async () => {
+    if (!orgId) return;
+    setUpsCarregando(true);
+    const r = await fetchPedidosUpseller(orgId, {busca:upsBuscaAtiva, status:upsStatus, loja:upsLoja, vinculo:upsVinculo, limite:UPS_POR_PAG, offset:upsPag*UPS_POR_PAG});
+    setUpsCarregando(false);
+    if (r.error) { showToast("❌ "+r.error,"#991b1b"); return; }
+    setUps(r);
+  };
+  useEffect(() => {
+    if (activeTab !== "upseller" || !orgId || !isAdminEquipe) return;
+    carregarUps();
+  }, [activeTab, orgId, upsBuscaAtiva, upsStatus, upsLoja, upsVinculo, upsPag]);
+  const opcoesVarTop = [];
+  produtosCalc.forEach(pr=>(pr.produto_variacoes||[]).forEach(v=>{
+    const temEstoque = (v.produto_materias_primas||[]).some(l=>l.materias_primas?.estoque_produto_id);
+    opcoesVarTop.push({id:v.id,nome:`${pr.nome}${v.nome?" — "+v.nome:""}`,temEstoque,qtdMp:(v.produto_materias_primas||[]).length});
+  }));
+  const confirmarVinculoUps = async () => {
+    if (!upsVincular) return;
+    setUpsSalvando(true);
+    const r = await salvarVinculo(orgId, upsVincular.chave, upsVincular.variacao, upsEscolha || null);
+    setUpsSalvando(false);
+    if (r.error) { showToast("❌ "+r.error,"#991b1b"); return; }
+    showToast(upsEscolha?"✅ Variação vinculada! Todos os pedidos com ela foram vinculados.":"🔓 Vínculo removido.","#059669");
+    setUpsVincular(null); setUpsEscolha("");
+    carregarUps();
+  };
   useEffect(() => {
     if (!orgId || !isAdminEquipe) return;
     let vivo = true;
@@ -712,6 +740,18 @@ export default function App({user,onLogout}) {
 
   // ── Histórico de operações (desfazer) ───────────────────────────────────────
   const [pedidosMes, setPedidosMes] = useState(null);
+  const [ups, setUps] = useState({total:0,linhas:[]});
+  const [upsBusca, setUpsBusca] = useState("");
+  const [upsBuscaAtiva, setUpsBuscaAtiva] = useState("");
+  const [upsStatus, setUpsStatus] = useState("");
+  const [upsLoja, setUpsLoja] = useState("");
+  const [upsVinculo, setUpsVinculo] = useState("");
+  const [upsPag, setUpsPag] = useState(0);
+  const [upsCarregando, setUpsCarregando] = useState(false);
+  const [upsVincular, setUpsVincular] = useState(null);
+  const [upsEscolha, setUpsEscolha] = useState("");
+  const [upsSalvando, setUpsSalvando] = useState(false);
+  const UPS_POR_PAG = 50;
   const [projSalvaEm, setProjSalvaEm] = useState(null);
   const [salvandoProj, setSalvandoProj] = useState(false);
   const [alertaContas, setAlertaContas] = useState({custos:[],pagos:[],mes:""});
@@ -1280,6 +1320,7 @@ export default function App({user,onLogout}) {
     ...(isAdminEquipe ? [{id:"estoque",  icon:"🏪", label:"Estoque",  badge: estoqueProdutos.filter(p=>p.quantidade_atual<=p.quantidade_minima).length||null, color:"#0d9488"}] : []),
     ...(isAdminEquipe ? [{id:"produtos", icon: estoquePlusDesbloqueado?"📦":"🔒", label:"Produtos", badge: null, color:"#7c3aed"}] : []),
     ...(isAdminEquipe ? [{id:"financeiro", icon: estoquePlusDesbloqueado?"💰":"🔒", label:"Financeiro", badge: null, color:"#059669"}] : []),
+    ...(isAdminEquipe ? [{id:"upseller", icon:"🧾", label:"Pedidos UpSeller", badge: null, color:"#1d4ed8"}] : []),
     ...(isAdminEquipe&&organizacao ? [{id:"equipe",  icon:"👥", label:"Equipe",   badge: membrosEquipe.length||null, color:"#7c3aed"}] : []),
   ];
 
@@ -4238,6 +4279,103 @@ export default function App({user,onLogout}) {
       )}
 
       {/* ── ABA FINANCEIRO ──────────────────────────────────────────────── */}
+      {activeTab==="upseller"&&isAdminEquipe&&(()=>{
+        const inp = {padding:"8px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box",background:"#fff"};
+        const STATUS = [["para_imprimir","Para imprimir"],["para_retirada","Para retirada"],["para_emitir","Para emitir"],["enviado","Enviado"],["cancelado","Cancelado"],["sem_status","Sem status"]];
+        const corSt = {para_imprimir:["#1d4ed8","#dbeafe"],para_retirada:["#7c3aed","#ede9fe"],para_emitir:["#92400e","#fef3c7"],enviado:["#065f46","#d1fae5"],cancelado:["#991b1b","#fde8e8"]};
+        const totalPag = Math.max(1, Math.ceil(ups.total/UPS_POR_PAG));
+        const escolhida = opcoesVarTop.find(o=>o.id===upsEscolha);
+        const sugestao = upsVincular&&!upsVincular.variacao_id ? melhorMatch(upsVincular.variacao, opcoesVarTop, 0.45) : null;
+        return (
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:10}}>
+              <h2 style={{margin:0,fontSize:18,fontWeight:800,color:"#1d4ed8"}}>🧾 Pedidos do UpSeller</h2>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={abrirVinc} style={{background:"#eff6ff",color:"#1d4ed8",border:"1px solid #bfdbfe",borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>⚙️ Baixa automática</button>
+                <button onClick={carregarUps} style={{background:"#dbeafe",color:"#1e40af",border:"none",borderRadius:8,padding:"7px 12px",fontSize:12,cursor:"pointer"}}>🔄</button>
+              </div>
+            </div>
+            <p style={{margin:"0 0 12px",fontSize:12,color:"#64748b"}}>Ao clicar em <strong>Vincular</strong> num pedido, você liga a variação dele a um produto cadastrado. Todos os pedidos (atuais e futuros) com essa mesma variação ficam vinculados automaticamente e passam a dar baixa no estoque.</p>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:12}}>
+              <input value={upsBusca} onChange={e=>setUpsBusca(e.target.value)} placeholder="Buscar por pedido, cliente ou variação…" style={{...inp,flex:1,minWidth:200}} />
+              <select value={upsStatus} onChange={e=>{setUpsStatus(e.target.value);setUpsPag(0);}} style={inp}>
+                <option value="">Todos os status</option>
+                {STATUS.map(([v,l])=><option key={v} value={v}>{l}</option>)}
+              </select>
+              <select value={upsLoja} onChange={e=>{setUpsLoja(e.target.value);setUpsPag(0);}} style={inp}>
+                <option value="">Todas as lojas</option>
+                {lojas.map(l=><option key={l} value={l}>{l}</option>)}
+              </select>
+              <select value={upsVinculo} onChange={e=>{setUpsVinculo(e.target.value);setUpsPag(0);}} style={inp}>
+                <option value="">Vinculados e não</option>
+                <option value="sem">Sem vínculo</option>
+                <option value="com">Com vínculo</option>
+              </select>
+            </div>
+            <div style={{fontSize:11,color:"#64748b",marginBottom:8}}>{upsCarregando?"Carregando…":`${ups.total} pedido(s)`}</div>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {ups.linhas.map(o=>{
+                const st = o.status_upseller||"sem_status";
+                const [c1,c2] = corSt[st]||["#475569","#f1f5f9"];
+                const cancel = o.cancelando||o.excluido_em||st==="cancelado";
+                return (
+                  <div key={o.id} style={{background:"#fff",borderRadius:12,padding:"12px 14px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",opacity:cancel?0.7:1}}>
+                    <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                      <div style={{fontSize:12,fontWeight:700,color:"#1e293b"}}>{o.id_pedido_plataforma} <span style={{fontWeight:500,color:"#64748b"}}>· {o.destinatario||"—"}</span></div>
+                      <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                        {o.loja&&<span style={{fontSize:10,color:"#64748b"}}>{o.loja}</span>}
+                        <span style={{fontSize:10,fontWeight:700,color:c1,background:c2,borderRadius:6,padding:"2px 8px"}}>{(STATUS.find(x=>x[0]===st)||[0,st])[1]}{o.cancelando&&st!=="cancelado"?" (cancelando)":""}</span>
+                        {o.baixado&&<span style={{fontSize:10,fontWeight:700,color:"#065f46",background:"#d1fae5",borderRadius:6,padding:"2px 8px"}}>📦 Baixado</span>}
+                        {o.estornado&&<span style={{fontSize:10,fontWeight:700,color:"#92400e",background:"#fef3c7",borderRadius:6,padding:"2px 8px"}}>↩ Estornado</span>}
+                      </div>
+                    </div>
+                    <div style={{fontSize:12,color:"#334155",margin:"6px 0 2px",wordBreak:"break-word"}}>{o.variacao||<em style={{color:"#94a3b8"}}>sem variação</em>}</div>
+                    <div style={{fontSize:10,color:"#94a3b8",marginBottom:8}}>{o.data_pedido?new Date(o.data_pedido).toLocaleString("pt-BR"):""} · qtd {o.quantidade||1}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                      {o.variacao_id ? (
+                        <>
+                          <span style={{fontSize:11,fontWeight:600,color:"#065f46",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:8,padding:"4px 10px"}}>🔗 {o.prod_nome}{o.var_nome?` — ${o.var_nome}`:""}</span>
+                          <button onClick={()=>{setUpsVincular(o);setUpsEscolha(o.variacao_id);}} style={{background:"#f1f5f9",color:"#374151",border:"none",borderRadius:8,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Alterar</button>
+                        </>
+                      ) : o.variacao ? (
+                        <button onClick={()=>{setUpsVincular(o);setUpsEscolha("");}} style={{background:"#1d4ed8",color:"#fff",border:"none",borderRadius:8,padding:"5px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🔗 Vincular</button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+              {!upsCarregando&&ups.linhas.length===0&&<div style={{textAlign:"center",padding:"28px 0",color:"#94a3b8",fontSize:13}}>Nenhum pedido encontrado.</div>}
+            </div>
+            <div style={{display:"flex",justifyContent:"center",alignItems:"center",gap:12,marginTop:14}}>
+              <button disabled={upsPag===0} onClick={()=>setUpsPag(p=>p-1)} style={{padding:"6px 14px",border:"1px solid #e2e8f0",borderRadius:8,background:"#fff",cursor:upsPag===0?"default":"pointer",opacity:upsPag===0?0.4:1}}>← Anterior</button>
+              <span style={{fontSize:12,color:"#64748b"}}>Página {upsPag+1} de {totalPag}</span>
+              <button disabled={upsPag+1>=totalPag} onClick={()=>setUpsPag(p=>p+1)} style={{padding:"6px 14px",border:"1px solid #e2e8f0",borderRadius:8,background:"#fff",cursor:upsPag+1>=totalPag?"default":"pointer",opacity:upsPag+1>=totalPag?0.4:1}}>Próxima →</button>
+            </div>
+
+            {upsVincular&&(
+              <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+                <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:520,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+                  <h3 style={{margin:"0 0 6px",fontSize:16,fontWeight:700,color:"#1e293b"}}>🔗 Vincular variação</h3>
+                  <div style={{fontSize:12,background:"#f8fafc",borderRadius:8,padding:"8px 10px",marginBottom:12,wordBreak:"break-word"}}><strong>No UpSeller:</strong> {upsVincular.variacao}</div>
+                  <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Produto / variação cadastrada</label>
+                  <select value={upsEscolha} onChange={e=>setUpsEscolha(e.target.value)} style={{...inp,width:"100%"}}>
+                    <option value="">— Sem vínculo —</option>
+                    {opcoesVarTop.map(o=><option key={o.id} value={o.id}>{o.nome}</option>)}
+                  </select>
+                  {sugestao&&upsEscolha!==sugestao.id&&<button onClick={()=>setUpsEscolha(sugestao.id)} style={{marginTop:8,background:"#f5f3ff",color:"#6d28d9",border:"1px solid #ddd6fe",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>💡 Sugestão: {sugestao.nome}</button>}
+                  {escolhida&&!escolhida.temEstoque&&<div style={{marginTop:8,fontSize:11,color:"#92400e",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,padding:"6px 10px"}}>⚠️ {escolhida.qtdMp===0?"Essa variação não tem matérias-primas.":"Nenhuma matéria-prima dessa variação está ligada a um item do Estoque."} Sem isso, a baixa não desconta nada. Ajuste em Produtos › 🧱 Matérias-primas.</div>}
+                  <div style={{fontSize:11,color:"#64748b",marginTop:10}}>Todos os pedidos com exatamente esta variação serão vinculados, inclusive os próximos que chegarem.</div>
+                  <div style={{display:"flex",gap:10,marginTop:16}}>
+                    <button onClick={()=>{setUpsVincular(null);setUpsEscolha("");}} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                    <button onClick={confirmarVinculoUps} disabled={upsSalvando||(!upsEscolha&&!upsVincular.variacao_id)} style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:"#1d4ed8",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",opacity:(!upsEscolha&&!upsVincular.variacao_id)?0.4:1}}>{upsSalvando?"Salvando…":upsEscolha?"Vincular todos":"Remover vínculo"}</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {activeTab==="financeiro"&&isAdminEquipe&&!estoquePlusDesbloqueado&&(
         <div onClick={()=>{setActiveTab("abertos");setPinInput("");setPinErro("");}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
           <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,padding:32,maxWidth:340,width:"100%",boxShadow:"0 4px 20px rgba(0,0,0,0.08)",textAlign:"center",position:"relative"}}>
