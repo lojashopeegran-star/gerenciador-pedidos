@@ -831,7 +831,7 @@ export async function fetchMovimentosComPreco(userId, orgId, mes) {
     .eq('tipo', 'entrada')
   q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
   const { data } = await q.order('criado_em', { ascending: false })
-  return data || []
+  return (data || []).filter(m => !String(m.motivo || '').startsWith('Estorno'))
 }
 
 // Saídas de estoque do mês (material realmente consumido) — mes = "YYYY-MM"
@@ -839,14 +839,15 @@ export async function fetchSaidasMes(userId, orgId, mes) {
   const [y, m] = mes.split('-').map(Number)
   const inicio = new Date(y, m - 1, 1).toISOString()
   const fim = new Date(y, m, 1).toISOString()
+  // saídas + estornos (pedido cancelado devolve material: entra como saída negativa)
   let q = supabase.from('estoque_movimentos')
     .select('*, estoque_produtos(nome, unidade, preco_unitario)')
     .gte('criado_em', inicio).lt('criado_em', fim)
-    .eq('tipo', 'saida')
+    .or('tipo.eq.saida,and(tipo.eq.entrada,motivo.like.Estorno%)')
   q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
   const { data, error } = await q.order('criado_em', { ascending: false })
   if (error) { console.error('fetchSaidasMes error:', error.message); return [] }
-  return data || []
+  return (data || []).map(m => m.tipo === 'entrada' ? { ...m, quantidade: -Number(m.quantidade) } : m)
 }
 
 // ─── Histórico de operações e desfazer ───────────────────────────────────────
@@ -1166,11 +1167,12 @@ export async function processarBaixa(orgId) {
 // Saídas dos últimos N dias (para estimar quantos dias o estoque dura)
 export async function fetchConsumoRecente(userId, orgId, dias = 30) {
   const desde = new Date(Date.now() - dias * 86400000).toISOString()
-  let q = supabase.from('estoque_movimentos').select('produto_id, quantidade').eq('tipo', 'saida').gte('criado_em', desde)
+  let q = supabase.from('estoque_movimentos').select('produto_id, quantidade, tipo, motivo')
+    .or('tipo.eq.saida,and(tipo.eq.entrada,motivo.like.Estorno%)').gte('criado_em', desde)
   q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
   const { data } = await q.limit(5000)
   const mapa = {}
-  ;(data || []).forEach(m => { mapa[m.produto_id] = (mapa[m.produto_id] || 0) + (Number(m.quantidade) || 0) })
+  ;(data || []).forEach(m => { mapa[m.produto_id] = (mapa[m.produto_id] || 0) + (m.tipo === 'entrada' ? -1 : 1) * (Number(m.quantidade) || 0) })
   return mapa
 }
 

@@ -760,7 +760,7 @@ export default function App({user,onLogout}) {
   };
   const alternarBaixa = async () => {
     const novo = !baixaInfo?.ativo;
-    if (novo && !window.confirm("Ativar a baixa automática? A partir de agora, cada pedido novo do UpSeller com variação vinculada vai descontar os materiais do estoque. Pedidos anteriores NÃO serão baixados. Você pode desfazer pelo 🕘 Histórico.")) return;
+    if (novo && !window.confirm("Ativar a baixa automática? A partir de agora, cada pedido novo do UpSeller em “Para imprimir” ou “Para retirada”, com variação vinculada, vai descontar os materiais do estoque. Pedidos anteriores NÃO serão baixados. Você pode desfazer pelo 🕘 Histórico.")) return;
     setBaixaBusy(true);
     const r = await ativarBaixa(orgId, novo);
     setBaixaBusy(false);
@@ -3235,7 +3235,7 @@ export default function App({user,onLogout}) {
                 <h3 style={{margin:0,fontSize:16,fontWeight:700,color:"#1e293b"}}>🔗 Vincular variações do UpSeller</h3>
                 <button onClick={()=>setShowVinc(false)} style={{background:"#f1f5f9",color:"#374151",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Fechar</button>
               </div>
-              <p style={{margin:"0 0 12px",fontSize:12,color:"#64748b"}}>Vincule cada variação que aparece nos pedidos a uma variação de produto cadastrada. Depois disso, todo pedido novo com essa variação desconta do estoque as matérias-primas do produto (usando o rendimento de cada material).</p>
+              <p style={{margin:"0 0 12px",fontSize:12,color:"#64748b"}}>Vincule cada variação que aparece nos pedidos a uma variação de produto cadastrada. Depois disso, todo pedido novo com essa variação que chegar em “Para imprimir” ou “Para retirada” desconta do estoque as matérias-primas do produto (usando o rendimento de cada material).</p>
               <div style={{background:baixaInfo?.ativo?"#ecfdf5":"#fffbeb",border:`1px solid ${baixaInfo?.ativo?"#a7f3d0":"#fde68a"}`,borderRadius:12,padding:"12px 14px",marginBottom:12}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
                   <div style={{fontSize:13,fontWeight:700,color:baixaInfo?.ativo?"#065f46":"#92400e"}}>{baixaInfo?.ativo?"🟢 Baixa automática ATIVA":"⏸️ Baixa automática desativada"}</div>
@@ -3244,8 +3244,8 @@ export default function App({user,onLogout}) {
                     <button disabled={baixaBusy} onClick={alternarBaixa} style={{background:"#fff",color:"#374151",border:"1.5px solid #e2e8f0",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{baixaInfo?.ativo?"Pausar":"Ativar"}</button>
                   </div>
                 </div>
-                {baixaInfo?.desde&&<div style={{fontSize:11,color:"#475569",marginTop:6}}>Vale para pedidos feitos a partir de {new Date(baixaInfo.desde).toLocaleString("pt-BR")} · {baixaInfo.processados||0} já baixado(s){baixaInfo.sem_vinculo>0?` · ${baixaInfo.sem_vinculo} pedido(s) com variação sem vínculo`:""}{baixaInfo.sem_material>0?` · ${baixaInfo.sem_material} aguardando processar`:""}</div>}
-                <div style={{fontSize:10,color:"#94a3b8",marginTop:4}}>A baixa só acontece para produtos cuja matéria-prima está ligada a um item do Estoque (em 🧱 Matérias-primas). Cada baixa pode ser desfeita no 🕘 Histórico.</div>
+                {baixaInfo?.desde&&<div style={{fontSize:11,color:"#475569",marginTop:6}}>Vale para pedidos feitos a partir de {new Date(baixaInfo.desde).toLocaleString("pt-BR")} · {baixaInfo.processados||0} já baixado(s){baixaInfo.estornados>0?` · ${baixaInfo.estornados} estornado(s) por cancelamento`:""}{baixaInfo.sem_vinculo>0?` · ${baixaInfo.sem_vinculo} pedido(s) com variação sem vínculo`:""}{baixaInfo.sem_material>0?` · ${baixaInfo.sem_material} aguardando processar`:""}</div>}
+                <div style={{fontSize:10,color:"#94a3b8",marginTop:4}}>A baixa só acontece para produtos cuja matéria-prima está ligada a um item do Estoque (em 🧱 Matérias-primas). Se um pedido já baixado for cancelado, o material volta sozinho para o estoque. Cada baixa pode ser desfeita no 🕘 Histórico.</div>
               </div>
               <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
                 <input value={vincBusca} onChange={e=>setVincBusca(e.target.value)} placeholder="Buscar variação…" style={{...inp,flex:1,minWidth:160}} />
