@@ -3116,11 +3116,12 @@ export default function App({user,onLogout}) {
                       // Monta lista de itens para a mensagem
                       const linhasItens = itens.map(p => {
                         const faltam = Math.max(0, (p.quantidade_minima||0) - (p.quantidade_atual||0));
-                        return `• ${faltam} ${p.unidade||"un"} de *${p.nome}*`;
+                        const un = p.unidade || "un";
+                        return `• ${faltam} ${un} de *${p.nome}*`;
                       }).join("\n");
 
                       const msg = encodeURIComponent(
-                        `Oi, tudo bem?\n\nPreciso repor o seguinte:\n${linhasItens}\n\nPode me passar disponibilidade e prazo? Obrigado!`
+                        `Oi, tudo bem?\n\nPreciso repor o seguinte:\n${linhasItens}\n\nPode me passar disponibilidade, preço e prazo para entrega? Obrigado!`
                       );
                       const url = `https://wa.me/${tel}?text=${msg}`;
 
