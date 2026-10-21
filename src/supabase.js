@@ -1139,7 +1139,7 @@ export async function fetchPedidosMes(mes) {
 }
 
 export async function fetchVariacoesUpseller(orgId) {
-  const { data, error } = await supabase.rpc('variacoes_upseller', { p_org: orgId })
+  const { data, error } = await supabase.rpc('componentes_upseller', { p_org: orgId })
   return error ? { error: error.message } : (data || [])
 }
 
@@ -1148,14 +1148,14 @@ export async function fetchVinculos(orgId) {
   return data || []
 }
 
-// variacaoId vazio = remove o vínculo
-export async function salvarVinculo(orgId, chave, texto, variacaoId) {
-  if (!variacaoId) {
+// variacaoId vazio e ignorar=false = remove o vínculo; ignorar=true = parte que não consome material (ex: brinde)
+export async function salvarVinculo(orgId, chave, texto, variacaoId, ignorar = false) {
+  if (!variacaoId && !ignorar) {
     const { error } = await supabase.from('variacao_vinculos').delete().eq('organizacao_id', orgId).eq('chave', chave)
     return error ? { error: error.message } : { success: true }
   }
   const { error } = await supabase.from('variacao_vinculos').upsert(
-    { organizacao_id: orgId, chave, variacao_texto: texto, variacao_id: variacaoId },
+    { organizacao_id: orgId, chave, variacao_texto: texto, variacao_id: ignorar ? null : variacaoId, ignorar: !!ignorar },
     { onConflict: 'organizacao_id,chave' })
   return error ? { error: error.message } : { success: true }
 }

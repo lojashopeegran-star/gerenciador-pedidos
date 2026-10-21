@@ -706,10 +706,11 @@ export default function App({user,onLogout}) {
   const confirmarVinculoUps = async () => {
     if (!upsVincular) return;
     setUpsSalvando(true);
-    const r = await salvarVinculo(orgId, upsVincular.chave, upsVincular.variacao, upsEscolha || null);
+    const ign = upsEscolha === "__ignorar";
+    const r = await salvarVinculo(orgId, upsVincular.chave, upsVincular.variacao, ign ? null : (upsEscolha || null), ign);
     setUpsSalvando(false);
     if (r.error) { showToast("❌ "+r.error,"#991b1b"); return; }
-    showToast(upsEscolha?"✅ Variação vinculada! Todos os pedidos com ela foram vinculados.":"🔓 Vínculo removido.","#059669");
+    showToast(upsEscolha?"✅ Vinculado! Todos os pedidos com essa parte foram vinculados.":"🔓 Vínculo removido.","#059669");
     setUpsVincular(null); setUpsEscolha("");
     carregarUps();
   };
@@ -791,10 +792,12 @@ export default function App({user,onLogout}) {
     else setVincLista(lista||[]);
     setVincCarregando(false);
   };
-  const escolherVinculo = async (it, variacaoId) => {
-    const r = await salvarVinculo(orgId, it.chave, it.variacao, variacaoId);
+  const escolherVinculo = async (it, valor) => {
+    const ign = valor === "__ignorar";
+    const variacaoId = ign ? null : valor;
+    const r = await salvarVinculo(orgId, it.chave, it.variacao, variacaoId, ign);
     if (r.error) { showToast("❌ "+r.error,"#991b1b"); return; }
-    setVincLista(l=>l.map(x=>x.chave===it.chave?{...x,variacao_id:variacaoId||null}:x));
+    setVincLista(l=>l.map(x=>x.chave===it.chave?{...x,variacao_id:variacaoId||null,ignorar:ign}:x));
     carregarBaixaInfo();
   };
   const alternarBaixa = async () => {
@@ -3266,8 +3269,8 @@ export default function App({user,onLogout}) {
         produtosCalc.forEach(pr=>(pr.produto_variacoes||[]).forEach(v=>opcoesVar.push({id:v.id,nome:`${pr.nome}${v.nome?" — "+v.nome:""}`})));
         const vincModal = showVinc&&(()=>{
           const q = _norm(vincBusca);
-          const lista = vincLista.filter(x=>(vincSo==="todas"||!x.variacao_id)&&(!q||_norm(x.variacao).includes(q)));
-          const pend = vincLista.filter(x=>!x.variacao_id).length;
+          const lista = vincLista.filter(x=>(vincSo==="todas"||(!x.variacao_id&&!x.ignorar))&&(!q||_norm(x.variacao).includes(q)));
+          const pend = vincLista.filter(x=>!x.variacao_id&&!x.ignorar).length;
           return (
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:16,overflowY:"auto"}}>
             <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:820,boxShadow:"0 20px 60px rgba(0,0,0,0.2)",margin:"auto"}}>
@@ -3275,7 +3278,7 @@ export default function App({user,onLogout}) {
                 <h3 style={{margin:0,fontSize:16,fontWeight:700,color:"#1e293b"}}>🔗 Vincular variações do UpSeller</h3>
                 <button onClick={()=>setShowVinc(false)} style={{background:"#f1f5f9",color:"#374151",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Fechar</button>
               </div>
-              <p style={{margin:"0 0 12px",fontSize:12,color:"#64748b"}}>Vincule cada variação que aparece nos pedidos a uma variação de produto cadastrada. Depois disso, todo pedido novo com essa variação que chegar em “Para imprimir” ou “Para retirada” desconta do estoque as matérias-primas do produto (usando o rendimento de cada material).</p>
+              <p style={{margin:"0 0 12px",fontSize:12,color:"#64748b"}}>Vincule cada parte que aparece nos pedidos a uma variação de produto cadastrada (pedidos com “A + B” viram duas partes). Depois disso, todo pedido novo com essa variação que chegar em “Para imprimir” ou “Para retirada” desconta do estoque as matérias-primas do produto (usando o rendimento de cada material).</p>
               <div style={{background:baixaInfo?.ativo?"#ecfdf5":"#fffbeb",border:`1px solid ${baixaInfo?.ativo?"#a7f3d0":"#fde68a"}`,borderRadius:12,padding:"12px 14px",marginBottom:12}}>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
                   <div style={{fontSize:13,fontWeight:700,color:baixaInfo?.ativo?"#065f46":"#92400e"}}>{baixaInfo?.ativo?"🟢 Baixa automática ATIVA":"⏸️ Baixa automática desativada"}</div>
@@ -3299,15 +3302,16 @@ export default function App({user,onLogout}) {
               : (
                 <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:"55vh",overflowY:"auto"}}>
                   {lista.map(it=>{
-                    const sug = !it.variacao_id ? melhorMatch(it.variacao, opcoesVar, 0.45) : null;
+                    const sug = !it.variacao_id&&!it.ignorar ? melhorMatch(it.variacao, opcoesVar, 0.45) : null;
                     return (
-                      <div key={it.chave} style={{border:"1px solid #e2e8f0",borderRadius:12,padding:"10px 12px",background:it.variacao_id?"#f0fdf4":"#fff"}}>
+                      <div key={it.chave} style={{border:"1px solid #e2e8f0",borderRadius:12,padding:"10px 12px",background:(it.variacao_id||it.ignorar)?"#f0fdf4":"#fff"}}>
                         <div style={{fontSize:12,fontWeight:600,color:"#1e293b",wordBreak:"break-word"}}>{it.variacao}</div>
                         <div style={{fontSize:10,color:"#94a3b8",margin:"2px 0 6px"}}>{it.pedidos} pedido(s) · {it.unidades} un · último {new Date(it.ultimo).toLocaleDateString("pt-BR")}</div>
                         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                          <select value={it.variacao_id||""} onChange={e=>escolherVinculo(it,e.target.value)}
+                          <select value={it.ignorar?"__ignorar":(it.variacao_id||"")} onChange={e=>escolherVinculo(it,e.target.value)}
                             style={{flex:1,minWidth:200,padding:"7px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",background:"#fff"}}>
                             <option value="">— Sem vínculo —</option>
+                            <option value="__ignorar">🚫 Sem material (não dá baixa)</option>
                             {opcoesVar.map(o=><option key={o.id} value={o.id}>{o.nome}</option>)}
                           </select>
                           {sug&&<button onClick={()=>escolherVinculo(it,sug.id)} style={{background:"#f5f3ff",color:"#6d28d9",border:"1px solid #ddd6fe",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>💡 {sug.nome}</button>}
@@ -4284,7 +4288,7 @@ export default function App({user,onLogout}) {
         const corSt = {para_imprimir:["#1d4ed8","#dbeafe"],para_retirada:["#7c3aed","#ede9fe"],para_emitir:["#92400e","#fef3c7"],enviado:["#065f46","#d1fae5"],cancelado:["#991b1b","#fde8e8"]};
         const totalPag = Math.max(1, Math.ceil(ups.total/UPS_POR_PAG));
         const escolhida = opcoesVarTop.find(o=>o.id===upsEscolha);
-        const sugestao = upsVincular&&!upsVincular.variacao_id ? melhorMatch(upsVincular.variacao, opcoesVarTop, 0.45) : null;
+        const sugestao = upsVincular&&!upsVincular.variacao_id&&!upsVincular.ignorar ? melhorMatch(upsVincular.variacao, opcoesVarTop, 0.45) : null;
         return (
           <div>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:10}}>
@@ -4328,17 +4332,27 @@ export default function App({user,onLogout}) {
                         {o.estornado&&<span style={{fontSize:10,fontWeight:700,color:"#92400e",background:"#fef3c7",borderRadius:6,padding:"2px 8px"}}>↩ Estornado</span>}
                       </div>
                     </div>
-                    <div style={{fontSize:12,color:"#334155",margin:"6px 0 2px",wordBreak:"break-word"}}>{o.variacao||<em style={{color:"#94a3b8"}}>sem variação</em>}</div>
-                    <div style={{fontSize:10,color:"#94a3b8",marginBottom:8}}>{o.data_pedido?new Date(o.data_pedido).toLocaleString("pt-BR"):""} · qtd {o.quantidade||1}</div>
-                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                      {o.variacao_id ? (
-                        <>
-                          <span style={{fontSize:11,fontWeight:600,color:"#065f46",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:8,padding:"4px 10px"}}>🔗 {o.prod_nome}{o.var_nome?` — ${o.var_nome}`:""}</span>
-                          <button onClick={()=>{setUpsVincular(o);setUpsEscolha(o.variacao_id);}} style={{background:"#f1f5f9",color:"#374151",border:"none",borderRadius:8,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Alterar</button>
-                        </>
-                      ) : o.variacao ? (
-                        <button onClick={()=>{setUpsVincular(o);setUpsEscolha("");}} style={{background:"#1d4ed8",color:"#fff",border:"none",borderRadius:8,padding:"5px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🔗 Vincular</button>
-                      ) : null}
+                    <div style={{fontSize:10,color:"#94a3b8",margin:"4px 0 8px"}}>{o.data_pedido?new Date(o.data_pedido).toLocaleString("pt-BR"):""} · qtd {o.quantidade||1}</div>
+                    {(o.componentes||[]).length===0&&<div style={{fontSize:12,color:"#94a3b8"}}><em>sem variação</em></div>}
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      {(o.componentes||[]).map(cp=>(
+                        <div key={cp.chave} style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",background:"#f8fafc",borderRadius:8,padding:"6px 10px"}}>
+                          <div style={{flex:1,minWidth:180,fontSize:12,color:"#334155",wordBreak:"break-word"}}>{cp.texto}{cp.mult>1?<strong> ×{cp.mult}</strong>:null}</div>
+                          {cp.ignorar ? (
+                            <>
+                              <span style={{fontSize:11,fontWeight:600,color:"#64748b",background:"#f1f5f9",border:"1px solid #e2e8f0",borderRadius:8,padding:"3px 10px"}}>🚫 Sem material</span>
+                              <button onClick={()=>{setUpsVincular({chave:cp.chave,variacao:cp.texto,variacao_id:null,ignorar:true});setUpsEscolha("");}} style={{background:"#f1f5f9",color:"#374151",border:"none",borderRadius:8,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Alterar</button>
+                            </>
+                          ) : cp.variacao_id ? (
+                            <>
+                              <span style={{fontSize:11,fontWeight:600,color:"#065f46",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:8,padding:"3px 10px"}}>🔗 {cp.prod_nome}{cp.var_nome?` — ${cp.var_nome}`:""}</span>
+                              <button onClick={()=>{setUpsVincular({chave:cp.chave,variacao:cp.texto,variacao_id:cp.variacao_id,ignorar:false});setUpsEscolha(cp.variacao_id);}} style={{background:"#f1f5f9",color:"#374151",border:"none",borderRadius:8,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>Alterar</button>
+                            </>
+                          ) : (
+                            <button onClick={()=>{setUpsVincular({chave:cp.chave,variacao:cp.texto,variacao_id:null,ignorar:false});setUpsEscolha("");}} style={{background:"#1d4ed8",color:"#fff",border:"none",borderRadius:8,padding:"4px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🔗 Vincular</button>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 );
@@ -4355,18 +4369,19 @@ export default function App({user,onLogout}) {
               <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
                 <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:520,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
                   <h3 style={{margin:"0 0 6px",fontSize:16,fontWeight:700,color:"#1e293b"}}>🔗 Vincular variação</h3>
-                  <div style={{fontSize:12,background:"#f8fafc",borderRadius:8,padding:"8px 10px",marginBottom:12,wordBreak:"break-word"}}><strong>No UpSeller:</strong> {upsVincular.variacao}</div>
+                  <div style={{fontSize:12,background:"#f8fafc",borderRadius:8,padding:"8px 10px",marginBottom:12,wordBreak:"break-word"}}><strong>Parte do pedido:</strong> {upsVincular.variacao}</div>
                   <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Produto / variação cadastrada</label>
                   <select value={upsEscolha} onChange={e=>setUpsEscolha(e.target.value)} style={{...inp,width:"100%"}}>
                     <option value="">— Sem vínculo —</option>
+                    <option value="__ignorar">🚫 Sem material (não dá baixa, ex: brinde)</option>
                     {opcoesVarTop.map(o=><option key={o.id} value={o.id}>{o.nome}</option>)}
                   </select>
                   {sugestao&&upsEscolha!==sugestao.id&&<button onClick={()=>setUpsEscolha(sugestao.id)} style={{marginTop:8,background:"#f5f3ff",color:"#6d28d9",border:"1px solid #ddd6fe",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>💡 Sugestão: {sugestao.nome}</button>}
-                  {escolhida&&!escolhida.temEstoque&&<div style={{marginTop:8,fontSize:11,color:"#92400e",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,padding:"6px 10px"}}>⚠️ {escolhida.qtdMp===0?"Essa variação não tem matérias-primas.":"Nenhuma matéria-prima dessa variação está ligada a um item do Estoque."} Sem isso, a baixa não desconta nada. Ajuste em Produtos › 🧱 Matérias-primas.</div>}
-                  <div style={{fontSize:11,color:"#64748b",marginTop:10}}>Todos os pedidos com exatamente esta variação serão vinculados, inclusive os próximos que chegarem.</div>
+                  {upsEscolha!=="__ignorar"&&escolhida&&!escolhida.temEstoque&&<div style={{marginTop:8,fontSize:11,color:"#92400e",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,padding:"6px 10px"}}>⚠️ {escolhida.qtdMp===0?"Essa variação não tem matérias-primas.":"Nenhuma matéria-prima dessa variação está ligada a um item do Estoque."} Sem isso, a baixa não desconta nada. Ajuste em Produtos › 🧱 Matérias-primas.</div>}
+                  <div style={{fontSize:11,color:"#64748b",marginTop:10}}>Pedidos com mais de um produto ("A + B") são separados em partes e cada parte tem seu vínculo. Todos os pedidos com essa parte, atuais e futuros, ficam vinculados. A baixa só roda quando todas as partes do pedido estiverem vinculadas (ou marcadas como sem material).</div>
                   <div style={{display:"flex",gap:10,marginTop:16}}>
                     <button onClick={()=>{setUpsVincular(null);setUpsEscolha("");}} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
-                    <button onClick={confirmarVinculoUps} disabled={upsSalvando||(!upsEscolha&&!upsVincular.variacao_id)} style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:"#1d4ed8",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",opacity:(!upsEscolha&&!upsVincular.variacao_id)?0.4:1}}>{upsSalvando?"Salvando…":upsEscolha?"Vincular todos":"Remover vínculo"}</button>
+                    <button onClick={confirmarVinculoUps} disabled={upsSalvando||(!upsEscolha&&!upsVincular.variacao_id&&!upsVincular.ignorar)} style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:"#1d4ed8",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",opacity:(!upsEscolha&&!upsVincular.variacao_id&&!upsVincular.ignorar)?0.4:1}}>{upsSalvando?"Salvando…":upsEscolha?"Vincular todos":"Remover vínculo"}</button>
                   </div>
                 </div>
               </div>
