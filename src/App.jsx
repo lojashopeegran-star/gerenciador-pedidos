@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, lazy, Suspense } from "react";
 // XLSX carregado sob demanda para não bloquear o primeiro carregamento
 let _XLSX = null;
 const getXLSX = async () => { if (!_XLSX) _XLSX = await import("xlsx"); return _XLSX; };
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, registrarOperacao, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -319,6 +319,44 @@ const TH={padding:"9px 12px",textAlign:"left",fontWeight:700,fontSize:10,color:"
 const TD={padding:"7px 11px",verticalAlign:"middle"};
 // ── Helpers de cálculo de produto (usados na projeção do Financeiro) ──
 const _n = (s,d) => (s===""||s==null||isNaN(Number(s))) ? d : Number(s);
+// ── Leitura de nota fiscal: utilitários ──
+const _norm = (t) => String(t||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim();
+const _tokens = (t) => new Set(_norm(t).split(" ").filter(w=>w.length>1));
+const similaridade = (a,b) => {
+  const A=_tokens(a), B=_tokens(b); if(!A.size||!B.size) return 0;
+  let inter=0; A.forEach(w=>{ if(B.has(w)) inter++; });
+  return inter/Math.max(A.size,B.size);
+};
+const melhorMatch = (texto, lista, minimo=0.5) => {
+  let best=null, bs=0;
+  for (const x of lista) { const sc=similaridade(texto,x.nome); if (sc>bs) { bs=sc; best=x; } }
+  return bs>=minimo ? best : null;
+};
+const mapUnidade = (u) => {
+  const x=_norm(u);
+  if (["cx","caixa","cxa"].includes(x)) return "cx";
+  if (["pct","pc","pac","pacote"].includes(x)) return "pct";
+  if (["rl","rolo"].includes(x)) return "rolo";
+  if (["m","mt","metro","metros"].includes(x)) return "m";
+  if (["kg","quilo"].includes(x)) return "kg";
+  if (["l","lt","litro","litros"].includes(x)) return "l";
+  return "un";
+};
+const arquivoParaBase64 = (file) => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]); r.onerror=rej; r.readAsDataURL(file); });
+// Reduz fotos grandes (celular) para acelerar o envio; se o navegador não abrir o formato, envia o original
+const prepararImagemNota = async (file) => {
+  try {
+    const url = URL.createObjectURL(file);
+    const img = await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url; });
+    const max = 2000; const k = Math.min(1, max/Math.max(img.width,img.height));
+    const c = document.createElement("canvas"); c.width=Math.round(img.width*k); c.height=Math.round(img.height*k);
+    c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+    URL.revokeObjectURL(url);
+    return { mime:"image/jpeg", base64:c.toDataURL("image/jpeg",0.85).split(",")[1] };
+  } catch { return { mime:file.type||"image/jpeg", base64:await arquivoParaBase64(file) }; }
+};
+const fmtBRLn = (n) => "R$ "+Number(n||0).toFixed(2).replace(".",",");
+const quandoFmt = (iso) => { const d=new Date(iso); return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); };
 const liquidoDe = (p,preco) => Number(preco||0)*(1-(_n(p.taxa_plataforma_pct,0)+_n(p.taxa_imposto_pct,0)+_n(p.taxa_adiantamento_pct,0))/100) - _n(p.taxa_fixa,0);
 const custoMpDe = (v) => (v.produto_materias_primas||[]).reduce((a,l)=>{
   const m = l.materias_primas || l;
@@ -611,6 +649,139 @@ export default function App({user,onLogout}) {
   }, [finMes, orgId, user?.id]);
   const minhaCor              = membro?.cor || "#059669";
   const meuNome                = membro?.nome || user?.email?.split("@")[0] || "Você";
+  const logOp = (op) => registrarOperacao(orgId, user?.id, meuNome, op);
+
+  // ── Histórico de operações (desfazer) ───────────────────────────────────────
+  const [showHistorico, setShowHistorico] = useState(false);
+  const [operacoes, setOperacoes] = useState([]);
+  const [carregandoOps, setCarregandoOps] = useState(false);
+  const [desfazendoKey, setDesfazendoKey] = useState(null);
+  const [filtroHist, setFiltroHist] = useState("todos");
+  const recarregarTudo = async () => {
+    if (!user) return;
+    const [ep, em, fo, cf, mp, pr, fm, fs, pg, mm] = await Promise.all([
+      fetchEstoqueProdutos(user.id, orgId), fetchMovimentosEstoque(user.id, orgId, null, 100), fetchFornecedores(user.id, orgId),
+      fetchCustosFixos(user.id, orgId), fetchMateriasPrimas(user.id, orgId), fetchProdutos(user.id, orgId),
+      fetchMovimentosComPreco(user.id, orgId, finMes), fetchSaidasMes(user.id, orgId, finMes), fetchPagamentosCustos(user.id, orgId, finMes),
+      fetchMovimentosComPreco(user.id, orgId, mesSelecionado),
+    ]);
+    setEstoqueProdutos(ep); setEstoqueMovimentos(em); setFornecedores(fo); setCustosFixos(cf); setMateriasPrimas(mp); setProdutosCalc(pr);
+    setFinMovimentos(fm); setFinSaidas(fs); setCustosPagos(pg); setMovimentosMes(mm);
+    setProdutoAtivo(a=>a ? (pr.find(p=>p.id===a.id)||null) : a);
+  };
+  const abrirHistorico = async () => {
+    setShowHistorico(true); setCarregandoOps(true);
+    setOperacoes(await fetchOperacoes(user.id, orgId));
+    setCarregandoOps(false);
+  };
+  const desfazerGrupo = async (g) => {
+    const pendentes = g.ops.filter(o=>!o.desfeito_em);
+    if (!pendentes.length) return;
+    const msg = g.ops.length>1 ? `Desfazer TUDO desta operação (${pendentes.length} ações)?\n\n${g.titulo}` : `Desfazer esta operação?\n\n${g.titulo}`;
+    if (!window.confirm(msg)) return;
+    setDesfazendoKey(g.key);
+    const r = await desfazerOperacoes(pendentes, { userId: user.id, orgId }, meuNome);
+    setDesfazendoKey(null);
+    await recarregarTudo();
+    setOperacoes(await fetchOperacoes(user.id, orgId));
+    if (r.error) showToast("❌ "+r.error+(r.feitas?` (${r.feitas} ação(ões) já desfeita(s))`:""),"#991b1b",6000);
+    else showToast("↩️ Operação desfeita!","#059669");
+  };
+
+  // ── Leitura de nota fiscal ──────────────────────────────────────────────────
+  const [showNota, setShowNota] = useState(false);
+  const [notaFase, setNotaFase] = useState("upload"); // upload | lendo | revisar
+  const [notaPreview, setNotaPreview] = useState(null);
+  const [notaErro, setNotaErro] = useState("");
+  const [notaCab, setNotaCab] = useState({fornecedor:"",cnpj:"",numero:"",data:"",total:""});
+  const [notaFornId, setNotaFornId] = useState("");
+  const [notaItens, setNotaItens] = useState([]);
+  const [notaDuplicada, setNotaDuplicada] = useState(false);
+  const [salvandoNota, setSalvandoNota] = useState(false);
+  const abrirNota = () => { setNotaFase("upload"); setNotaPreview(null); setNotaErro(""); setNotaItens([]); setNotaCab({fornecedor:"",cnpj:"",numero:"",data:"",total:""}); setNotaFornId(""); setNotaDuplicada(false); setShowNota(true); };
+  const lerArquivoNota = async (file) => {
+    if (!file) return;
+    setNotaErro("");
+    const ehPdf = file.type==="application/pdf" || /\.pdf$/i.test(file.name);
+    const ehImg = file.type.startsWith("image/");
+    if (!ehPdf && !ehImg) { setNotaErro("Envie uma foto (JPG/PNG) ou um PDF."); return; }
+    if (file.size > 15*1024*1024) { setNotaErro("Arquivo muito grande (máx. 15 MB)."); return; }
+    setNotaFase("lendo");
+    setNotaPreview({ url: URL.createObjectURL(file), tipo: ehPdf?"pdf":"img", nome: file.name });
+    let mime, base64;
+    try {
+      if (ehPdf) { mime="application/pdf"; base64=await arquivoParaBase64(file); }
+      else { const r=await prepararImagemNota(file); mime=r.mime; base64=r.base64; }
+    } catch { setNotaErro("Não consegui abrir o arquivo."); setNotaFase("upload"); return; }
+    const res = await lerNotaFiscal(mime, base64);
+    if (res.error) { setNotaErro(res.error); setNotaFase("upload"); return; }
+    const d = res.dados || {};
+    const itens = (d.itens||[]).map((it,i)=>{
+      const qtd = Number(it.quantidade)||0;
+      let preco = Number(it.valor_unitario)||0;
+      if (!preco && qtd) preco = (Number(it.valor_total)||0)/qtd;
+      const m = melhorMatch(it.descricao, estoqueProdutos);
+      return { key:i, descricao:String(it.descricao||""), nome:String(it.descricao||"").trim(), unNota:String(it.unidade||""), un:mapUnidade(it.unidade), qtd:qtd?String(qtd):"", preco:preco?preco.toFixed(2):"", destino:m?m.id:"novo" };
+    });
+    const nomeF = String(d.fornecedor||"").trim();
+    const fm = nomeF ? melhorMatch(nomeF, fornecedores, 0.5) : null;
+    const numero = String(d.numero_nota||"").trim();
+    setNotaItens(itens);
+    setNotaCab({ fornecedor:nomeF, cnpj:String(d.cnpj||""), numero, data:/^\d{4}-\d{2}-\d{2}$/.test(d.data_emissao||"")?d.data_emissao:"", total:d.valor_total?String(d.valor_total):"" });
+    setNotaFornId(fm?.id||"");
+    setNotaDuplicada(await notaJaLancada(user.id, orgId, numero));
+    setNotaFase("revisar");
+  };
+  const setNotaItem = (key, patch) => setNotaItens(l=>l.map(i=>i.key===key?{...i,...patch}:i));
+  const confirmarNota = async () => {
+    const validos = notaItens.filter(i=>i.destino!=="ignorar" && Number(i.qtd)>0);
+    if (!validos.length) { showToast("❌ Nenhum item para lançar.","#991b1b"); return; }
+    if (validos.some(i=>i.destino==="novo" && !i.nome.trim())) { showToast("❌ Dê um nome aos materiais novos.","#991b1b"); return; }
+    if (notaDuplicada && !window.confirm("Uma nota com esse número já foi lançada antes. Lançar de novo mesmo assim?")) return;
+    setSalvandoNota(true);
+    const lote = crypto.randomUUID();
+    const numero = notaCab.numero.trim();
+    const totalNota = validos.reduce((a,i)=>a+Number(i.qtd)*(Number(i.preco)||0),0);
+    await logOp({tipo:"nota_fiscal",acao:"nota",descricao:`📄 Nota fiscal${numero?" nº "+numero:""} — ${notaCab.fornecedor.trim()||"sem fornecedor"} (${validos.length} item${validos.length>1?"ns":""}, ${fmtBRLn(totalNota)})`,tabela:"nota_fiscal",lote_id:lote});
+    const parar = async (msg) => {
+      setSalvandoNota(false);
+      await recarregarTudo();
+      showToast("❌ "+msg+" O que já foi lançado pode ser desfeito no 🕘 Histórico.","#991b1b",8000);
+    };
+    let fornId = notaFornId || null;
+    if (!fornId && notaCab.fornecedor.trim()) {
+      const r = await salvarFornecedor(user.id, orgId, { nome:notaCab.fornecedor.trim(), observacoes: notaCab.cnpj?("CNPJ "+notaCab.cnpj):"" });
+      if (r.error) { await parar("Erro ao criar fornecedor: "+r.error); return; }
+      fornId = r.data.id;
+      await logOp({tipo:"fornecedores",acao:"criar",descricao:"Fornecedor criado: "+notaCab.fornecedor.trim(),tabela:"fornecedores",registro_id:fornId,lote_id:lote});
+    }
+    const quando = notaCab.data ? `${notaCab.data}T12:00:00-03:00` : undefined;
+    let atual = estoqueProdutos;
+    for (const it of validos) {
+      let prodId = it.destino;
+      let prodAntes = atual.find(x=>x.id===prodId);
+      if (prodId==="novo") {
+        const r = await salvarEstoqueProduto(user.id, orgId, { nome:it.nome.trim(), unidade:it.un, quantidade_atual:0, quantidade_minima:0 });
+        if (r.error || !r.data?.[0]) { await parar("Erro ao criar material "+it.nome+": "+(r.error||"")); return; }
+        prodId = r.data[0].id; prodAntes = null;
+        await logOp({tipo:"estoque",acao:"criar",descricao:"Material criado: "+it.nome.trim(),tabela:"estoque_produtos",registro_id:prodId,lote_id:lote});
+      }
+      const preco = Number(it.preco)||0;
+      const mv = await registrarMovimentoEstoque(user.id, orgId, meuNome, { produto_id:prodId, tipo:"entrada", quantidade:Number(it.qtd), motivo:"Nota fiscal"+(numero?" nº "+numero:""), preco_unitario:preco||null, fornecedor_id:fornId, nota_fiscal:numero||null, criado_em:quando });
+      if (mv.error) { await parar("Erro ao lançar entrada de "+(it.nome||it.descricao)+": "+mv.error); return; }
+      await logOp({tipo:"estoque",acao:"criar",descricao:`Entrada: ${Number(it.qtd)} ${prodAntes?.unidade||it.un} de ${prodAntes?.nome||it.nome} (nota)`,tabela:"estoque_movimentos",registro_id:mv.movimento.id,depois:{...pick(mv.movimento,COLS_MOV),quantidade:Number(mv.movimento.quantidade)},lote_id:lote});
+      if (preco>0 || fornId) {
+        const antesP = { preco_unitario: prodAntes?.preco_unitario ?? null, fornecedor_id: prodAntes?.fornecedor_id ?? null };
+        const campos = { preco_unitario: preco>0?preco:antesP.preco_unitario, fornecedor_id: fornId||antesP.fornecedor_id };
+        const up = await atualizarEstoqueProdutoPlus(prodId, campos);
+        if (!up.error) await logOp({tipo:"estoque",acao:"editar",descricao:"Preço/fornecedor atualizado: "+(prodAntes?.nome||it.nome),tabela:"estoque_produtos",registro_id:prodId,antes:antesP,depois:campos,lote_id:lote});
+      }
+    }
+    setSalvandoNota(false);
+    setShowNota(false);
+    await recarregarTudo();
+    showToast("✅ Nota lançada! Se algo estiver errado, desfaça no 🕘 Histórico.","#059669",6000);
+  };
 
   // ── Mapa nome → cor (sistema de times) ──────────────────────────────────────
   const corPorNome = membrosEquipe.reduce((acc,m)=>{ acc[m.nome]=m.cor; return acc; },{});
@@ -1078,6 +1249,7 @@ export default function App({user,onLogout}) {
           )}
           <span style={{background:"rgba(255,255,255,0.12)",borderRadius:20,padding:"3px 12px",fontSize:12}}>👤 {user?.email}</span>
           <button onClick={()=>{setConfigLoja1(lojas[0]);setConfigLoja2(lojas[1]);setShowConfigLojas(true);}} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"3px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>⚙️ Lojas</button>
+          {isAdminEquipe&&<button onClick={abrirHistorico} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"3px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🕘 Histórico</button>}
           {/* ── Sino de Notificações ── */}
           <div ref={notifRef} style={{position:"relative"}}>
             <button onClick={()=>setShowNotifPanel(v=>!v)} style={{background:"rgba(255,255,255,0.15)",color:"#fff",border:"1px solid rgba(255,255,255,0.3)",borderRadius:20,padding:"3px 14px",fontSize:12,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
@@ -2200,6 +2372,201 @@ export default function App({user,onLogout}) {
       )}
 
       {/* ── Config Lojas Modal ── */}
+      {/* ── Histórico de operações / desfazer ── */}
+      {showHistorico&&isAdminEquipe&&(()=>{
+        const grupos = [];
+        const porLote = {};
+        operacoes.forEach(o=>{
+          if (o.lote_id) {
+            if (!porLote[o.lote_id]) { porLote[o.lote_id] = {key:o.lote_id, ops:[], tipo:o.tipo}; grupos.push(porLote[o.lote_id]); }
+            porLote[o.lote_id].ops.push(o);
+          } else grupos.push({key:o.id, ops:[o], tipo:o.tipo});
+        });
+        grupos.forEach(g=>{
+          const ordenadas = [...g.ops].sort((a,b)=>a.seq-b.seq);
+          g.ops = ordenadas;
+          g.titulo = ordenadas[0].descricao;
+          g.quando = ordenadas[0].criado_em;
+          g.quem = ordenadas[0].usuario_nome||"";
+          g.desfeito = ordenadas.every(o=>o.desfeito_em);
+          g.parcial = !g.desfeito && ordenadas.some(o=>o.desfeito_em);
+          g.por = ordenadas.find(o=>o.desfeito_por)?.desfeito_por||"";
+          g.quandoDesfeito = ordenadas.find(o=>o.desfeito_em)?.desfeito_em;
+        });
+        const filtros = [["todos","Tudo"],["estoque","📦 Estoque"],["financeiro","💰 Financeiro"],["produtos","🧱 Produtos"],["fornecedores","🏭 Fornecedores"],["nota_fiscal","📄 Notas"]];
+        const visiveis = grupos.filter(g=>filtroHist==="todos"||g.tipo===filtroHist);
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:16,overflowY:"auto"}}>
+            <div style={{background:"#fff",borderRadius:20,padding:22,width:"100%",maxWidth:760,boxShadow:"0 20px 60px rgba(0,0,0,0.2)",margin:"auto"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6,gap:10}}>
+                <h3 style={{margin:0,fontSize:16,fontWeight:800,color:"#1e293b"}}>🕘 Histórico de operações</h3>
+                <button onClick={()=>setShowHistorico(false)} style={{background:"#f1f5f9",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Fechar</button>
+              </div>
+              <p style={{margin:"0 0 12px",fontSize:12,color:"#64748b"}}>Tudo que foi digitado ou lançado fica aqui. Clique em <strong>↩ Desfazer</strong> para voltar atrás.</p>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
+                {filtros.map(([k,l])=>(
+                  <button key={k} onClick={()=>setFiltroHist(k)} style={{padding:"5px 12px",borderRadius:16,border:`1.5px solid ${filtroHist===k?"#7c3aed":"#e2e8f0"}`,background:filtroHist===k?"#f5f3ff":"#fff",color:filtroHist===k?"#7c3aed":"#64748b",fontSize:11,fontWeight:700,cursor:"pointer"}}>{l}</button>
+                ))}
+              </div>
+              {carregandoOps ? (
+                <div style={{textAlign:"center",padding:30,color:"#94a3b8",fontSize:13}}>Carregando...</div>
+              ) : visiveis.length===0 ? (
+                <div style={{textAlign:"center",padding:30,color:"#94a3b8",fontSize:13}}>Nenhuma operação registrada ainda.</div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {visiveis.map(g=>(
+                    <div key={g.key} style={{border:"1px solid #e2e8f0",borderRadius:12,padding:"10px 12px",background:g.desfeito?"#f8fafc":"#fff",opacity:g.desfeito?0.65:1}}>
+                      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:10}}>
+                        <div style={{minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:700,color:"#1e293b",textDecoration:g.desfeito?"line-through":"none",wordBreak:"break-word"}}>{g.titulo}</div>
+                          <div style={{fontSize:11,color:"#94a3b8",marginTop:2}}>{quandoFmt(g.quando)}{g.quem?` · ${g.quem}`:""}</div>
+                          {g.desfeito&&<div style={{fontSize:11,color:"#64748b",marginTop:2}}>↩ Desfeito{g.por?` por ${g.por}`:""}{g.quandoDesfeito?` em ${quandoFmt(g.quandoDesfeito)}`:""}</div>}
+                          {g.parcial&&<div style={{fontSize:11,color:"#f59e0b",marginTop:2}}>⚠️ Parcialmente desfeito</div>}
+                        </div>
+                        {!g.desfeito&&(
+                          <button onClick={()=>desfazerGrupo(g)} disabled={desfazendoKey===g.key}
+                            style={{flexShrink:0,background:"#fef3c7",color:"#92400e",border:"1.5px solid #fde68a",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:800,cursor:"pointer"}}>
+                            {desfazendoKey===g.key?"Desfazendo...":"↩ Desfazer"}
+                          </button>
+                        )}
+                      </div>
+                      {g.ops.length>1&&(
+                        <div style={{marginTop:6,paddingLeft:10,borderLeft:"3px solid #e2e8f0"}}>
+                          {g.ops.slice(1).map(o=>(
+                            <div key={o.id} style={{fontSize:11,color:"#64748b",textDecoration:o.desfeito_em?"line-through":"none"}}>• {o.descricao}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Ler nota fiscal ── */}
+      {showNota&&isAdminEquipe&&(()=>{
+        const inp = {width:"100%",padding:"8px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"};
+        const lb = {fontSize:10,fontWeight:600,color:"#64748b",display:"block",marginBottom:2};
+        const validos = notaItens.filter(i=>i.destino!=="ignorar"&&Number(i.qtd)>0);
+        const somaItens = validos.reduce((a,i)=>a+Number(i.qtd)*(Number(i.preco)||0),0);
+        const totalNotaLido = Number(notaCab.total)||0;
+        const diverge = totalNotaLido>0 && Math.abs(totalNotaLido-somaItens)>1;
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:16,overflowY:"auto"}}>
+            <div style={{background:"#fff",borderRadius:20,padding:22,width:"100%",maxWidth:820,boxShadow:"0 20px 60px rgba(0,0,0,0.2)",margin:"auto"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,gap:10}}>
+                <h3 style={{margin:0,fontSize:16,fontWeight:800,color:"#1e293b"}}>📷 Ler nota fiscal</h3>
+                <button onClick={()=>setShowNota(false)} disabled={salvandoNota} style={{background:"#f1f5f9",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Fechar</button>
+              </div>
+
+              {(notaFase==="upload"||notaFase==="lendo")&&(
+                <div>
+                  <p style={{margin:"0 0 12px",fontSize:12,color:"#64748b"}}>Envie uma <strong>foto</strong> ou o <strong>PDF</strong> da nota. O sistema lê os dados e você confere tudo antes de lançar no estoque.</p>
+                  {notaFase==="lendo" ? (
+                    <div style={{textAlign:"center",padding:"36px 0",color:"#0d9488",fontSize:14,fontWeight:700}}>🔎 Lendo a nota... pode levar alguns segundos.</div>
+                  ) : (
+                    <label style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:6,padding:"32px 16px",border:"2px dashed #99f6e4",borderRadius:14,background:"#f0fdfa",cursor:"pointer",textAlign:"center"}}>
+                      <span style={{fontSize:34}}>🧾</span>
+                      <span style={{fontSize:13,fontWeight:700,color:"#0f766e"}}>Tirar foto ou escolher arquivo</span>
+                      <span style={{fontSize:11,color:"#64748b"}}>JPG, PNG ou PDF · até 15 MB</span>
+                      <input type="file" accept="image/*,application/pdf" onChange={e=>{const f=e.target.files?.[0]; e.target.value=""; lerArquivoNota(f);}} style={{display:"none"}} />
+                    </label>
+                  )}
+                  {notaErro&&<div style={{marginTop:10,padding:"9px 12px",background:"#fde8e8",color:"#991b1b",borderRadius:10,fontSize:12}}>⚠️ {notaErro}</div>}
+                </div>
+              )}
+
+              {notaFase==="revisar"&&(
+                <div>
+                  <div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:10,padding:"8px 12px",fontSize:12,color:"#92400e",marginBottom:12}}>
+                    ⚠️ Confira os dados abaixo com a nota — a leitura automática pode errar números. Nada é lançado até você clicar em <strong>Lançar no estoque</strong>.
+                  </div>
+                  {notaDuplicada&&<div style={{background:"#fde8e8",border:"1px solid #fecaca",borderRadius:10,padding:"8px 12px",fontSize:12,color:"#991b1b",marginBottom:12}}>🚫 Já existe um lançamento com o nº {notaCab.numero}. Provavelmente essa nota já foi lançada.</div>}
+                  <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:12}}>
+                    {notaPreview&&(
+                      <div style={{width:130,flexShrink:0}}>
+                        {notaPreview.tipo==="img"
+                          ? <a href={notaPreview.url} target="_blank" rel="noreferrer"><img src={notaPreview.url} alt="nota" style={{width:"100%",maxHeight:170,objectFit:"cover",borderRadius:10,border:"1px solid #e2e8f0"}} /></a>
+                          : <a href={notaPreview.url} target="_blank" rel="noreferrer" style={{display:"block",padding:"24px 8px",textAlign:"center",border:"1px solid #e2e8f0",borderRadius:10,fontSize:12,color:"#0f766e",textDecoration:"none"}}>📄 {notaPreview.nome}<br/><span style={{fontSize:10}}>abrir PDF</span></a>}
+                      </div>
+                    )}
+                    <div style={{flex:1,minWidth:240,display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                      <div style={{gridColumn:"1 / -1"}}>
+                        <label style={lb}>Fornecedor</label>
+                        <select value={notaFornId} onChange={e=>setNotaFornId(e.target.value)} style={{...inp,background:"#fff",marginBottom:4}}>
+                          <option value="">{notaCab.fornecedor?`➕ Criar novo: ${notaCab.fornecedor}`:"(sem fornecedor)"}</option>
+                          {fornecedores.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
+                        </select>
+                        {!notaFornId&&<input value={notaCab.fornecedor} onChange={e=>setNotaCab(c=>({...c,fornecedor:e.target.value}))} placeholder="Nome do fornecedor" style={inp} />}
+                      </div>
+                      <div><label style={lb}>Nº da nota</label><input value={notaCab.numero} onChange={e=>{const v=e.target.value;setNotaCab(c=>({...c,numero:v}));}} onBlur={async()=>setNotaDuplicada(await notaJaLancada(user.id,orgId,notaCab.numero.trim()))} style={inp} /></div>
+                      <div><label style={lb}>Data da nota</label><input type="date" value={notaCab.data} onChange={e=>setNotaCab(c=>({...c,data:e.target.value}))} style={inp} /></div>
+                    </div>
+                  </div>
+
+                  <div style={{fontSize:12,fontWeight:700,color:"#1e293b",marginBottom:6}}>Itens da nota</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                    {notaItens.map(it=>{
+                      const prod = estoqueProdutos.find(x=>x.id===it.destino);
+                      const ign = it.destino==="ignorar";
+                      const un = prod?.unidade||it.un;
+                      return (
+                        <div key={it.key} style={{border:"1.5px solid #e2e8f0",borderRadius:12,padding:"10px 12px",background:ign?"#f8fafc":"#fff",opacity:ign?0.55:1}}>
+                          <div style={{fontSize:11,color:"#64748b",marginBottom:6}}>Na nota: <strong style={{color:"#1e293b"}}>{it.descricao||"(sem descrição)"}</strong>{it.unNota?` · ${it.unNota}`:""}</div>
+                          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8,alignItems:"end"}}>
+                            <div style={{gridColumn:"span 2"}}>
+                              <label style={lb}>Vai para o material</label>
+                              <select value={it.destino} onChange={e=>setNotaItem(it.key,{destino:e.target.value})} style={{...inp,background:"#fff"}}>
+                                {estoqueProdutos.map(x=><option key={x.id} value={x.id}>{x.nome} ({x.unidade})</option>)}
+                                <option value="novo">➕ Criar novo material</option>
+                                <option value="ignorar">⏭ Ignorar este item</option>
+                              </select>
+                            </div>
+                            {!ign&&it.destino==="novo"&&(
+                              <>
+                                <div style={{gridColumn:"span 2"}}><label style={lb}>Nome do novo material</label><input value={it.nome} onChange={e=>setNotaItem(it.key,{nome:e.target.value})} style={inp} /></div>
+                                <div><label style={lb}>Unidade</label>
+                                  <select value={it.un} onChange={e=>setNotaItem(it.key,{un:e.target.value})} style={{...inp,background:"#fff"}}>{["un","cx","pct","rolo","m","kg","l"].map(u=><option key={u} value={u}>{u}</option>)}</select>
+                                </div>
+                              </>
+                            )}
+                            {!ign&&(
+                              <>
+                                <div><label style={lb}>Quantidade ({un})</label><input type="number" min="0" step="any" value={it.qtd} onChange={e=>setNotaItem(it.key,{qtd:e.target.value})} style={inp} /></div>
+                                <div><label style={lb}>Preço por {un} (R$)</label><input type="number" min="0" step="0.01" value={it.preco} onChange={e=>setNotaItem(it.key,{preco:e.target.value})} style={inp} /></div>
+                                <div style={{fontSize:12,color:"#374151",paddingBottom:8}}>Subtotal <strong style={{color:"#059669"}}>{fmtBRLn(Number(it.qtd)*(Number(it.preco)||0))}</strong></div>
+                              </>
+                            )}
+                          </div>
+                          {!ign&&prod&&it.unNota&&mapUnidade(it.unNota)!==prod.unidade&&(
+                            <div style={{fontSize:10,color:"#f59e0b",marginTop:4}}>⚠️ A nota vem em "{it.unNota}" e o estoque controla em "{prod.unidade}". Ajuste a quantidade e o preço para a unidade do estoque.</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8,marginTop:12,padding:"10px 12px",background:"#f0fdfa",borderRadius:10}}>
+                    <span style={{fontSize:13}}>Total a lançar: <strong style={{color:"#0f766e"}}>{fmtBRLn(somaItens)}</strong></span>
+                    {totalNotaLido>0&&<span style={{fontSize:11,color:diverge?"#991b1b":"#64748b"}}>{diverge?"⚠️ ":""}Total lido na nota: {fmtBRLn(totalNotaLido)}{diverge?" — diferente da soma dos itens (frete/desconto/impostos ou erro de leitura)":""}</span>}
+                  </div>
+                  <div style={{display:"flex",gap:10,marginTop:14}}>
+                    <button onClick={()=>setNotaFase("upload")} disabled={salvandoNota} style={{flex:1,padding:"11px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Enviar outra</button>
+                    <button onClick={confirmarNota} disabled={salvandoNota||!validos.length}
+                      style={{flex:2,padding:"11px 0",border:"none",borderRadius:10,background:validos.length?"#0d9488":"#e2e8f0",color:validos.length?"#fff":"#94a3b8",fontSize:13,fontWeight:800,cursor:"pointer"}}>
+                      {salvandoNota?"Lançando...":"✅ Lançar no estoque"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {showConfigLojas&&(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
           <div style={{background:"#fff",borderRadius:20,padding:32,width:"100%",maxWidth:420,boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
@@ -2336,6 +2703,7 @@ export default function App({user,onLogout}) {
           const unica = prodVars.length===1;
           if (prodVars.some(v=>!v.nome.trim()&&!unica)) { showToast("❌ Dê um nome a cada variação.","#991b1b"); return; }
           setSalvandoProdutoCalc(true);
+          const antesSnap = editandoProdutoCalc ? snapProduto(editandoProdutoCalc) : null;
           const variacoes = prodVars.map(v=>({
             id: v.id,
             nome: v.nome.trim()||"Padrão",
@@ -2357,6 +2725,7 @@ export default function App({user,onLogout}) {
           setSalvandoProdutoCalc(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
           setShowProdutoForm(false);
+          logOp({tipo:"produtos",acao:editandoProdutoCalc?"editar":"criar",descricao:(editandoProdutoCalc?"Produto editado: ":"Produto criado: ")+prodNome.trim(),tabela:"produtos",registro_id:res.id,antes:antesSnap});
           const todos = await reloadProdutos();
           if (editandoProdutoCalc) {
             if (produtoAtivo) setProdutoAtivo(todos.find(p=>p.id===produtoAtivo.id)||null);
@@ -2432,6 +2801,7 @@ export default function App({user,onLogout}) {
           setSalvandoMp(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
           setShowMpForm(false);
+          logOp({tipo:"produtos",acao:editandoMp?"editar":"criar",descricao:(editandoMp?"Matéria-prima editada: ":"Matéria-prima criada: ")+mpNome.trim(),tabela:"materias_primas",registro_id:res.id,antes:editandoMp?pick(editandoMp,COLS_MP):null});
           await reloadMps();
           const todos = await reloadProdutos();
           if (produtoAtivo) setProdutoAtivo(todos.find(p=>p.id===produtoAtivo.id)||null);
@@ -2442,6 +2812,7 @@ export default function App({user,onLogout}) {
           const aviso = n>0 ? `"${mp.nome}" é usada em ${n} vínculo(s) de produtos. Eles continuam calculando o custo, mas ela não aparecerá mais para novos vínculos. Remover?` : `Remover "${mp.nome}" da lista?`;
           if (!window.confirm(aviso)) return;
           await excluirMateriaPrimaLib(mp.id);
+          logOp({tipo:"produtos",acao:"excluir",descricao:"Matéria-prima removida: "+mp.nome,tabela:"materias_primas",registro_id:mp.id,antes:pick(mp,COLS_MP)});
           await reloadMps();
           showToast("🗑️ Removida.","#64748b");
         };
@@ -2859,6 +3230,7 @@ export default function App({user,onLogout}) {
         const salvarProduto = async () => {
           if (!estoqueProdNome.trim()) return;
           setSalvandoProduto(true);
+          const antesEst = editandoProduto ? pick(editandoProduto,COLS_ESTOQUE_PROD) : null;
           const res = await salvarEstoqueProduto(user.id, orgId, {
             id: editandoProduto?.id,
             nome: estoqueProdNome.trim(),
@@ -2869,6 +3241,9 @@ export default function App({user,onLogout}) {
           setSalvandoProduto(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
           setShowEstoqueForm(false);
+          logOp(editandoProduto
+            ? {tipo:"estoque",acao:"editar",descricao:"Material editado: "+estoqueProdNome.trim(),tabela:"estoque_produtos",registro_id:editandoProduto.id,antes:antesEst,depois:{...antesEst,nome:estoqueProdNome.trim(),unidade:estoqueProdUnidade,quantidade_atual:Number(estoqueProdQtd)||0,quantidade_minima:Number(estoqueProdMin)||0}}
+            : {tipo:"estoque",acao:"criar",descricao:"Material criado: "+estoqueProdNome.trim(),tabela:"estoque_produtos",registro_id:res.data?.[0]?.id});
           const produtos = await fetchEstoqueProdutos(user.id, orgId);
           setEstoqueProdutos(produtos);
           fetchMovimentosEstoque(user.id, orgId, null, 100).then(setEstoqueMovimentos);
@@ -2885,7 +3260,9 @@ export default function App({user,onLogout}) {
         };
         const excluirProduto = async (id) => {
           if (!window.confirm("Remover este produto do estoque?")) return;
+          const prodAntes = estoqueProdutos.find(x=>x.id===id);
           await excluirEstoqueProduto(id);
+          logOp({tipo:"estoque",acao:"excluir",descricao:"Material removido: "+(prodAntes?.nome||""),tabela:"estoque_produtos",registro_id:id,antes:pick(prodAntes,COLS_ESTOQUE_PROD)});
           reloadEstoque();
           showToast("🗑️ Produto removido.","#64748b");
         };
@@ -2904,6 +3281,10 @@ export default function App({user,onLogout}) {
           setSalvandoMov(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
           setShowMovForm(null);
+          if (res.movimento) {
+            const pm = estoqueProdutos.find(x=>x.id===showMovForm);
+            logOp({tipo:"estoque",acao:"criar",descricao:`${movTipo==="entrada"?"Entrada":"Saída"}: ${Number(movQtd)} ${pm?.unidade||""} de ${pm?.nome||"material"}`,tabela:"estoque_movimentos",registro_id:res.movimento.id,depois:{...pick(res.movimento,COLS_MOV),quantidade:Number(res.movimento.quantidade)}});
+          }
           reloadEstoque();
           showToast(movTipo==="entrada"?"📥 Entrada registrada!":"📤 Saída registrada!",movTipo==="entrada"?"#059669":"#f59e0b");
         };
@@ -3180,12 +3561,15 @@ export default function App({user,onLogout}) {
           setSalvandoForn(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
           setShowFornecedorForm(false);
+          logOp({tipo:"fornecedores",acao:editandoFornecedor?"editar":"criar",descricao:(editandoFornecedor?"Fornecedor editado: ":"Fornecedor criado: ")+fornNome.trim(),tabela:"fornecedores",registro_id:editandoFornecedor?.id||res.data?.id,antes:editandoFornecedor?pick(editandoFornecedor,COLS_FORNECEDOR):null});
           reloadForn();
           showToast(editandoFornecedor?"✅ Fornecedor atualizado!":"✅ Fornecedor cadastrado!","#059669");
         };
         const excluirForn = async (id) => {
           if (!window.confirm("Remover este fornecedor?")) return;
+          const fAntes = fornecedores.find(x=>x.id===id);
           await excluirFornecedor(id);
+          logOp({tipo:"fornecedores",acao:"excluir",descricao:"Fornecedor removido: "+(fAntes?.nome||""),tabela:"fornecedores",registro_id:id,antes:pick(fAntes,COLS_FORNECEDOR)});
           reloadForn();
           showToast("🗑️ Fornecedor removido.","#64748b");
         };
@@ -3202,6 +3586,14 @@ export default function App({user,onLogout}) {
         const salvarProdPlus = async () => {
           if (!estoqueProdPlusId) return;
           setSalvandoProdPlus(true);
+          const prodPlusAntes = estoqueProdutos.find(x=>x.id===estoqueProdPlusId);
+          const camposPlus = {
+            preco_unitario: estoqueProdPreco ? Number(estoqueProdPreco) : null,
+            fornecedor_id:  estoqueProdFornId || null,
+            link_produto:   estoqueProdLink || null,
+            observacoes:    estoqueProdObs || null,
+            categoria:      estoqueProdCat || null,
+          };
           const res = await atualizarEstoqueProdutoPlus(estoqueProdPlusId, {
             preco_unitario: estoqueProdPreco ? Number(estoqueProdPreco) : null,
             fornecedor_id:  estoqueProdFornId || null,
@@ -3212,6 +3604,7 @@ export default function App({user,onLogout}) {
           setSalvandoProdPlus(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
           setShowEstoqueProdPlus(false);
+          logOp({tipo:"estoque",acao:"editar",descricao:"Preço/fornecedor atualizado: "+(prodPlusAntes?.nome||"material"),tabela:"estoque_produtos",registro_id:estoqueProdPlusId,antes:pick(prodPlusAntes,["preco_unitario","fornecedor_id","link_produto","observacoes","categoria"]),depois:camposPlus});
           fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
           showToast("✅ Informações salvas!","#059669");
         };
@@ -3239,6 +3632,7 @@ export default function App({user,onLogout}) {
               </div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 <button onClick={()=>{setAbrirPlusAposSalvar(true);setEditandoProduto(null);setEstoqueProdNome("");setEstoqueProdUnidade("un");setEstoqueProdQtd("0");setEstoqueProdMin("0");setShowEstoqueForm(true);}} style={{background:"linear-gradient(135deg,#7c3aed,#6d28d9)",color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Novo Material</button>
+                <button onClick={abrirNota} style={{background:"linear-gradient(135deg,#0d9488,#0f766e)",color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>📷 Ler nota fiscal</button>
                 <button onClick={()=>setShowDefinirPin(true)} style={{background:"#f1f5f9",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"8px 14px",fontSize:12,cursor:"pointer"}}>⚙️ Alterar PIN</button>
                 <button onClick={()=>{setEstoquePlusDesbloqueado(false);setActiveTab("estoque");}} style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🔒 Trancar</button>
               </div>
@@ -3431,6 +3825,7 @@ export default function App({user,onLogout}) {
                       setShowEstoqueForm(false);
                       setAbrirPlusAposSalvar(false);
                       const novo = res.data?.[0];
+                      if (novo) logOp({tipo:"estoque",acao:"criar",descricao:"Material criado: "+estoqueProdNome.trim(),tabela:"estoque_produtos",registro_id:novo.id});
                       if (novo) {
                         setEstoqueProdPlusId(novo.id);
                         setEstoqueProdFornId(""); setEstoqueProdPreco(""); setEstoqueProdLink(""); setEstoqueProdObs(""); setEstoqueProdCat("");
@@ -3694,6 +4089,7 @@ export default function App({user,onLogout}) {
           const jaPago = custosPagos.includes(c.id);
           setCustosPagos(l=>jaPago?l.filter(x=>x!==c.id):[...l,c.id]); // atualiza na hora
           const res = await marcarCustoPago(user.id,orgId,c.id,finMes,!jaPago);
+          if (!res.error) logOp({tipo:"financeiro",acao:jaPago?"despagar":"pagar",descricao:(jaPago?"Desmarcou pagamento: ":"Marcou como pago: ")+c.nome+" ("+finMes+")",tabela:"custos_fixos_pagamentos",registro_id:c.id,depois:{custo_id:c.id,mes:finMes}});
           if (res.error) {
             setCustosPagos(l=>jaPago?[...l,c.id]:l.filter(x=>x!==c.id));
             showToast("❌ "+res.error,"#991b1b");
@@ -3706,12 +4102,15 @@ export default function App({user,onLogout}) {
           setSalvandoCusto(false);
           if (res.error){showToast("❌ "+res.error,"#991b1b");return;}
           setShowCustoForm(false);
+          logOp({tipo:"financeiro",acao:editandoCusto?"editar":"criar",descricao:(editandoCusto?"Custo fixo editado: ":"Custo fixo criado: ")+custoNome.trim()+" (R$ "+Number(custoValor).toFixed(2).replace(".",",")+")",tabela:"custos_fixos",registro_id:editandoCusto?.id||res.id,antes:editandoCusto?pick(editandoCusto,COLS_CUSTO):null});
           fetchCustosFixos(user.id,orgId).then(setCustosFixos);
           showToast(editandoCusto?"✅ Custo atualizado!":"✅ Custo cadastrado!","#059669");
         };
         const excluirCusto = async (id) => {
           if (!window.confirm("Remover este custo?")) return;
+          const cAntes = custosFixos.find(x=>x.id===id);
           await excluirCustoFixo(id);
+          logOp({tipo:"financeiro",acao:"excluir",descricao:"Custo fixo removido: "+(cAntes?.nome||""),tabela:"custos_fixos",registro_id:id,antes:pick(cAntes,COLS_CUSTO)});
           fetchCustosFixos(user.id,orgId).then(setCustosFixos);
           showToast("🗑️ Custo removido.","#64748b");
         };

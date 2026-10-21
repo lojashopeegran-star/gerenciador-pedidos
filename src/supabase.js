@@ -549,7 +549,7 @@ export async function registrarMovimentoEstoque(userId, orgId, membroNome, movim
 
   // Busca saldo atual
   const { data: prod, error: prodErr } = await supabase
-    .from('estoque_produtos').select('quantidade_atual').eq('id', movimento.produto_id).maybeSingle()
+    .from('estoque_produtos').select('quantidade_atual, preco_unitario, fornecedor_id').eq('id', movimento.produto_id).maybeSingle()
   if (prodErr || !prod) return { error: 'Produto não encontrado' }
 
   const delta = movimento.tipo === 'entrada' ? quantidade : -quantidade
@@ -561,8 +561,16 @@ export async function registrarMovimentoEstoque(userId, orgId, membroNome, movim
     .update({ quantidade_atual: novoSaldo, atualizado_em: new Date().toISOString() })
     .eq('id', movimento.produto_id)
 
+  // Entradas sem preço informado usam o preço/fornecedor cadastrados no Estoque+,
+  // para que a compra apareça no gasto de material do Financeiro.
+  const ehEntrada = movimento.tipo === 'entrada'
+  const preco = movimento.preco_unitario !== undefined ? movimento.preco_unitario
+    : (ehEntrada && prod.preco_unitario ? Number(prod.preco_unitario) : null)
+  const fornecedorId = movimento.fornecedor_id !== undefined ? movimento.fornecedor_id
+    : (ehEntrada ? (prod.fornecedor_id || null) : null)
+
   // Registra movimento
-  const { error } = await supabase.from('estoque_movimentos').insert({
+  const row = {
     produto_id: movimento.produto_id,
     organizacao_id: orgId || null,
     user_id: userId,
@@ -571,9 +579,18 @@ export async function registrarMovimentoEstoque(userId, orgId, membroNome, movim
     motivo: movimento.motivo || '',
     referencia_pedido: movimento.referencia_pedido || null,
     registrado_por: membroNome || '',
-  })
-  if (error) return { error: error.message }
-  return { success: true, novoSaldo }
+    preco_unitario: preco,
+    fornecedor_id: fornecedorId,
+    nota_fiscal: movimento.nota_fiscal || null,
+  }
+  if (movimento.criado_em) row.criado_em = movimento.criado_em
+  const { data: mov, error } = await supabase.from('estoque_movimentos').insert(row).select().single()
+  if (error) {
+    // desfaz o ajuste de saldo se o movimento não pôde ser gravado
+    await supabase.from('estoque_produtos').update({ quantidade_atual: Number(prod.quantidade_atual) }).eq('id', movimento.produto_id)
+    return { error: error.message }
+  }
+  return { success: true, novoSaldo, movimento: mov }
 }
 
 export async function fetchMovimentosEstoque(userId, orgId, produtoId = null, limite = 50) {
@@ -830,6 +847,174 @@ export async function fetchSaidasMes(userId, orgId, mes) {
   return data || []
 }
 
+// ─── Histórico de operações e desfazer ───────────────────────────────────────
+
+export const pick = (o, cols) => Object.fromEntries(cols.filter(c => o && c in o).map(c => [c, o[c]]))
+export const COLS_ESTOQUE_PROD = ['nome', 'unidade', 'quantidade_atual', 'quantidade_minima', 'preco_unitario', 'fornecedor_id', 'link_produto', 'observacoes', 'categoria']
+export const COLS_FORNECEDOR = ['nome', 'contato', 'site_link', 'observacoes']
+export const COLS_CUSTO = ['nome', 'categoria', 'valor', 'recorrente', 'observacoes', 'data_vencimento']
+export const COLS_MP = ['nome', 'custo_unidade_compra', 'qtd_por_unidade_compra', 'unidade']
+export const COLS_MOV = ['id', 'produto_id', 'tipo', 'quantidade', 'motivo', 'preco_unitario', 'fornecedor_id', 'nota_fiscal']
+
+// Foto completa de um produto (taxas + variações + matérias-primas) para poder restaurar
+export function snapProduto(p) {
+  return {
+    produto: pick(p, ['nome', 'descricao', 'taxa_plataforma_pct', 'taxa_imposto_pct', 'taxa_adiantamento_pct', 'taxa_fixa']),
+    variacoes: (p.produto_variacoes || []).map(v => ({
+      id: v.id, nome: v.nome, preco_venda: Number(v.preco_venda) || 0,
+      mps: (v.produto_materias_primas || []).map(l => ({
+        materia_prima_id: l.materia_prima_id, nome: l.nome || '', qtd_usada: Number(l.qtd_usada_por_produto) || 0,
+      })),
+    })),
+  }
+}
+
+// Registra uma operação no histórico. Nunca lança erro (não pode atrapalhar a operação em si).
+export async function registrarOperacao(orgId, userId, nomeUsuario, op) {
+  try {
+    if (!supabase || !userId) return null
+    const id = crypto.randomUUID()
+    const { error } = await supabase.from('operacoes_log').insert({
+      id,
+      organizacao_id: orgId || null,
+      user_id: userId,
+      usuario_nome: nomeUsuario || null,
+      tipo: op.tipo || 'geral',
+      acao: op.acao,
+      descricao: op.descricao,
+      tabela: op.tabela || null,
+      registro_id: op.registro_id ? String(op.registro_id) : null,
+      antes: op.antes ?? null,
+      depois: op.depois ?? null,
+      lote_id: op.lote_id || null,
+    })
+    if (error) { console.error('registrarOperacao error:', error.message); return null }
+    return id
+  } catch (e) { console.error('registrarOperacao', e); return null }
+}
+
+export async function fetchOperacoes(userId, orgId, limite = 300) {
+  let q = supabase.from('operacoes_log').select('*')
+  q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
+  const { data, error } = await q.order('seq', { ascending: false }).limit(limite)
+  if (error) { console.error('fetchOperacoes error:', error.message); return [] }
+  return data || []
+}
+
+async function _setAtivo(tabela, id, ativo) {
+  const { error } = await supabase.from(tabela).update({ ativo }).eq('id', id)
+  return error ? { error: error.message } : { success: true }
+}
+
+async function _reverter(op, ctx) {
+  const { tabela, acao, registro_id: id, antes, depois } = op
+  const { userId, orgId } = ctx
+
+  if (tabela === 'nota_fiscal') return { success: true } // linha-resumo do lote; as ações filhas é que revertem
+
+  if (tabela === 'estoque_movimentos') {
+    const m = depois
+    const { data: prod } = await supabase.from('estoque_produtos').select('quantidade_atual, nome').eq('id', m.produto_id).maybeSingle()
+    if (!prod) return { error: 'O material desse movimento não existe mais.' }
+    const delta = m.tipo === 'entrada' ? -Number(m.quantidade) : Number(m.quantidade)
+    const novo = Number(prod.quantidade_atual) + delta
+    if (novo < 0) return { error: `Não dá para desfazer: o saldo de "${prod.nome}" ficaria negativo (parte desse material já foi usada).` }
+    const { error: e1 } = await supabase.from('estoque_produtos').update({ quantidade_atual: novo, atualizado_em: new Date().toISOString() }).eq('id', m.produto_id)
+    if (e1) return { error: e1.message }
+    const { error: e2 } = await supabase.from('estoque_movimentos').delete().eq('id', m.id)
+    if (e2) {
+      await supabase.from('estoque_produtos').update({ quantidade_atual: Number(prod.quantidade_atual) }).eq('id', m.produto_id)
+      return { error: e2.message }
+    }
+    return { success: true }
+  }
+
+  if (tabela === 'estoque_produtos') {
+    if (acao === 'criar') return _setAtivo(tabela, id, false)
+    if (acao === 'excluir') return _setAtivo(tabela, id, true)
+    if (acao === 'editar') {
+      const patch = { ...antes }
+      if (depois && 'quantidade_atual' in depois && 'quantidade_atual' in antes && Number(depois.quantidade_atual) !== Number(antes.quantidade_atual)) {
+        // a edição mexeu no saldo: desfaz só a diferença, preservando movimentos posteriores
+        const { data: prod } = await supabase.from('estoque_produtos').select('quantidade_atual').eq('id', id).maybeSingle()
+        patch.quantidade_atual = Number(prod?.quantidade_atual || 0) - (Number(depois.quantidade_atual) - Number(antes.quantidade_atual))
+      } else {
+        delete patch.quantidade_atual
+      }
+      const { error } = await supabase.from(tabela).update({ ...patch, atualizado_em: new Date().toISOString() }).eq('id', id)
+      return error ? { error: error.message } : { success: true }
+    }
+  }
+
+  if (tabela === 'fornecedores' || tabela === 'custos_fixos' || tabela === 'materias_primas') {
+    if (acao === 'criar') return _setAtivo(tabela, id, false)
+    if (acao === 'excluir') return _setAtivo(tabela, id, true)
+    if (acao === 'editar') {
+      const { error } = await supabase.from(tabela).update(antes).eq('id', id)
+      return error ? { error: error.message } : { success: true }
+    }
+  }
+
+  if (tabela === 'custos_fixos_pagamentos') {
+    const r = await marcarCustoPago(userId, orgId, depois.custo_id, depois.mes, acao !== 'pagar')
+    return r
+  }
+
+  if (tabela === 'produtos') {
+    if (acao === 'criar') return _setAtivo(tabela, id, false)
+    if (acao === 'excluir') return _setAtivo(tabela, id, true)
+    if (acao === 'editar') {
+      // variações que foram removidas depois precisam ser recriadas (sem o id antigo)
+      const { data: atuais } = await supabase.from('produto_variacoes').select('id').eq('produto_id', id)
+      const ids = new Set((atuais || []).map(v => v.id))
+      const variacoes = (antes.variacoes || []).map(v => ({ ...v, id: ids.has(v.id) ? v.id : undefined }))
+      const r = await salvarProdutoCompleto(userId, orgId, { id, ...antes.produto }, variacoes)
+      return r.error ? { error: r.error } : { success: true }
+    }
+  }
+
+  return { error: 'Esse tipo de operação não pode ser desfeito automaticamente.' }
+}
+
+// Desfaz uma lista de operações (do mais recente para o mais antigo). Para na primeira falha.
+export async function desfazerOperacoes(ops, ctx, nomeUsuario) {
+  const ordenadas = [...ops].filter(o => !o.desfeito_em).sort((a, b) => b.seq - a.seq)
+  let feitas = 0
+  for (const op of ordenadas) {
+    let r
+    try { r = await _reverter(op, ctx) } catch (e) { r = { error: e.message } }
+    if (r.error) return { error: r.error, feitas }
+    await supabase.from('operacoes_log').update({ desfeito_em: new Date().toISOString(), desfeito_por: nomeUsuario || null }).eq('id', op.id)
+    feitas++
+  }
+  return { success: true, feitas }
+}
+
+// Leitura de nota fiscal (foto ou PDF) pelo Gemini
+export async function lerNotaFiscal(mime_type, data) {
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+  if (!token) return { error: 'Não autenticado' }
+  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ler-nota-fiscal`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mime_type, data }),
+  })
+  let json = null
+  try { json = await res.json() } catch { /* ignore */ }
+  if (!res.ok || json?.error) return { error: json?.error || `Erro ${res.status} ao ler a nota` }
+  return { dados: json.dados }
+}
+
+// Já existe movimento com esse número de nota? (evita lançar a mesma nota duas vezes)
+export async function notaJaLancada(userId, orgId, numero) {
+  if (!numero) return false
+  let q = supabase.from('estoque_movimentos').select('id', { count: 'exact', head: true }).eq('nota_fiscal', numero)
+  q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
+  const { count } = await q
+  return (count || 0) > 0
+}
+
 // ─── Custos Fixos ─────────────────────────────────────────────────────────────
 
 export async function fetchCustosFixos(userId, orgId) {
@@ -853,8 +1038,8 @@ export async function salvarCustoFixo(userId, orgId, custo) {
     const { error } = await supabase.from('custos_fixos').update({ ...payload, atualizado_em: new Date().toISOString() }).eq('id', custo.id)
     return error ? { error: error.message } : { success: true }
   } else {
-    const { error } = await supabase.from('custos_fixos').insert(payload)
-    return error ? { error: error.message } : { success: true }
+    const { data, error } = await supabase.from('custos_fixos').insert(payload).select('id').single()
+    return error ? { error: error.message } : { success: true, id: data.id }
   }
 }
 
