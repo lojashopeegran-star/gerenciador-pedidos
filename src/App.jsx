@@ -1108,103 +1108,6 @@ export default function App({user,onLogout}) {
           </div>
         )}
 
-        {/* ── Alerta de prazos vencendo hoje ── */}
-        {(() => {
-          const vencendoHoje = pedidosAbertos.filter(r => deadlineInfo(r.dataEnvio)?.tier === "red" && r.statusInterno !== "feito");
-          if (vencendoHoje.length === 0) return null;
-          return (
-            <div style={{
-              background: "linear-gradient(135deg,#dc2626,#ef4444)", borderRadius: 14, padding: "14px 20px",
-              marginBottom: 18, display: "flex", alignItems: "center", gap: 14, boxShadow: "0 4px 14px rgba(239,68,68,0.3)",
-              animation: "pulseAlert 2s ease-in-out infinite",
-            }}>
-              <style>{`@keyframes pulseAlert{0%,100%{box-shadow:0 4px 14px rgba(239,68,68,0.3)}50%{box-shadow:0 4px 22px rgba(239,68,68,0.55)}}`}</style>
-              <span style={{ fontSize: 26 }}>🚨</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ color: "#fff", fontWeight: 800, fontSize: 14 }}>
-                  {vencendoHoje.length} pedido{vencendoHoje.length !== 1 ? "s" : ""} vencendo hoje ou já vencido{vencendoHoje.length !== 1 ? "s" : ""}!
-                </div>
-                <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 12 }}>Priorize esses pedidos para não atrasar o envio.</div>
-              </div>
-              <button onClick={() => { setActiveTab("abertos"); setFilterSt("all"); setFilterPrazo("red"); }}
-                style={{ background: "#fff", color: "#dc2626", border: "none", borderRadius: 10, padding: "8px 16px", fontSize: 12, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
-                Ver agora →
-              </button>
-            </div>
-          );
-        })()}
-
-        {/* Stats */}
-        {(()=>{
-          const todosCards = [
-            {label:"Pedidos",    value:pedidosAbertos.length,     color:"#1d4ed8",icon:"📋",tab:"abertos",  action:()=>{setFilterSt("all");setFilterPrazo("all");}},
-            {label:"Urgentes",   value:`${urgentFeitos}/${urgentCount}`, color:"#ef4444",icon:"🔴",tab:"abertos",  action:()=>{setFilterSt("all");setFilterPrazo("red");}},
-            {label:"Enviados",   value:pedidosEnviados.length,    color:"#059669",icon:"📦",tab:"enviados", action:()=>{}},
-            {label:"Cancelados", value:pedidosCancelados.length,  color:"#6b7280",icon:"❌",tab:"cancelados",action:()=>{}},
-            {label:"Devoluções", value:devolucoes.length,         color:"#ef4444",icon:"🔄",tab:"devolucoes",action:()=>{}},
-          ];
-          const LIMIT = 7;
-          const visiveis = showTodosCards ? todosCards : todosCards.slice(0, LIMIT);
-          const temMais = todosCards.length > LIMIT;
-          const CardItem = (s) => (
-            <div key={s.label} onClick={()=>{s.action();setActiveTab(s.tab);tableRef.current?.scrollIntoView({behavior:"smooth"});}}
-              style={{background:"#fff",borderRadius:12,padding:"12px 14px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",borderLeft:`4px solid ${s.color}`,cursor:"pointer",transition:"transform 0.15s,box-shadow 0.15s"}}
-              onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow="0 6px 20px rgba(0,0,0,0.12)";}}
-              onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.boxShadow="0 1px 3px rgba(0,0,0,0.07)";}}>
-              <div style={{fontSize:16,marginBottom:2}}>{s.icon}</div>
-              <div style={{fontSize:20,fontWeight:800,color:s.color,lineHeight:1.2}}>{s.value}</div>
-              <div style={{fontSize:10,color:"#64748b",fontWeight:500,marginTop:1}}>{s.label}</div>
-              {s.label==="Devoluções"&&totalDev>0&&<div style={{fontSize:10,color:"#ef4444",fontWeight:700}}>-{fmtBRL(totalDev)}</div>}
-              <div style={{fontSize:9,color:s.color,opacity:0.7,marginTop:1}}>clique →</div>
-            </div>
-          );
-          return (
-            <div style={{marginBottom:18}}>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(8,1fr)",gap:10}}>
-                {visiveis.map(s=>CardItem(s))}
-                {temMais&&(
-                  <div onClick={()=>setShowTodosCards(v=>!v)}
-                    style={{background:"#f8fafc",borderRadius:12,padding:"12px 14px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",border:"2px dashed #e2e8f0",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:4,transition:"all 0.15s"}}
-                    onMouseEnter={e=>{e.currentTarget.style.background="#f1f5f9";e.currentTarget.style.borderColor="#cbd5e1";}}
-                    onMouseLeave={e=>{e.currentTarget.style.background="#f8fafc";e.currentTarget.style.borderColor="#e2e8f0";}}>
-                    <div style={{fontSize:20,color:"#94a3b8"}}>{showTodosCards?"−":"+"+( todosCards.length-LIMIT)}</div>
-                    <div style={{fontSize:10,color:"#94a3b8",fontWeight:600}}>{showTodosCards?"menos":"mais"}</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* Card estoque baixo — visível só para o admin quando tem item abaixo do mínimo */}
-        {isAdminEquipe&&estoqueProdutos.filter(p=>p.quantidade_atual<=p.quantidade_minima).length>0&&(
-          <div style={{background:"linear-gradient(135deg,#fff7ed,#fef3c7)",borderRadius:14,padding:"14px 18px",marginBottom:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",border:"1px solid #fde68a",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12}}>
-            <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <span style={{fontSize:22}}>⚠️</span>
-              <div>
-                <div style={{fontSize:12,fontWeight:700,color:"#92400e"}}>Estoque Baixo!</div>
-                <div style={{fontSize:11,color:"#78350f"}}>
-                  {estoqueProdutos.filter(p=>p.quantidade_atual<=p.quantidade_minima).map(p=>p.nome).join(", ")}
-                </div>
-              </div>
-            </div>
-            <button onClick={()=>setActiveTab("estoque")} style={{background:"#f59e0b",color:"#fff",border:"none",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer",flexShrink:0}}>
-              Ver Estoque →
-            </button>
-          </div>
-        )}
-
-        {/* Valor aberto card — visível só para o admin */}
-        {isAdminEquipe&&(
-        <div style={{background:"#eff6ff",borderRadius:14,padding:"14px 18px",marginBottom:18,boxShadow:"0 1px 3px rgba(0,0,0,0.07)",display:"flex",alignItems:"center",gap:12}}>
-          <span style={{fontSize:22}}>💰</span>
-          <div>
-            <div style={{fontSize:11,color:"#64748b",fontWeight:500}}>Valor em Aberto</div>
-            <div style={{fontSize:22,fontWeight:800,color:"#0891b2"}}>{fmtBRL(valorAberto)}</div>
-          </div>
-        </div>
-        )}
-
         {/* Tabs */}
         <TabBar tabs={TABS} active={activeTab} onChange={tab=>{
           if(tab==="financeiro"){
@@ -3643,8 +3546,9 @@ export default function App({user,onLogout}) {
 
       {/* ── ABA FINANCEIRO ──────────────────────────────────────────────── */}
       {activeTab==="financeiro"&&isAdminEquipe&&!estoquePlusDesbloqueado&&(
-        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:320,padding:32}}>
-          <div style={{background:"#fff",borderRadius:20,padding:32,maxWidth:340,width:"100%",boxShadow:"0 4px 20px rgba(0,0,0,0.08)",textAlign:"center"}}>
+        <div onClick={()=>{setActiveTab("abertos");setPinInput("");setPinErro("");}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,padding:32,maxWidth:340,width:"100%",boxShadow:"0 4px 20px rgba(0,0,0,0.08)",textAlign:"center",position:"relative"}}>
+            <button onClick={()=>{setActiveTab("abertos");setPinInput("");setPinErro("");}} style={{position:"absolute",top:12,right:12,background:"none",border:"none",fontSize:18,color:"#94a3b8",cursor:"pointer",lineHeight:1,padding:4}}>✕</button>
             <div style={{fontSize:44,marginBottom:10}}>🔒</div>
             <h3 style={{margin:"0 0 6px",fontSize:17,fontWeight:800,color:"#1e293b"}}>Financeiro</h3>
             <p style={{margin:"0 0 20px",fontSize:12,color:"#64748b"}}>Área protegida. Digite o PIN para acessar.</p>
