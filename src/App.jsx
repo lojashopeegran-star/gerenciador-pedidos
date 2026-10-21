@@ -281,20 +281,33 @@ function RevisaoModal({order,onConfirm,onClose,onDesmarcar}) {
   );
 }
 
-const FINANCE_PASSWORD = "1234";
-function FinanceGate({onUnlock}) {
-  const [pwd,setPwd]=useState(""); const [err,setErr]=useState(false);
-  const check=()=>{if(pwd===FINANCE_PASSWORD)onUnlock();else{setErr(true);setPwd("");}};
+function FinanceGate({onUnlock, pinHash, onDefinirPin}) {
+  const [pin,setPin]=useState(""); const [err,setErr]=useState("");
+  const check=async()=>{
+    if (!pinHash) return;
+    const hash = await crypto.subtle.digest("SHA-256",new TextEncoder().encode(pin))
+      .then(b=>Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join(""));
+    if(hash===pinHash){onUnlock();}else{setErr("PIN incorreto.");setPin("");}
+  };
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{background:"#fff",borderRadius:20,padding:32,width:"100%",maxWidth:380,boxShadow:"0 20px 60px rgba(0,0,0,0.25)",textAlign:"center"}}>
+    <div onClick={()=>{}} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{background:"#fff",borderRadius:20,padding:32,width:"100%",maxWidth:380,boxShadow:"0 20px 60px rgba(0,0,0,0.25)",textAlign:"center",position:"relative"}}>
         <div style={{fontSize:40,marginBottom:10}}>🔐</div>
         <h3 style={{margin:"0 0 6px",fontSize:16,fontWeight:700,color:"#1e293b"}}>Área Restrita</h3>
-        <p style={{margin:"0 0 20px",fontSize:13,color:"#64748b"}}>Senha para acessar o financeiro</p>
-        <input type="password" value={pwd} onChange={e=>{setPwd(e.target.value);setErr(false);}} onKeyDown={e=>e.key==="Enter"&&check()} placeholder="••••••••" autoFocus
-          style={{width:"100%",padding:"11px 14px",border:`1.5px solid ${err?"#ef4444":"#e2e8f0"}`,borderRadius:10,fontSize:14,outline:"none",boxSizing:"border-box",textAlign:"center",letterSpacing:4,marginBottom:err?6:16}} />
-        {err&&<p style={{margin:"0 0 14px",fontSize:12,color:"#ef4444",fontWeight:600}}>Senha incorreta.</p>}
-        <button onClick={check} style={{width:"100%",padding:"12px",background:"linear-gradient(135deg,#1d4ed8,#7c3aed)",color:"#fff",border:"none",borderRadius:12,fontSize:14,fontWeight:700,cursor:"pointer"}}>Entrar →</button>
+        <p style={{margin:"0 0 20px",fontSize:13,color:"#64748b"}}>Digite o PIN do Estoque+ para acessar</p>
+        {!pinHash ? (
+          <div>
+            <p style={{fontSize:12,color:"#f59e0b",marginBottom:12}}>Configure o PIN primeiro na aba <strong>Estoque+</strong>.</p>
+            <button onClick={onDefinirPin} style={{width:"100%",padding:"11px",background:"#059669",color:"#fff",border:"none",borderRadius:12,fontSize:14,fontWeight:700,cursor:"pointer"}}>Definir PIN agora</button>
+          </div>
+        ) : (
+          <>
+            <input type="password" inputMode="numeric" maxLength={8} value={pin} onChange={e=>{setPin(e.target.value);setErr("");}} onKeyDown={e=>e.key==="Enter"&&check()} placeholder="••••" autoFocus
+              style={{width:"100%",padding:"12px 14px",border:`2px solid ${err?"#ef4444":"#e2e8f0"}`,borderRadius:12,fontSize:22,outline:"none",boxSizing:"border-box",textAlign:"center",letterSpacing:8,marginBottom:err?6:16}} />
+            {err&&<p style={{margin:"0 0 12px",fontSize:12,color:"#ef4444",fontWeight:600}}>{err}</p>}
+            <button onClick={check} style={{width:"100%",padding:"12px",background:"linear-gradient(135deg,#1d4ed8,#7c3aed)",color:"#fff",border:"none",borderRadius:12,fontSize:14,fontWeight:700,cursor:"pointer"}}>Entrar →</button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1104,16 +1117,11 @@ export default function App({user,onLogout}) {
       <div style={{maxWidth:1600,margin:"0 auto",padding:"20px 28px"}}>
 
         {/* Ações do sistema */}
-        {(qtdArquivados>0||podeZerarSistema)&&(
+        {qtdArquivados>0&&(
           <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginBottom:12}}>
-            {qtdArquivados>0&&(
-              <button onClick={()=>setShowConfirmRestore(true)} style={{background:"#ecfdf5",color:"#065f46",border:"1px solid #6ee7b7",borderRadius:10,padding:"6px 14px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-                ♻️ Restaurar ({qtdArquivados})
-              </button>
-            )}
-            {podeZerarSistema&&<button onClick={()=>setShowConfirmClear(true)} style={{background:"#fde8e8",color:"#991b1b",border:"1px solid #fca5a5",borderRadius:10,padding:"6px 14px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
-              🗑️ Zerar Sistema
-            </button>}
+            <button onClick={()=>setShowConfirmRestore(true)} style={{background:"#ecfdf5",color:"#065f46",border:"1px solid #6ee7b7",borderRadius:10,padding:"6px 14px",fontSize:11,fontWeight:700,cursor:"pointer"}}>
+              ♻️ Restaurar ({qtdArquivados})
+            </button>
           </div>
         )}
 
@@ -3275,7 +3283,8 @@ export default function App({user,onLogout}) {
                 <h2 style={{margin:0,fontSize:18,fontWeight:800,color:"#7c3aed"}}>🔒 Estoque+</h2>
                 <span style={{background:"#ede9fe",color:"#6d28d9",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>Área restrita</span>
               </div>
-              <div style={{display:"flex",gap:8}}>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                <button onClick={()=>abrirFormNovoProd()} style={{background:"linear-gradient(135deg,#7c3aed,#6d28d9)",color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Novo Material</button>
                 <button onClick={()=>setShowDefinirPin(true)} style={{background:"#f1f5f9",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"8px 14px",fontSize:12,cursor:"pointer"}}>⚙️ Alterar PIN</button>
                 <button onClick={()=>{setEstoquePlusDesbloqueado(false);setActiveTab("estoque");}} style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🔒 Trancar</button>
               </div>
@@ -3435,12 +3444,21 @@ export default function App({user,onLogout}) {
                           style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
                       </div>
                       <div>
-                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Fornecedor</label>
-                        <select value={estoqueProdFornId} onChange={e=>setEstoqueProdFornId(e.target.value)}
-                          style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",background:"#fff",boxSizing:"border-box"}}>
-                          <option value="">— Selecionar fornecedor —</option>
-                          {fornecedores.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
-                        </select>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+                          <label style={{fontSize:11,fontWeight:600,color:"#64748b"}}>Fornecedor</label>
+                          <button type="button" onClick={()=>{setShowEstoqueProdPlus(false);abrirFornForm();}} style={{background:"none",border:"none",color:"#7c3aed",fontSize:11,fontWeight:700,cursor:"pointer",padding:0}}>+ Cadastrar fornecedor</button>
+                        </div>
+                        {fornecedores.length===0 ? (
+                          <div style={{padding:"9px 12px",border:"1.5px dashed #e2e8f0",borderRadius:10,fontSize:12,color:"#94a3b8",textAlign:"center"}}>
+                            Nenhum fornecedor cadastrado. Clique em <strong style={{color:"#7c3aed"}}>+ Cadastrar fornecedor</strong> acima.
+                          </div>
+                        ) : (
+                          <select value={estoqueProdFornId} onChange={e=>setEstoqueProdFornId(e.target.value)}
+                            style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",background:"#fff",boxSizing:"border-box"}}>
+                            <option value="">— Selecionar fornecedor —</option>
+                            {fornecedores.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
+                          </select>
+                        )}
                       </div>
                       <div>
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Categoria</label>
@@ -3999,7 +4017,11 @@ export default function App({user,onLogout}) {
         );
       })()}
 
-      {showFinanceGate&&<FinanceGate onUnlock={()=>{setFinanceUnlocked(true);setActiveTab("financeiro");setShowFinanceGate(false);}} />}
+      {showFinanceGate&&<FinanceGate
+        pinHash={estoquePlusConfig?.pin_hash}
+        onUnlock={()=>{setEstoquePlusDesbloqueado(true);setFinanceUnlocked(true);setActiveTab("financeiro");setShowFinanceGate(false);fetchCustosFixos(user.id,orgId).then(setCustosFixos);fetchMovimentosComPreco(user.id,orgId,finMes).then(setFinMovimentos);}}
+        onDefinirPin={()=>{setShowFinanceGate(false);setActiveTab("estoque");setShowDefinirPin(true);}}
+      />}
       {revisaoModal&&<RevisaoModal order={revisaoModal} onConfirm={nota=>{handleStatusChange(revisaoModal,"revisao",nota);setRevisaoModal(null);}} onClose={()=>setRevisaoModal(null)} onDesmarcar={order=>{setRevisaoModal(null);tentarDesmarcar(order,"","Revisão");}} />}
 
       {/* ── Modal confirmação desmarcar ─────────────────────────────── */}
