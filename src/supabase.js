@@ -831,6 +831,7 @@ export async function salvarCustoFixo(userId, orgId, custo) {
     valor:       Number(custo.valor) || 0,
     recorrente:  custo.recorrente !== false,
     observacoes: custo.observacoes?.trim() || null,
+    data_vencimento: custo.data_vencimento || null,
   }
   if (orgId) payload.organizacao_id = orgId; else payload.user_id = userId
   if (custo.id) {

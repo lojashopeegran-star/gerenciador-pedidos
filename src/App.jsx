@@ -436,6 +436,7 @@ export default function App({user,onLogout}) {
   const [custoValor,          setCustoValor]          = useState("");
   const [custoRecorrente,     setCustoRecorrente]     = useState(true);
   const [custoObs,            setCustoObs]            = useState("");
+  const [custoVenc,           setCustoVenc]           = useState("");
   const [salvandoCusto,       setSalvandoCusto]       = useState(false);
   const [finMes,              setFinMes]              = useState(() => new Date().toISOString().slice(0,7));
   const [finMovimentos,       setFinMovimentos]       = useState([]);
@@ -3644,12 +3645,36 @@ export default function App({user,onLogout}) {
           setCustoNome(c?.nome||""); setCustoCategoria(c?.categoria||"outros");
           setCustoValor(c?.valor?String(c.valor):""); setCustoRecorrente(c?.recorrente!==false);
           setCustoObs(c?.observacoes||"");
+          setCustoVenc(c?.data_vencimento||"");
           setShowCustoForm(true);
         };
+        // Vencimento: datas "YYYY-MM-DD" tratadas no fuso local (sem deslocar o dia)
+        const parseData = (s) => { const [y,m,d]=String(s).slice(0,10).split("-").map(Number); return new Date(y,m-1,d); };
+        const fmtData = (d) => String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();
+        const infoVenc = (c) => {
+          if (!c.data_vencimento) return null;
+          const base = parseData(c.data_vencimento);
+          const agora = new Date(); const hoje = new Date(agora.getFullYear(),agora.getMonth(),agora.getDate());
+          let alvo = base;
+          if (c.recorrente!==false) {
+            const dia = base.getDate();
+            const noMes = (a,m)=>new Date(a,m,Math.min(dia,new Date(a,m+1,0).getDate()));
+            alvo = noMes(hoje.getFullYear(),hoje.getMonth());
+            if (alvo<hoje) alvo = noMes(hoje.getFullYear(),hoje.getMonth()+1);
+          }
+          const dias = Math.round((alvo-hoje)/86400000);
+          let txt, cor, bg;
+          if (dias<0)       { txt="Venceu em "+fmtData(alvo); cor="#991b1b"; bg="#fde8e8"; }
+          else if (dias===0){ txt="Vence hoje"; cor="#991b1b"; bg="#fde8e8"; }
+          else if (dias<=5) { txt="Vence em "+dias+" dia"+(dias>1?"s":"")+" ("+fmtData(alvo).slice(0,5)+")"; cor="#92400e"; bg="#fef3c7"; }
+          else              { txt="Vence "+fmtData(alvo).slice(0,5); cor="#475569"; bg="#f1f5f9"; }
+          if (c.recorrente!==false) txt = "Todo dia "+base.getDate()+" · "+txt;
+          return {txt,cor,bg};
+        };
         const salvarCusto = async () => {
-          if (!custoNome.trim()||!custoValor) return;
+          if (!custoNome.trim()||!custoValor||!custoVenc) return;
           setSalvandoCusto(true);
-          const res = await salvarCustoFixo(user.id,orgId,{id:editandoCusto?.id,nome:custoNome,categoria:custoCategoria,valor:custoValor,recorrente:custoRecorrente,observacoes:custoObs});
+          const res = await salvarCustoFixo(user.id,orgId,{id:editandoCusto?.id,nome:custoNome,categoria:custoCategoria,valor:custoValor,recorrente:custoRecorrente,observacoes:custoObs,data_vencimento:custoVenc});
           setSalvandoCusto(false);
           if (res.error){showToast("❌ "+res.error,"#991b1b");return;}
           setShowCustoForm(false);
@@ -3773,6 +3798,7 @@ export default function App({user,onLogout}) {
                             <div>
                               <span style={{fontSize:13,color:"#374151"}}>{c.nome}</span>
                               {!c.recorrente&&<span style={{fontSize:10,background:"#fef3c7",color:"#92400e",borderRadius:6,padding:"1px 6px",marginLeft:6}}>único</span>}
+                              {(()=>{const v=infoVenc(c);return v?<div style={{marginTop:3}}><span style={{fontSize:10,fontWeight:700,background:v.bg,color:v.cor,borderRadius:6,padding:"2px 7px"}}>📅 {v.txt}</span></div>:<div style={{marginTop:3}}><span style={{fontSize:10,color:"#94a3b8"}}>sem vencimento — clique em ✏️ para definir</span></div>;})()}
                               {c.observacoes&&<div style={{fontSize:10,color:"#94a3b8",fontStyle:"italic"}}>{c.observacoes}</div>}
                             </div>
                             <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -3990,6 +4016,12 @@ export default function App({user,onLogout}) {
                       </div>
                     </div>
                     <div>
+                      <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Data de vencimento *</label>
+                      <input type="date" value={custoVenc} onChange={e=>setCustoVenc(e.target.value)}
+                        style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      {custoRecorrente&&<span style={{fontSize:10,color:"#94a3b8"}}>Como é recorrente, o vencimento se repete todo mês nesse mesmo dia.</span>}
+                    </div>
+                    <div>
                       <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Observações</label>
                       <input value={custoObs} onChange={e=>setCustoObs(e.target.value)} placeholder="Ex: vence dia 10, parcela 3/12..."
                         style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
@@ -4001,8 +4033,8 @@ export default function App({user,onLogout}) {
                   </div>
                   <div style={{display:"flex",gap:10,marginTop:18}}>
                     <button onClick={()=>setShowCustoForm(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
-                    <button onClick={salvarCusto} disabled={!custoNome.trim()||!custoValor||salvandoCusto}
-                      style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:(custoNome.trim()&&custoValor)?"#059669":"#e2e8f0",color:(custoNome.trim()&&custoValor)?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                    <button onClick={salvarCusto} disabled={!custoNome.trim()||!custoValor||!custoVenc||salvandoCusto}
+                      style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:(custoNome.trim()&&custoValor&&custoVenc)?"#059669":"#e2e8f0",color:(custoNome.trim()&&custoValor&&custoVenc)?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
                       {salvandoCusto?"Salvando...":"Salvar custo"}
                     </button>
                   </div>
