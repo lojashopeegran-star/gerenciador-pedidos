@@ -1210,3 +1210,24 @@ export async function fetchPedidosUpseller(orgId, f = {}) {
   })
   return error ? { error: error.message } : (data || { total: 0, linhas: [] })
 }
+
+// ── Kits de matérias-primas (ex: Tinta 4 cores) ───────────────────────────────
+export async function fetchKits(orgId) {
+  if (!orgId) return []
+  const { data } = await supabase.from('mp_kits').select('*').eq('organizacao_id', orgId).eq('ativo', true).order('nome')
+  return data || []
+}
+// itens: [{ mpId, fator }]  (fator = quanto de cada matéria-prima vai em 1 unidade do kit)
+export async function salvarKit(orgId, kit) {
+  const payload = { nome: kit.nome, itens: kit.itens, organizacao_id: orgId }
+  if (kit.id) {
+    const { error } = await supabase.from('mp_kits').update({ nome: kit.nome, itens: kit.itens }).eq('id', kit.id)
+    return error ? { error: error.message } : { success: true, id: kit.id }
+  }
+  const { data, error } = await supabase.from('mp_kits').insert(payload).select('id').single()
+  return error ? { error: error.message } : { success: true, id: data.id }
+}
+export async function excluirKit(id) {
+  const { error } = await supabase.from('mp_kits').update({ ativo: false }).eq('id', id)
+  return error ? { error: error.message } : { success: true }
+}

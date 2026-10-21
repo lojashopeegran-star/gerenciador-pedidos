@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, lazy, Suspense } from "react";
 // XLSX carregado sob demanda para não bloquear o primeiro carregamento
 let _XLSX = null;
 const getXLSX = async () => { if (!_XLSX) _XLSX = await import("xlsx"); return _XLSX; };
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchPedidosMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -601,6 +601,7 @@ export default function App({user,onLogout}) {
         fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
         fetchProdutos(user.id, orgId).then(setProdutosCalc);
         fetchMateriasPrimas(user.id, orgId).then(setMateriasPrimas);
+        fetchKits(orgId).then(setKits);
         fetchFornecedores(user.id, orgId).then(setFornecedores);
         fetchEstoquePlusConfig(user.id, orgId).then(setEstoquePlusConfig);
         fetchCustosFixos(user.id, orgId).then(setCustosFixos);
@@ -644,6 +645,12 @@ export default function App({user,onLogout}) {
   const isAdminEquipe        = membro ? membro.is_admin : true;
   const orgId                = membro?.organizacao_id || null;
   const [pedidosMes, setPedidosMes] = useState(null);
+  const [kits, setKits] = useState([]);
+  const [showKitForm, setShowKitForm] = useState(false);
+  const [editandoKit, setEditandoKit] = useState(null);
+  const [kitNome, setKitNome] = useState("");
+  const [kitItens, setKitItens] = useState([{mpId:"",fator:"1"}]);
+  const [salvandoKit, setSalvandoKit] = useState(false);
   const [ups, setUps] = useState({total:0,linhas:[]});
   const [upsBusca, setUpsBusca] = useState("");
   const [upsBuscaAtiva, setUpsBuscaAtiva] = useState("");
@@ -2895,7 +2902,35 @@ export default function App({user,onLogout}) {
         const delVar = (key) => setProdVars(vs=>vs.length>1?vs.filter(v=>v.key!==key):vs);
 
         const pEdit = {taxa_plataforma_pct:num(prodTaxaPlat,20), taxa_imposto_pct:num(prodTaxaImp,4), taxa_adiantamento_pct:num(prodTaxaAdiant,3.5), taxa_fixa:num(prodTaxaFixa,4)};
-        const custoEditor = (v) => v.mps.reduce((a,m)=>{ const mp=materiasPrimas.find(x=>x.id===m.mpId); return mp ? a+custoUnitMp(mp)*(Number(m.qtd)||0) : a; },0);
+        // Kit: expande em linhas normais de matéria-prima (qtd do kit × fator de cada item)
+        const expandirMps = (mps) => mps.flatMap(m=>{
+          if (m.kitId===undefined) return [m];
+          const kit = kits.find(k=>k.id===m.kitId);
+          return kit ? (kit.itens||[]).map(i=>({mpId:i.mpId,qtd:(Number(m.qtd)||0)*(Number(i.fator)||0)})) : [];
+        });
+        const custoEditor = (v) => expandirMps(v.mps).reduce((a,m)=>{ const mp=materiasPrimas.find(x=>x.id===m.mpId); return mp ? a+custoUnitMp(mp)*(Number(m.qtd)||0) : a; },0);
+        const addVarKit = (key) => setProdVars(vs=>vs.map(v=>v.key===key?{...v,mps:[...v.mps.filter(m=>m.kitId!==undefined||m.mpId),{kitId:"",mpId:"",qtd:""}]}:v));
+        const abrirKitForm = (k=null) => {
+          setEditandoKit(k); setKitNome(k?.nome||"");
+          setKitItens(k&&(k.itens||[]).length?k.itens.map(i=>({mpId:i.mpId,fator:String(i.fator)})):[{mpId:"",fator:"1"}]);
+          setShowKitForm(true);
+        };
+        const salvarKitForm = async () => {
+          const itens = kitItens.filter(i=>i.mpId&&Number(i.fator)>0).map(i=>({mpId:i.mpId,fator:Number(i.fator)}));
+          if (!kitNome.trim()||itens.length===0) { showToast("❌ Dê um nome e escolha ao menos uma matéria-prima.","#991b1b"); return; }
+          setSalvandoKit(true);
+          const r = await salvarKit(orgId, {id:editandoKit?.id,nome:kitNome.trim(),itens});
+          setSalvandoKit(false);
+          if (r.error) { showToast("❌ "+r.error,"#991b1b"); return; }
+          setShowKitForm(false);
+          setKits(await fetchKits(orgId));
+          showToast("✅ Kit salvo!","#059669");
+        };
+        const excluirKitLista = async (k) => {
+          if (!window.confirm(`Remover o kit "${k.nome}"? Produtos que já usam as matérias-primas dele não mudam.`)) return;
+          await excluirKit(k.id);
+          setKits(await fetchKits(orgId));
+        };
 
         const salvarProdutoCalc = async () => {
           if (!prodNome.trim()) return;
@@ -2907,7 +2942,7 @@ export default function App({user,onLogout}) {
             id: v.id,
             nome: v.nome.trim()||"Padrão",
             preco_venda: Number(v.preco)||0,
-            mps: v.mps.filter(m=>m.mpId&&Number(m.qtd)>0).map(m=>({
+            mps: expandirMps(v.mps).filter(m=>m.mpId&&Number(m.qtd)>0).map(m=>({
               materia_prima_id: m.mpId,
               nome: materiasPrimas.find(x=>x.id===m.mpId)?.nome||"",
               qtd_usada: Number(m.qtd),
@@ -3038,10 +3073,28 @@ export default function App({user,onLogout}) {
                 <h3 style={{margin:0,fontSize:16,fontWeight:700,color:"#1e293b"}}>🧱 Matérias-primas</h3>
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={()=>abrirMpForm()} style={{background:"#0d9488",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Nova matéria-prima</button>
+                  <button onClick={()=>abrirKitForm()} style={{background:"#f0fdfa",color:"#0d9488",border:"1.5px solid #99f6e4",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🧰 Novo kit</button>
                   <button onClick={()=>setShowMpLib(false)} style={{background:"#f1f5f9",color:"#374151",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Fechar</button>
                 </div>
               </div>
               <p style={{margin:"0 0 12px",fontSize:12,color:"#64748b"}}>Cadastre aqui uma vez e vincule a quantos produtos e variações quiser.</p>
+              {kits.length>0&&(
+                <div style={{marginBottom:14}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#0d9488",marginBottom:6}}>🧰 Kits</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                    {kits.map(k=>(
+                      <div key={k.id} style={{display:"flex",alignItems:"center",gap:8,background:"#f0fdfa",border:"1px solid #99f6e4",borderRadius:10,padding:"8px 12px",flexWrap:"wrap"}}>
+                        <div style={{flex:1,minWidth:160}}>
+                          <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>{k.nome}</div>
+                          <div style={{fontSize:10,color:"#64748b"}}>{(k.itens||[]).map(i=>`${materiasPrimas.find(x=>x.id===i.mpId)?.nome||"?"}${Number(i.fator)!==1?" ×"+i.fator:""}`).join(" + ")}</div>
+                        </div>
+                        <button onClick={()=>abrirKitForm(k)} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:6,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>✏️</button>
+                        <button onClick={()=>excluirKitLista(k)} style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:6,padding:"4px 8px",fontSize:11,cursor:"pointer"}}>🗑️</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {materiasPrimas.length===0 ? (
                 <div style={{textAlign:"center",padding:"28px 0",color:"#94a3b8",fontSize:13}}>Nenhuma matéria-prima cadastrada ainda.</div>
               ) : (
@@ -3123,6 +3176,24 @@ export default function App({user,onLogout}) {
                       {materiasPrimas.length===0&&<div style={{fontSize:11,color:"#f59e0b",marginBottom:6}}>Nenhuma matéria-prima cadastrada. Use o botão "🧱 + Nova matéria-prima" acima.</div>}
                       <div style={{display:"flex",flexDirection:"column",gap:6}}>
                         {v.mps.map((m,mi)=>{
+                          if (m.kitId!==undefined) {
+                            const kit = kits.find(k=>k.id===m.kitId);
+                            const custoKit = kit ? expandirMps([m]).reduce((a,x)=>{const mp2=materiasPrimas.find(y=>y.id===x.mpId);return mp2?a+custoUnitMp(mp2)*x.qtd:a;},0) : 0;
+                            return (
+                              <div key={mi} style={{background:"#f0fdfa",border:"1.5px solid #99f6e4",borderRadius:10,padding:"8px 8px"}}>
+                                <div style={{display:"grid",gridTemplateColumns:"1fr 90px 30px",gap:6,alignItems:"center"}}>
+                                  <select value={m.kitId} onChange={e=>setVarMp(v.key,mi,{kitId:e.target.value})}
+                                    style={{width:"100%",padding:"8px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",background:"#fff",boxSizing:"border-box"}}>
+                                    <option value="">🧰 Escolher kit…</option>
+                                    {kits.map(k=><option key={k.id} value={k.id}>{k.nome}</option>)}
+                                  </select>
+                                  <input type="number" min="0" step="any" value={m.qtd} onChange={e=>setVarMp(v.key,mi,{qtd:e.target.value})} placeholder="qtd" style={{width:"100%",padding:"8px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",boxSizing:"border-box"}} />
+                                  <button onClick={()=>delVarMp(v.key,mi)} title="Remover" style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:6,height:30,cursor:"pointer",fontSize:12}}>✕</button>
+                                </div>
+                                {kit&&<div style={{fontSize:10,color:"#0d9488",marginTop:4}}>Entra: {(kit.itens||[]).map(i=>materiasPrimas.find(x=>x.id===i.mpId)?.nome||"?").join(" + ")}{Number(m.qtd)>0?` · → R$ ${custoKit.toFixed(2)}`:""}</div>}
+                              </div>
+                            );
+                          }
                           const mp = materiasPrimas.find(x=>x.id===m.mpId);
                           const custoLin = mp ? custoUnitMp(mp)*(Number(m.qtd)||0) : 0;
                           return (
@@ -3145,6 +3216,7 @@ export default function App({user,onLogout}) {
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:10,flexWrap:"wrap",gap:8}}>
                         <div style={{display:"flex",gap:6}}>
                           <button onClick={()=>addVarMp(v.key)} style={{background:"#fff",color:"#7c3aed",border:"1.5px solid #ddd6fe",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Matéria-prima</button>
+                          <button onClick={()=>addVarKit(v.key)} style={{background:"#f0fdfa",color:"#0d9488",border:"1.5px solid #99f6e4",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>🧰 + Kit</button>
                           <button onClick={()=>dupVar(v.key)} style={{background:"#fff",color:"#64748b",border:"1.5px solid #e2e8f0",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>⧉ Duplicar</button>
                           {prodVars.length>1&&<button onClick={()=>delVar(v.key)} style={{background:"#fff",color:"#991b1b",border:"1.5px solid #fecaca",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>🗑️ Remover variação</button>}
                         </div>
@@ -3351,7 +3423,36 @@ export default function App({user,onLogout}) {
           );
         })();
 
-        const modais = <>{mpLibModal}{produtoFormModal}{mpFormModal}{vincModal}</>;
+        const kitFormModal = showKitForm&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto"}}>
+            <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:520,boxShadow:"0 20px 60px rgba(0,0,0,0.2)",margin:"auto"}}>
+              <h3 style={{margin:"0 0 6px",fontSize:15,fontWeight:700}}>{editandoKit?"✏️ Editar kit":"🧰 Novo kit"}</h3>
+              <p style={{margin:"0 0 12px",fontSize:11,color:"#64748b"}}>Junte matérias-primas que sempre são usadas juntas (ex: as 4 cores de tinta). No produto você liga o kit uma vez, com a quantidade, e cada material entra com seu custo e sua baixa de estoque.</p>
+              <label style={lbl}>Nome do kit *</label>
+              <input value={kitNome} onChange={e=>setKitNome(e.target.value)} placeholder="Ex: Tinta 4 cores" style={{...inp,marginBottom:12}} />
+              <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:6}}>Matérias-primas do kit (e quanto de cada uma entra em 1 unidade do kit)</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {kitItens.map((it,i)=>(
+                  <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 80px 30px",gap:6,alignItems:"center"}}>
+                    <select value={it.mpId} onChange={e=>setKitItens(l=>l.map((x,j)=>j===i?{...x,mpId:e.target.value}:x))}
+                      style={{width:"100%",padding:"8px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",background:"#fff",boxSizing:"border-box"}}>
+                      <option value="">Escolher matéria-prima…</option>
+                      {materiasPrimas.map(x=><option key={x.id} value={x.id}>{x.nome}</option>)}
+                    </select>
+                    <input type="number" min="0" step="any" value={it.fator} onChange={e=>setKitItens(l=>l.map((x,j)=>j===i?{...x,fator:e.target.value}:x))} title="Quanto entra por unidade do kit" style={{width:"100%",padding:"8px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",boxSizing:"border-box"}} />
+                    <button onClick={()=>setKitItens(l=>l.length>1?l.filter((_,j)=>j!==i):[{mpId:"",fator:"1"}])} style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:6,height:30,cursor:"pointer",fontSize:12}}>✕</button>
+                  </div>
+                ))}
+              </div>
+              <button onClick={()=>setKitItens(l=>[...l,{mpId:"",fator:"1"}])} style={{marginTop:8,background:"#fff",color:"#0d9488",border:"1.5px solid #99f6e4",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Adicionar matéria-prima</button>
+              <div style={{display:"flex",gap:10,marginTop:18}}>
+                <button onClick={()=>setShowKitForm(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                <button onClick={salvarKitForm} disabled={salvandoKit} style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:"#0d9488",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>{salvandoKit?"Salvando…":"Salvar kit"}</button>
+              </div>
+            </div>
+          </div>
+        );
+        const modais = <>{mpLibModal}{produtoFormModal}{mpFormModal}{kitFormModal}{vincModal}</>;
 
         // ── Detalhe do produto ──────────────────────────────────────────────
         if (produtoAtivo) {
