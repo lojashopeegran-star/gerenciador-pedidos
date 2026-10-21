@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, lazy, Suspense } from "react";
 // XLSX carregado sob demanda para não bloquear o primeiro carregamento
 let _XLSX = null;
 const getXLSX = async () => { if (!_XLSX) _XLSX = await import("xlsx"); return _XLSX; };
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchPedidosMes, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchPedidosMes, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -657,12 +657,63 @@ export default function App({user,onLogout}) {
       .then(([cf,pg,cons])=>{ setAlertaContas({custos:cf||[],pagos:pg||[],mes}); setConsumo30(cons||{}); })
       .catch(()=>{});
   }, [orgId, user?.id, isAdminEquipe, custosFixos.length, custosPagos.length, estoqueProdutos.length]);
+  useEffect(() => {
+    if (!orgId || !isAdminEquipe) return;
+    let vivo = true;
+    fetchProjecao(orgId, finMes).then(r=>{
+      if (!vivo) return;
+      const d = r?.dados || {};
+      setProjBase(d.base||"compras"); setProjEstoque(d.estoque??""); setProjOutros(d.outros??""); setProjLucro(d.lucro??"");
+      setProjJa(d.ja??""); setProjMix(d.mix||{});
+      setProjSalvaEm(r ? {quando:r.atualizado_em, quem:r.atualizado_por} : null);
+    }).catch(()=>{});
+    return ()=>{ vivo = false; };
+  }, [finMes, orgId, isAdminEquipe]);
+  const salvarProjecaoMes = async () => {
+    setSalvandoProj(true);
+    const r = await salvarProjecao(orgId, finMes, {base:projBase, estoque:projEstoque, outros:projOutros, lucro:projLucro, ja:projJa, mix:projMix}, meuNome);
+    setSalvandoProj(false);
+    if (r.error) { showToast("❌ "+r.error,"#991b1b"); return; }
+    setProjSalvaEm({quando:new Date().toISOString(), quem:meuNome});
+    showToast("💾 Projeção de "+finMes+" salva!","#059669");
+  };
+  const exportarContador = async () => {
+    const R2 = (n)=>Math.round((Number(n)||0)*100)/100;
+    const [fy,fm] = finMes.split("-").map(Number);
+    const venc = (c)=>{ if(!c.data_vencimento) return ""; const b=String(c.data_vencimento).slice(0,10).split("-").map(Number); const dia=c.recorrente!==false?Math.min(b[2],new Date(fy,fm,0).getDate()):b[2]; const d=c.recorrente!==false?new Date(fy,fm-1,dia):new Date(b[0],b[1]-1,b[2]); return d.toLocaleDateString("pt-BR"); };
+    const compras = finMovimentos.map(m=>({Data:new Date(m.criado_em).toLocaleDateString("pt-BR"),Fornecedor:m.fornecedores?.nome||"",Material:m.estoque_produtos?.nome||"",Quantidade:Number(m.quantidade)||0,Unidade:m.estoque_produtos?.unidade||"","Preço unitário (R$)":R2(m.preco_unitario),"Total (R$)":R2((m.preco_unitario||0)*m.quantidade),"Nota fiscal":m.nota_fiscal||""}));
+    const saidas = finSaidas.map(m=>({Data:new Date(m.criado_em).toLocaleDateString("pt-BR"),Material:m.estoque_produtos?.nome||"",Quantidade:Number(m.quantidade)||0,Unidade:m.estoque_produtos?.unidade||"","Custo (R$)":R2((Number(m.quantidade)||0)*(Number(m.estoque_produtos?.preco_unitario)||0)),Motivo:m.motivo||""}));
+    const custos = custosFixos.map(c=>({Custo:c.nome,Categoria:c.categoria||"","Valor (R$)":R2(c.valor),Vencimento:venc(c),Recorrente:c.recorrente!==false?"Sim":"Não",Situação:custosPagos.includes(c.id)?"Pago":"A pagar"}));
+    const totCompras = compras.reduce((a,x)=>a+x["Total (R$)"],0);
+    const totSaidas = saidas.reduce((a,x)=>a+x["Custo (R$)"],0);
+    const totCustos = custos.reduce((a,x)=>a+x["Valor (R$)"],0);
+    const totPagos = custos.filter(x=>x.Situação==="Pago").reduce((a,x)=>a+x["Valor (R$)"],0);
+    const resumo = [
+      {Item:"Mês",Valor:finMes},
+      {Item:"Pedidos no mês (UpSeller, sem cancelados)",Valor:pedidosMes?pedidosMes.pedidos:"—"},
+      {Item:"Pedidos cancelados",Valor:pedidosMes?pedidosMes.cancelados:"—"},
+      {Item:"Compras de material (R$)",Valor:R2(totCompras)},
+      {Item:"Material usado no mês (R$)",Valor:R2(totSaidas)},
+      {Item:"Custos fixos do mês (R$)",Valor:R2(totCustos)},
+      {Item:"Custos fixos pagos (R$)",Valor:R2(totPagos)},
+      {Item:"Custos fixos a pagar (R$)",Valor:R2(totCustos-totPagos)},
+    ];
+    const XL = await getXLSX();
+    const wb = XL.utils.book_new();
+    [["Resumo",resumo],["Compras",compras],["Material usado",saidas],["Custos fixos",custos]].forEach(([nome,rows])=>{
+      XL.utils.book_append_sheet(wb, XL.utils.json_to_sheet(rows.length?rows:[{"(vazio)":"Nenhum registro"}]), nome);
+    });
+    XL.writeFile(wb, `contador_${finMes}.xlsx`);
+    showToast("📊 Planilha do contador gerada!","#059669");
+  };
   const minhaCor              = membro?.cor || "#059669";
   const meuNome                = membro?.nome || user?.email?.split("@")[0] || "Você";
   const logOp = (op) => registrarOperacao(orgId, user?.id, meuNome, op);
 
   // ── Histórico de operações (desfazer) ───────────────────────────────────────
   const [pedidosMes, setPedidosMes] = useState(null);
+  const [projSalvaEm, setProjSalvaEm] = useState(null);
+  const [salvandoProj, setSalvandoProj] = useState(false);
   const [alertaContas, setAlertaContas] = useState({custos:[],pagos:[],mes:""});
   const [consumo30, setConsumo30] = useState({});
   const [showVinc, setShowVinc] = useState(false);
@@ -2637,6 +2688,12 @@ export default function App({user,onLogout}) {
                               </>
                             )}
                           </div>
+                          {!ign&&prod&&Number(prod.preco_unitario)>0&&Number(it.preco)>0&&(()=>{
+                            const ant=Number(prod.preco_unitario), novo=Number(it.preco), dif=((novo-ant)/ant)*100;
+                            if (Math.abs(dif)<5) return null;
+                            const sobe=dif>0;
+                            return <div style={{fontSize:11,fontWeight:600,marginTop:4,color:sobe?"#991b1b":"#065f46",background:sobe?"#fde8e8":"#d1fae5",borderRadius:6,padding:"4px 8px"}}>{sobe?"📈 Preço subiu":"📉 Preço caiu"} {Math.abs(dif).toFixed(0)}% vs. a última compra ({fmtBRLn(ant)} → {fmtBRLn(novo)})</div>;
+                          })()}
                           {!ign&&prod&&it.unNota&&mapUnidade(it.unNota)!==prod.unidade&&(
                             <div style={{fontSize:10,color:"#f59e0b",marginTop:4}}>⚠️ A nota vem em "{it.unNota}" e o estoque controla em "{prod.unidade}". Ajuste a quantidade e o preço para a unidade do estoque.</div>
                           )}
@@ -2758,6 +2815,9 @@ export default function App({user,onLogout}) {
         const corMargem = (m) => m===null?"#94a3b8":m>=100?"#059669":m>=50?"#f59e0b":"#ef4444";
         const bgMargem = (m) => m===null?"#f8fafc":m>=100?"#d1fae5":m>=50?"#fffbeb":"#fde8e8";
         const fmtM = (m) => m===null?"—":Math.round(m)+"%";
+        // Margem sobre o preço de venda: quanto do preço vira lucro (depois de taxas e custo)
+        const margemPreco = (p,v) => { const pr=Number(v.preco_venda)||0; return pr>0 ? ((liquidoVar(p,v)-custoVar(v))/pr)*100 : null; };
+        const corMP = (m) => m===null?"#94a3b8":m>=30?"#059669":m>=15?"#f59e0b":"#ef4444";
         const usosDaMp = (mpId) => produtosCalc.reduce((n,p)=>n+(p.produto_variacoes||[]).reduce((k,v)=>k+(v.produto_materias_primas||[]).filter(l=>l.materia_prima_id===mpId).length,0),0);
 
         // ── Editor de produto (novo / editar) ───────────────────────────────
@@ -3265,7 +3325,10 @@ export default function App({user,onLogout}) {
                   <div key={v.id} style={{background:"#fff",borderRadius:14,padding:"16px 18px",marginBottom:14,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
                     <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
                       <div style={{fontSize:14,fontWeight:800,color:"#1e293b"}}>🎛️ {v.nome}</div>
-                      <span style={{fontSize:12,fontWeight:800,color:corMargem(marg),background:bgMargem(marg),borderRadius:8,padding:"3px 10px"}}>Margem {fmtM(marg)}</span>
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                        <span title="Quanto do preço de venda vira lucro" style={{fontSize:12,fontWeight:800,color:corMP(margemPreco(p,v)),background:"#f1f5f9",borderRadius:8,padding:"3px 10px"}}>Margem s/ preço {fmtM(margemPreco(p,v))}</span>
+                        <span title="Valor recebido ÷ custo" style={{fontSize:12,fontWeight:800,color:corMargem(marg),background:bgMargem(marg),borderRadius:8,padding:"3px 10px"}}>Retorno s/ custo {fmtM(marg)}</span>
+                      </div>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,marginBottom:12}}>
                       {[
@@ -3355,7 +3418,7 @@ export default function App({user,onLogout}) {
                       </div>
                       <div style={{overflowX:"auto",marginBottom:10}}>
                         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-                          <thead><tr>{["Variação","Preço","Custo","Recebe","Margem"].map(h=><th key={h} style={{...TH,padding:"5px 6px"}}>{h}</th>)}</tr></thead>
+                          <thead><tr>{["Variação","Preço","Custo","Recebe","Retorno","Margem s/ preço"].map(h=><th key={h} style={{...TH,padding:"5px 6px"}}>{h}</th>)}</tr></thead>
                           <tbody>
                             {vars.map(v=>{
                               const marg = margemVar(p,v);
@@ -3366,6 +3429,7 @@ export default function App({user,onLogout}) {
                                   <td style={{padding:"6px",color:"#f59e0b",fontWeight:700}}>{fmtR(custoVar(v))}</td>
                                   <td style={{padding:"6px",color:"#059669",fontWeight:700}}>{fmtR(liquidoVar(p,v))}</td>
                                   <td style={{padding:"6px"}}><span style={{fontWeight:800,color:corMargem(marg),background:bgMargem(marg),borderRadius:6,padding:"1px 6px"}}>{fmtM(marg)}</span></td>
+                                  <td style={{padding:"6px"}}><span style={{fontWeight:800,color:corMP(margemPreco(p,v))}}>{fmtM(margemPreco(p,v))}</span></td>
                                 </tr>
                               );
                             })}
@@ -4351,6 +4415,7 @@ export default function App({user,onLogout}) {
               <div style={{display:"flex",gap:8,alignItems:"center"}}>
                 <input type="month" value={finMes} onChange={e=>{setFinMes(e.target.value);fetchMovimentosComPreco(user.id,orgId,e.target.value).then(setFinMovimentos);}}
                   style={{padding:"7px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none"}} />
+                <button onClick={exportarContador} style={{background:"#eff6ff",color:"#1d4ed8",border:"none",borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>📊 Exportar p/ contador</button>
                 <button onClick={reloadFin} style={{background:"#d1fae5",color:"#065f46",border:"none",borderRadius:8,padding:"7px 12px",fontSize:12,cursor:"pointer"}}>🔄</button>
                 <button onClick={()=>{setEstoquePlusDesbloqueado(false);}} style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:10,padding:"7px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🔒 Trancar</button>
               </div>
@@ -4543,7 +4608,13 @@ export default function App({user,onLogout}) {
               const lb = {fontSize:10,fontWeight:600,color:"#64748b",display:"block",marginBottom:2};
               return (
                 <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
-                  <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:4}}>🎯 Calculadora de projeção — {finMes}</div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap",marginBottom:4}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>🎯 Calculadora de projeção — {finMes}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      {projSalvaEm&&<span style={{fontSize:10,color:"#64748b"}}>salva {quandoFmt(projSalvaEm.quando)}{projSalvaEm.quem?` por ${projSalvaEm.quem}`:""}</span>}
+                      <button onClick={salvarProjecaoMes} disabled={salvandoProj} style={{background:"#059669",color:"#fff",border:"none",borderRadius:8,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{salvandoProj?"Salvando…":"💾 Salvar projeção"}</button>
+                    </div>
+                  </div>
                   <div style={{fontSize:11,color:"#94a3b8",marginBottom:12}}>Quanto você precisa vender no mês para cobrir os custos (ponto de equilíbrio).</div>
 
                   {/* O que precisa ser coberto */}

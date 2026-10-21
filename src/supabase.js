@@ -1173,3 +1173,15 @@ export async function fetchConsumoRecente(userId, orgId, dias = 30) {
   ;(data || []).forEach(m => { mapa[m.produto_id] = (mapa[m.produto_id] || 0) + (Number(m.quantidade) || 0) })
   return mapa
 }
+
+// Projeção salva por mês (só administradores)
+export async function fetchProjecao(orgId, mes) {
+  const { data } = await supabase.from('projecoes_mes').select('*').eq('organizacao_id', orgId).eq('mes', mes).maybeSingle()
+  return data || null
+}
+export async function salvarProjecao(orgId, mes, dados, nome) {
+  const { error } = await supabase.from('projecoes_mes').upsert(
+    { organizacao_id: orgId, mes, dados, atualizado_em: new Date().toISOString(), atualizado_por: nome || null },
+    { onConflict: 'organizacao_id,mes' })
+  return error ? { error: error.message } : { success: true }
+}
