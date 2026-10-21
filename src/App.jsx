@@ -3703,7 +3703,13 @@ export default function App({user,onLogout}) {
         // Chat
         const contextoFinanceiro = {
           mes: finMes,
-          custos_fixos: custosFixos,
+          hoje: new Date().toLocaleDateString("pt-BR"),
+          custos_fixos: custosFixos.map(c=>{
+            const pago = custosPagos.includes(c.id);
+            return {nome:c.nome,categoria:c.categoria,valor:c.valor,recorrente:c.recorrente!==false,pago,situacao:infoVenc(c,pago)?.txt||"sem vencimento"};
+          }),
+          total_pago: custosFixos.filter(c=>custosPagos.includes(c.id)).reduce((s,c)=>s+Number(c.valor),0),
+          total_a_pagar: custosFixos.filter(c=>!custosPagos.includes(c.id)).reduce((s,c)=>s+Number(c.valor),0),
           total_fixos: totalFixos,
           total_material: totalMaterial,
           total_geral: totalGeral,
