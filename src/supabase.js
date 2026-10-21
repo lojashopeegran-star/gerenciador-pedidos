@@ -624,6 +624,8 @@ export async function salvarMateriaPrimaLib(userId, orgId, mp) {
     custo_unidade_compra: mp.custo_unidade_compra || 0,
     qtd_por_unidade_compra: mp.qtd_por_unidade_compra || 1,
     unidade: mp.unidade || 'un',
+    estoque_produto_id: mp.estoque_produto_id || null,
+    rendimento_estoque: mp.rendimento_estoque || null,
   }
   if (orgId) payload.organizacao_id = orgId; else payload.user_id = userId
   if (mp.id) {
@@ -853,7 +855,7 @@ export const pick = (o, cols) => Object.fromEntries(cols.filter(c => o && c in o
 export const COLS_ESTOQUE_PROD = ['nome', 'unidade', 'quantidade_atual', 'quantidade_minima', 'preco_unitario', 'fornecedor_id', 'link_produto', 'observacoes', 'categoria']
 export const COLS_FORNECEDOR = ['nome', 'contato', 'site_link', 'observacoes']
 export const COLS_CUSTO = ['nome', 'categoria', 'valor', 'recorrente', 'observacoes', 'data_vencimento']
-export const COLS_MP = ['nome', 'custo_unidade_compra', 'qtd_por_unidade_compra', 'unidade']
+export const COLS_MP = ['nome', 'custo_unidade_compra', 'qtd_por_unidade_compra', 'unidade', 'estoque_produto_id', 'rendimento_estoque']
 export const COLS_MOV = ['id', 'produto_id', 'tipo', 'quantidade', 'motivo', 'preco_unitario', 'fornecedor_id', 'nota_fiscal']
 
 // Foto completa de um produto (taxas + variações + matérias-primas) para poder restaurar
@@ -910,7 +912,7 @@ async function _reverter(op, ctx) {
   const { tabela, acao, registro_id: id, antes, depois } = op
   const { userId, orgId } = ctx
 
-  if (tabela === 'nota_fiscal') return { success: true } // linha-resumo do lote; as ações filhas é que revertem
+  if (tabela === 'nota_fiscal' || tabela === 'baixa_pedidos') return { success: true } // linha-resumo do lote; as ações filhas é que revertem
 
   if (tabela === 'estoque_movimentos') {
     const m = depois
@@ -1111,4 +1113,52 @@ export async function limparChatFinanceiro(userId, orgId) {
   q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
   const { error } = await q
   return error ? { error: error.message } : { success: true }
+}
+
+
+// ── UpSeller: pedidos do mês, vínculos de variação e baixa automática ─────────
+export async function fetchPedidosMes(mes) {
+  const { data, error } = await supabase.rpc('pedidos_mes_resumo', { p_mes: mes })
+  return error ? { error: error.message } : (data || { pedidos: 0, unidades: 0, cancelados: 0 })
+}
+
+export async function fetchVariacoesUpseller(orgId) {
+  const { data, error } = await supabase.rpc('variacoes_upseller', { p_org: orgId })
+  return error ? { error: error.message } : (data || [])
+}
+
+export async function fetchVinculos(orgId) {
+  const { data } = await supabase.from('variacao_vinculos').select('*').eq('organizacao_id', orgId)
+  return data || []
+}
+
+// variacaoId vazio = remove o vínculo
+export async function salvarVinculo(orgId, chave, texto, variacaoId) {
+  if (!variacaoId) {
+    const { error } = await supabase.from('variacao_vinculos').delete().eq('organizacao_id', orgId).eq('chave', chave)
+    return error ? { error: error.message } : { success: true }
+  }
+  const { error } = await supabase.from('variacao_vinculos').upsert(
+    { organizacao_id: orgId, chave, variacao_texto: texto, variacao_id: variacaoId },
+    { onConflict: 'organizacao_id,chave' })
+  return error ? { error: error.message } : { success: true }
+}
+
+export async function fetchBaixaResumo(orgId) {
+  const { data, error } = await supabase.rpc('baixa_resumo', { p_org: orgId })
+  return error ? { error: error.message } : (data || { ativo: false })
+}
+
+export async function ativarBaixa(orgId, ativo) {
+  const { data: atual } = await supabase.from('baixa_config').select('*').eq('organizacao_id', orgId).maybeSingle()
+  const payload = { organizacao_id: orgId, ativo, atualizado_em: new Date().toISOString() }
+  // "desde" só é definido na primeira ativação: pedidos anteriores nunca são baixados
+  if (!atual) payload.desde = new Date().toISOString()
+  const { error } = await supabase.from('baixa_config').upsert(payload, { onConflict: 'organizacao_id' })
+  return error ? { error: error.message } : { success: true }
+}
+
+export async function processarBaixa(orgId) {
+  const { data, error } = await supabase.rpc('processar_baixa_pedidos', { p_org: orgId })
+  return error ? { error: error.message } : data
 }

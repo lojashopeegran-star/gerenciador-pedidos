@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, lazy, Suspense } from "react";
 // XLSX carregado sob demanda para não bloquear o primeiro carregamento
 let _XLSX = null;
 const getXLSX = async () => { if (!_XLSX) _XLSX = await import("xlsx"); return _XLSX; };
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, registrarOperacao, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchPedidosMes, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -531,6 +531,8 @@ export default function App({user,onLogout}) {
   const [mpQtdPorCompra,        setMpQtdPorCompra]        = useState("");
   const [mpQtdUsada,            setMpQtdUsada]            = useState("");
   const [mpUnidade,             setMpUnidade]             = useState("folha");
+  const [mpEstoqueId,           setMpEstoqueId]           = useState("");
+  const [mpRendimento,          setMpRendimento]          = useState("");
   const [salvandoMp,            setSalvandoMp]            = useState(false);
   const [mpModoDimensao,        setMpModoDimensao]        = useState(false);
   // campos modo dimensão (rolo/folha)
@@ -646,12 +648,21 @@ export default function App({user,onLogout}) {
     if (!user || !orgId) return;
     fetchPagamentosCustos(user.id, orgId, finMes).then(setCustosPagos);
     fetchSaidasMes(user.id, orgId, finMes).then(setFinSaidas);
+    fetchPedidosMes(finMes).then(r=>setPedidosMes(r&&!r.error?r:null));
   }, [finMes, orgId, user?.id]);
   const minhaCor              = membro?.cor || "#059669";
   const meuNome                = membro?.nome || user?.email?.split("@")[0] || "Você";
   const logOp = (op) => registrarOperacao(orgId, user?.id, meuNome, op);
 
   // ── Histórico de operações (desfazer) ───────────────────────────────────────
+  const [pedidosMes, setPedidosMes] = useState(null);
+  const [showVinc, setShowVinc] = useState(false);
+  const [vincLista, setVincLista] = useState([]);
+  const [vincCarregando, setVincCarregando] = useState(false);
+  const [vincBusca, setVincBusca] = useState("");
+  const [vincSo, setVincSo] = useState("pendentes");
+  const [baixaInfo, setBaixaInfo] = useState(null);
+  const [baixaBusy, setBaixaBusy] = useState(false);
   const [showHistorico, setShowHistorico] = useState(false);
   const [operacoes, setOperacoes] = useState([]);
   const [carregandoOps, setCarregandoOps] = useState(false);
@@ -668,6 +679,44 @@ export default function App({user,onLogout}) {
     setEstoqueProdutos(ep); setEstoqueMovimentos(em); setFornecedores(fo); setCustosFixos(cf); setMateriasPrimas(mp); setProdutosCalc(pr);
     setFinMovimentos(fm); setFinSaidas(fs); setCustosPagos(pg); setMovimentosMes(mm);
     setProdutoAtivo(a=>a ? (pr.find(p=>p.id===a.id)||null) : a);
+  };
+  const carregarBaixaInfo = async () => {
+    if (!orgId) return;
+    const r = await fetchBaixaResumo(orgId);
+    setBaixaInfo(r && !r.error ? r : {ativo:false});
+  };
+  const abrirVinc = async () => {
+    setShowVinc(true); setVincCarregando(true);
+    const [lista] = await Promise.all([fetchVariacoesUpseller(orgId), carregarBaixaInfo()]);
+    if (lista?.error) { showToast("❌ "+lista.error,"#991b1b"); setVincLista([]); }
+    else setVincLista(lista||[]);
+    setVincCarregando(false);
+  };
+  const escolherVinculo = async (it, variacaoId) => {
+    const r = await salvarVinculo(orgId, it.chave, it.variacao, variacaoId);
+    if (r.error) { showToast("❌ "+r.error,"#991b1b"); return; }
+    setVincLista(l=>l.map(x=>x.chave===it.chave?{...x,variacao_id:variacaoId||null}:x));
+    carregarBaixaInfo();
+  };
+  const alternarBaixa = async () => {
+    const novo = !baixaInfo?.ativo;
+    if (novo && !window.confirm("Ativar a baixa automática? A partir de agora, cada pedido novo do UpSeller com variação vinculada vai descontar os materiais do estoque. Pedidos anteriores NÃO serão baixados. Você pode desfazer pelo 🕘 Histórico.")) return;
+    setBaixaBusy(true);
+    const r = await ativarBaixa(orgId, novo);
+    setBaixaBusy(false);
+    if (r.error) { showToast("❌ "+r.error,"#991b1b"); return; }
+    showToast(novo?"✅ Baixa automática ativada!":"⏸️ Baixa automática pausada.","#059669");
+    carregarBaixaInfo();
+  };
+  const rodarBaixa = async () => {
+    setBaixaBusy(true);
+    const r = await processarBaixa(orgId);
+    setBaixaBusy(false);
+    if (r?.error) { showToast("❌ "+r.error,"#991b1b"); return; }
+    if (!r?.ativo) { showToast("A baixa automática está pausada.","#64748b"); return; }
+    if (!r.pedidos) showToast("Nenhum pedido novo para baixar.","#64748b");
+    else { showToast(`✅ ${r.pedidos} pedido(s) baixado(s) · ${r.materiais} material(is) atualizados.`,"#059669"); await recarregarTudo(); }
+    carregarBaixaInfo();
   };
   const abrirHistorico = async () => {
     setShowHistorico(true); setCarregandoOps(true);
@@ -2740,6 +2789,7 @@ export default function App({user,onLogout}) {
         const abrirMpForm = (mp = null) => {
           setEditandoMp(mp);
           setMpNome(mp?.nome||""); setMpCustoCompra(mp?String(mp.custo_unidade_compra):""); setMpQtdPorCompra(mp?String(mp.qtd_por_unidade_compra):""); setMpUnidade(mp?.unidade||"folha");
+          setMpEstoqueId(mp?.estoque_produto_id||""); setMpRendimento(mp?.rendimento_estoque?String(mp.rendimento_estoque):"");
           setMpModoDimensao(false); setMpRoloLargura(""); setMpRoloComprimento(""); setMpCorteL(""); setMpCorteC(""); setMpUnidadeCorte("folha");
           setShowMpForm(true);
         };
@@ -2797,6 +2847,8 @@ export default function App({user,onLogout}) {
             custo_unidade_compra: Number(mpCustoCompra)||0,
             qtd_por_unidade_compra: Number(mpQtdPorCompra)||1,
             unidade: mpUnidade,
+            estoque_produto_id: mpEstoqueId||null,
+            rendimento_estoque: mpEstoqueId&&Number(mpRendimento)>0 ? Number(mpRendimento) : null,
           });
           setSalvandoMp(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
@@ -3031,6 +3083,26 @@ export default function App({user,onLogout}) {
                   </div>
                   {mpCustoCompra&&mpQtdPorCompra&&<span style={{fontSize:10,color:"#059669",fontWeight:600}}>→ R$ {(Number(mpCustoCompra)/Number(mpQtdPorCompra)).toFixed(2)} por {mpUnidade}</span>}
                 </div>
+                <div style={{background:"#f0fdfa",border:"1.5px solid #99f6e4",borderRadius:12,padding:"12px 14px"}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#0d9488",marginBottom:6}}>📦 Baixa automática no estoque (opcional)</div>
+                  <label style={{fontSize:10,fontWeight:600,color:"#64748b",display:"block",marginBottom:2}}>Item do Estoque que será descontado</label>
+                  <select value={mpEstoqueId} onChange={e=>setMpEstoqueId(e.target.value)}
+                    style={{width:"100%",padding:"8px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",background:"#fff",boxSizing:"border-box"}}>
+                    <option value="">Não descontar do estoque</option>
+                    {estoqueProdutos.filter(x=>x.ativo!==false).map(x=><option key={x.id} value={x.id}>{x.nome} ({x.unidade})</option>)}
+                  </select>
+                  {mpEstoqueId&&(()=>{
+                    const ep = estoqueProdutos.find(x=>x.id===mpEstoqueId);
+                    return (
+                      <div style={{marginTop:8}}>
+                        <label style={{fontSize:10,fontWeight:600,color:"#64748b",display:"block",marginBottom:2}}>Rendimento: 1 {ep?.unidade||"un"} do estoque rende quantos(as) {mpUnidade}?</label>
+                        <input type="number" min="0" step="any" value={mpRendimento} onChange={e=>setMpRendimento(e.target.value)} placeholder={mpQtdPorCompra?`Vazio = ${mpQtdPorCompra} (a qtd da compra)`:"Ex: 5000"}
+                          style={{width:"100%",padding:"8px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                        <div style={{fontSize:10,color:"#64748b",marginTop:4}}>Ex: tinta que rende 5000 impressões A4 → 1 frasco = 5000 folha. Cada pedido desconta (folhas usadas ÷ rendimento) do estoque.</div>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
               <div style={{display:"flex",gap:10,marginTop:18}}>
                 <button onClick={()=>setShowMpForm(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
@@ -3043,7 +3115,67 @@ export default function App({user,onLogout}) {
           </div>
         );
 
-        const modais = <>{mpLibModal}{produtoFormModal}{mpFormModal}</>;
+        const opcoesVar = [];
+        produtosCalc.forEach(pr=>(pr.produto_variacoes||[]).forEach(v=>opcoesVar.push({id:v.id,nome:`${pr.nome}${v.nome?" — "+v.nome:""}`})));
+        const vincModal = showVinc&&(()=>{
+          const q = _norm(vincBusca);
+          const lista = vincLista.filter(x=>(vincSo==="todas"||!x.variacao_id)&&(!q||_norm(x.variacao).includes(q)));
+          const pend = vincLista.filter(x=>!x.variacao_id).length;
+          return (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:16,overflowY:"auto"}}>
+            <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:820,boxShadow:"0 20px 60px rgba(0,0,0,0.2)",margin:"auto"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap",marginBottom:10}}>
+                <h3 style={{margin:0,fontSize:16,fontWeight:700,color:"#1e293b"}}>🔗 Vincular variações do UpSeller</h3>
+                <button onClick={()=>setShowVinc(false)} style={{background:"#f1f5f9",color:"#374151",border:"none",borderRadius:8,padding:"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>Fechar</button>
+              </div>
+              <p style={{margin:"0 0 12px",fontSize:12,color:"#64748b"}}>Vincule cada variação que aparece nos pedidos a uma variação de produto cadastrada. Depois disso, todo pedido novo com essa variação desconta do estoque as matérias-primas do produto (usando o rendimento de cada material).</p>
+              <div style={{background:baixaInfo?.ativo?"#ecfdf5":"#fffbeb",border:`1px solid ${baixaInfo?.ativo?"#a7f3d0":"#fde68a"}`,borderRadius:12,padding:"12px 14px",marginBottom:12}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+                  <div style={{fontSize:13,fontWeight:700,color:baixaInfo?.ativo?"#065f46":"#92400e"}}>{baixaInfo?.ativo?"🟢 Baixa automática ATIVA":"⏸️ Baixa automática desativada"}</div>
+                  <div style={{display:"flex",gap:8}}>
+                    {baixaInfo?.ativo&&<button disabled={baixaBusy} onClick={rodarBaixa} style={{background:"#0d9488",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{baixaBusy?"...":"▶ Processar agora"}</button>}
+                    <button disabled={baixaBusy} onClick={alternarBaixa} style={{background:"#fff",color:"#374151",border:"1.5px solid #e2e8f0",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{baixaInfo?.ativo?"Pausar":"Ativar"}</button>
+                  </div>
+                </div>
+                {baixaInfo?.desde&&<div style={{fontSize:11,color:"#475569",marginTop:6}}>Vale para pedidos feitos a partir de {new Date(baixaInfo.desde).toLocaleString("pt-BR")} · {baixaInfo.processados||0} já baixado(s){baixaInfo.sem_vinculo>0?` · ${baixaInfo.sem_vinculo} pedido(s) com variação sem vínculo`:""}{baixaInfo.sem_material>0?` · ${baixaInfo.sem_material} aguardando processar`:""}</div>}
+                <div style={{fontSize:10,color:"#94a3b8",marginTop:4}}>A baixa só acontece para produtos cuja matéria-prima está ligada a um item do Estoque (em 🧱 Matérias-primas). Cada baixa pode ser desfeita no 🕘 Histórico.</div>
+              </div>
+              <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+                <input value={vincBusca} onChange={e=>setVincBusca(e.target.value)} placeholder="Buscar variação…" style={{...inp,flex:1,minWidth:160}} />
+                <select value={vincSo} onChange={e=>setVincSo(e.target.value)} style={{padding:"8px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:12,background:"#fff"}}>
+                  <option value="pendentes">Sem vínculo ({pend})</option>
+                  <option value="todas">Todas ({vincLista.length})</option>
+                </select>
+              </div>
+              {vincCarregando ? <div style={{textAlign:"center",padding:24,color:"#94a3b8",fontSize:13}}>Carregando…</div>
+              : lista.length===0 ? <div style={{textAlign:"center",padding:24,color:"#94a3b8",fontSize:13}}>{vincLista.length===0?"Nenhuma variação encontrada nos pedidos.":"Nada por aqui 🎉"}</div>
+              : (
+                <div style={{display:"flex",flexDirection:"column",gap:8,maxHeight:"55vh",overflowY:"auto"}}>
+                  {lista.map(it=>{
+                    const sug = !it.variacao_id ? melhorMatch(it.variacao, opcoesVar, 0.45) : null;
+                    return (
+                      <div key={it.chave} style={{border:"1px solid #e2e8f0",borderRadius:12,padding:"10px 12px",background:it.variacao_id?"#f0fdf4":"#fff"}}>
+                        <div style={{fontSize:12,fontWeight:600,color:"#1e293b",wordBreak:"break-word"}}>{it.variacao}</div>
+                        <div style={{fontSize:10,color:"#94a3b8",margin:"2px 0 6px"}}>{it.pedidos} pedido(s) · {it.unidades} un · último {new Date(it.ultimo).toLocaleDateString("pt-BR")}</div>
+                        <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                          <select value={it.variacao_id||""} onChange={e=>escolherVinculo(it,e.target.value)}
+                            style={{flex:1,minWidth:200,padding:"7px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",background:"#fff"}}>
+                            <option value="">— Sem vínculo —</option>
+                            {opcoesVar.map(o=><option key={o.id} value={o.id}>{o.nome}</option>)}
+                          </select>
+                          {sug&&<button onClick={()=>escolherVinculo(it,sug.id)} style={{background:"#f5f3ff",color:"#6d28d9",border:"1px solid #ddd6fe",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>💡 {sug.nome}</button>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+          );
+        })();
+
+        const modais = <>{mpLibModal}{produtoFormModal}{mpFormModal}{vincModal}</>;
 
         // ── Detalhe do produto ──────────────────────────────────────────────
         if (produtoAtivo) {
@@ -3056,6 +3188,7 @@ export default function App({user,onLogout}) {
                 <button onClick={()=>setProdutoAtivo(null)} style={{background:"#f1f5f9",border:"none",borderRadius:10,padding:"8px 14px",fontSize:13,cursor:"pointer",color:"#374151",fontWeight:600}}>← Voltar</button>
                 <h2 style={{margin:0,fontSize:17,fontWeight:800,color:"#1e293b",flex:1}}>{p.nome}</h2>
                 <button onClick={()=>setShowMpLib(true)} style={{background:"#f0fdfa",border:"1px solid #99f6e4",borderRadius:10,padding:"8px 14px",fontSize:12,cursor:"pointer",color:"#0d9488",fontWeight:700}}>🧱 Matérias-primas</button>
+                <button onClick={abrirVinc} style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:10,padding:"8px 14px",fontSize:12,cursor:"pointer",color:"#1d4ed8",fontWeight:700}}>🔗 Vincular UpSeller</button>
                 <button onClick={()=>abrirFormEditarProd(p)} style={{background:"#f1f5f9",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12,cursor:"pointer",color:"#374151"}}>✏️ Editar produto</button>
               </div>
 
@@ -3143,6 +3276,9 @@ export default function App({user,onLogout}) {
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 <button onClick={()=>setShowMpLib(true)} style={{background:"#f0fdfa",color:"#0d9488",border:"1.5px solid #99f6e4",borderRadius:10,padding:"9px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
                   🧱 Matérias-primas
+                </button>
+                <button onClick={abrirVinc} style={{background:"#eff6ff",color:"#1d4ed8",border:"1.5px solid #bfdbfe",borderRadius:10,padding:"9px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                  🔗 Vincular UpSeller
                 </button>
                 <button onClick={abrirFormNovoProd} style={{background:"linear-gradient(135deg,#7c3aed,#6d28d9)",color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
                   + Novo Produto
@@ -4314,7 +4450,8 @@ export default function App({user,onLogout}) {
               const outros = Number(projOutros)||0;
               const lucroDes = Number(projLucro)||0;
               const usaCompras = projBase==="compras";
-              const ja = Number(projJa)||0;
+              const jaAuto = pedidosMes?.pedidos||0;
+              const ja = projJa!=="" ? (Number(projJa)||0) : jaAuto;
               // Saídas do estoque do mês, agrupadas por material e valorizadas pelo preço cadastrado no Estoque+
               const saidasMap = {};
               finSaidas.forEach(m=>{
@@ -4435,8 +4572,9 @@ export default function App({user,onLogout}) {
                     )}
                     {semPreco>0&&<div style={{fontSize:10,color:"#f59e0b",marginTop:6}}>⚠️ {semPreco} material(is) sem preço no Estoque+ — o custo deles está contando como R$ 0,00.</div>}
                     <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginTop:10}}>
-                      <label style={{fontSize:11,fontWeight:600,color:"#0369a1"}}>Pedidos/unidades vendidos no mês:</label>
-                      <input type="number" min="0" value={projJa} onChange={e=>setProjJa(e.target.value)} placeholder="Ex: 120" style={{...inp,width:100}} />
+                      <label style={{fontSize:11,fontWeight:600,color:"#0369a1"}}>Pedidos do mês (UpSeller):</label>
+                      <input type="number" min="0" value={projJa} onChange={e=>setProjJa(e.target.value)} placeholder={pedidosMes?`${jaAuto} (automático)`:"Ex: 120"} style={{...inp,width:130}} />
+                      {pedidosMes&&<span style={{fontSize:10,color:"#64748b"}}>{projJa===""?"usando o valor automático":"valor manual"} · {pedidosMes.cancelados||0} cancelado(s) fora da conta{projJa!==""&&<> · <a href="#" onClick={e=>{e.preventDefault();setProjJa("");}} style={{color:"#0369a1"}}>voltar ao automático</a></>}</span>}
                     </div>
                     {matPorPedido!==null&&(
                       <div style={{marginTop:8,fontSize:13,color:"#0c4a6e"}}>
@@ -4488,7 +4626,7 @@ export default function App({user,onLogout}) {
                         </div>
                         <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid rgba(255,255,255,.25)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                           <label style={{fontSize:11,opacity:.9}}>Já vendi no mês (unidades):</label>
-                          <input type="number" min="0" value={projJa} onChange={e=>setProjJa(e.target.value)} placeholder="0" style={{width:90,padding:"6px 8px",border:"none",borderRadius:8,fontSize:13,outline:"none"}} />
+                          <input type="number" min="0" value={projJa} onChange={e=>setProjJa(e.target.value)} placeholder={String(jaAuto)} style={{width:90,padding:"6px 8px",border:"none",borderRadius:8,fontSize:13,outline:"none"}} />
                           {ja>0&&(
                             <span style={{fontSize:12,fontWeight:700}}>
                               {faltam===0 ? "✅ Meta batida!" : `Faltam ${faltam} un · ${(faltam/Math.max(diasRest,1)).toFixed(1)}/dia nos ${diasRest} dias restantes`}
