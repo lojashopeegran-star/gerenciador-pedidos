@@ -1,8 +1,17 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, lazy, Suspense } from "react";
 // XLSX carregado sob demanda para não bloquear o primeiro carregamento
 let _XLSX = null;
 const getXLSX = async () => { if (!_XLSX) _XLSX = await import("xlsx"); return _XLSX; };
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
+// Recharts carregado sob demanda — só usado na aba Faturamento
+let _RC = null;
+const getRC = async () => { if (!_RC) _RC = await import("recharts"); return _RC; };
+// Componente wrapper para gráficos — renderiza só após recharts carregar
+function ChartLoader({ children }) {
+  const [RC, setRC] = useState(null);
+  useEffect(() => { getRC().then(setRC); }, []);
+  if (!RC) return <div style={{height:260,display:"flex",alignItems:"center",justifyContent:"center",color:"#94a3b8",fontSize:13}}>Carregando gráfico...</div>;
+  return children(RC);
+}
 import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
@@ -1771,16 +1780,18 @@ export default function App({user,onLogout}) {
             <div style={{background:"#fff",borderRadius:18,padding:20,boxShadow:"0 1px 3px rgba(0,0,0,0.07)"}}>
               <div style={{fontSize:14,fontWeight:700,color:"#1e293b",marginBottom:16}}>💰 Faturamento Mensal por Loja</div>
               {chartData.length>0?(
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={chartData} margin={{top:0,right:10,left:10,bottom:0}}>
-                    <XAxis dataKey="mes" tick={{fontSize:11}} />
-                    <YAxis tick={{fontSize:11}} tickFormatter={v=>v>=1000?`R$${(v/1000).toFixed(1)}k`:`R$${v}`} />
-                    <Tooltip formatter={(v,n)=>[fmtBRL(v),n]} />
-                    <Legend />
-                    <Bar dataKey="Gran Shop"   fill="#1d4ed8" radius={[4,4,0,0]} />
-                    <Bar dataKey="Aishael Mix" fill="#7c3aed" radius={[4,4,0,0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <ChartLoader>{({BarChart,Bar,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend})=>(
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={chartData} margin={{top:0,right:10,left:10,bottom:0}}>
+                      <XAxis dataKey="mes" tick={{fontSize:11}} />
+                      <YAxis tick={{fontSize:11}} tickFormatter={v=>v>=1000?`R$${(v/1000).toFixed(1)}k`:`R$${v}`} />
+                      <Tooltip formatter={(v,n)=>[fmtBRL(v),n]} />
+                      <Legend />
+                      <Bar dataKey="Gran Shop"   fill="#1d4ed8" radius={[4,4,0,0]} />
+                      <Bar dataKey="Aishael Mix" fill="#7c3aed" radius={[4,4,0,0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}</ChartLoader>
               ):<div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:13}}>Carregue planilhas para ver o faturamento.</div>}
             </div>
 
@@ -1800,17 +1811,19 @@ export default function App({user,onLogout}) {
                   .map(d => ({ ...d, diaLabel: d.dia.slice(8,10)+"/"+d.dia.slice(5,7) }));
                 if (dadosDia.length===0) return <div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:13}}>Sem dados suficientes ainda.</div>;
                 return (
-                  <ResponsiveContainer width="100%" height={240}>
-                    <LineChart data={dadosDia} margin={{top:5,right:10,left:10,bottom:0}}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                      <XAxis dataKey="diaLabel" tick={{fontSize:10}} />
-                      <YAxis tick={{fontSize:11}} allowDecimals={false} />
-                      <Tooltip />
-                      <Legend />
-                      <Line type="monotone" dataKey="total" name="Pedidos" stroke="#1d4ed8" strokeWidth={2} dot={false} />
-                      <Line type="monotone" dataKey="cancelados" name="Cancelados" stroke="#ef4444" strokeWidth={2} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <ChartLoader>{({LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,Legend,CartesianGrid})=>(
+                    <ResponsiveContainer width="100%" height={240}>
+                      <LineChart data={dadosDia} margin={{top:5,right:10,left:10,bottom:0}}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="diaLabel" tick={{fontSize:10}} />
+                        <YAxis tick={{fontSize:11}} allowDecimals={false} />
+                        <Tooltip />
+                        <Legend />
+                        <Line type="monotone" dataKey="total" name="Pedidos" stroke="#1d4ed8" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="cancelados" name="Cancelados" stroke="#ef4444" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}</ChartLoader>
                 );
               })()}
             </div>
@@ -1831,15 +1844,17 @@ export default function App({user,onLogout}) {
                   .map(d => ({ ...d, mesLabel: mesLabel(d.mes), taxa: d.total ? Number(((d.cancelados/d.total)*100).toFixed(1)) : 0 }));
                 if (dadosMes.length===0) return <div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:13}}>Sem dados suficientes ainda.</div>;
                 return (
-                  <ResponsiveContainer width="100%" height={240}>
-                    <LineChart data={dadosMes} margin={{top:5,right:10,left:10,bottom:0}}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                      <XAxis dataKey="mesLabel" tick={{fontSize:11}} />
-                      <YAxis tick={{fontSize:11}} unit="%" />
-                      <Tooltip formatter={v=>`${v}%`} />
-                      <Line type="monotone" dataKey="taxa" name="Taxa de cancelamento" stroke="#ef4444" strokeWidth={2} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <ChartLoader>{({LineChart,Line,XAxis,YAxis,Tooltip,ResponsiveContainer,CartesianGrid})=>(
+                    <ResponsiveContainer width="100%" height={240}>
+                      <LineChart data={dadosMes} margin={{top:5,right:10,left:10,bottom:0}}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="mesLabel" tick={{fontSize:11}} />
+                        <YAxis tick={{fontSize:11}} unit="%" />
+                        <Tooltip formatter={v=>`${v}%`} />
+                        <Line type="monotone" dataKey="taxa" name="Taxa de cancelamento" stroke="#ef4444" strokeWidth={2} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}</ChartLoader>
                 );
               })()}
             </div>
