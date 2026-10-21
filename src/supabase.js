@@ -1162,3 +1162,14 @@ export async function processarBaixa(orgId) {
   const { data, error } = await supabase.rpc('processar_baixa_pedidos', { p_org: orgId })
   return error ? { error: error.message } : data
 }
+
+// Saídas dos últimos N dias (para estimar quantos dias o estoque dura)
+export async function fetchConsumoRecente(userId, orgId, dias = 30) {
+  const desde = new Date(Date.now() - dias * 86400000).toISOString()
+  let q = supabase.from('estoque_movimentos').select('produto_id, quantidade').eq('tipo', 'saida').gte('criado_em', desde)
+  q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
+  const { data } = await q.limit(5000)
+  const mapa = {}
+  ;(data || []).forEach(m => { mapa[m.produto_id] = (mapa[m.produto_id] || 0) + (Number(m.quantidade) || 0) })
+  return mapa
+}

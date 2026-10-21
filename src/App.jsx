@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, lazy, Suspense } from "react";
 // XLSX carregado sob demanda para não bloquear o primeiro carregamento
 let _XLSX = null;
 const getXLSX = async () => { if (!_XLSX) _XLSX = await import("xlsx"); return _XLSX; };
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchPedidosMes, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchPedidosMes, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -492,7 +492,7 @@ export default function App({user,onLogout}) {
   const [projJa,              setProjJa]              = useState("");
   const [projMix,             setProjMix]             = useState({});   // {variacaoId: "%"}
   const [salvandoCusto,       setSalvandoCusto]       = useState(false);
-  const [finMes,              setFinMes]              = useState(() => new Date().toISOString().slice(0,7));
+  const [finMes,              setFinMes]              = useState(() => { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); });
   const [finMovimentos,       setFinMovimentos]       = useState([]);
   // Chat com Claude
   const [chatMsgs,            setChatMsgs]            = useState([]);
@@ -650,12 +650,21 @@ export default function App({user,onLogout}) {
     fetchSaidasMes(user.id, orgId, finMes).then(setFinSaidas);
     fetchPedidosMes(finMes).then(r=>setPedidosMes(r&&!r.error?r:null));
   }, [finMes, orgId, user?.id]);
+  useEffect(() => {
+    if (!user || !orgId || !isAdminEquipe) return;
+    const d = new Date(); const mes = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+    Promise.all([fetchCustosFixos(user.id,orgId), fetchPagamentosCustos(user.id,orgId,mes), fetchConsumoRecente(user.id,orgId,30)])
+      .then(([cf,pg,cons])=>{ setAlertaContas({custos:cf||[],pagos:pg||[],mes}); setConsumo30(cons||{}); })
+      .catch(()=>{});
+  }, [orgId, user?.id, isAdminEquipe, custosFixos.length, custosPagos.length, estoqueProdutos.length]);
   const minhaCor              = membro?.cor || "#059669";
   const meuNome                = membro?.nome || user?.email?.split("@")[0] || "Você";
   const logOp = (op) => registrarOperacao(orgId, user?.id, meuNome, op);
 
   // ── Histórico de operações (desfazer) ───────────────────────────────────────
   const [pedidosMes, setPedidosMes] = useState(null);
+  const [alertaContas, setAlertaContas] = useState({custos:[],pagos:[],mes:""});
+  const [consumo30, setConsumo30] = useState({});
   const [showVinc, setShowVinc] = useState(false);
   const [vincLista, setVincLista] = useState([]);
   const [vincCarregando, setVincCarregando] = useState(false);
@@ -1148,7 +1157,43 @@ export default function App({user,onLogout}) {
       }
     }
     var prazosFiltrados = prazos.filter(function(n) { return !revisaoIds.has(n.id); });
-    return revisoes.concat(prazosFiltrados);
+    var extras = [];
+    if (isAdminEquipe) {
+      // Contas a vencer / vencidas (mês atual, ainda não pagas)
+      var agora = new Date(); var hoje0 = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+      var ac = alertaContas;
+      for (var ci = 0; ci < ac.custos.length; ci++) {
+        var c = ac.custos[ci];
+        if (!c.data_vencimento || ac.pagos.indexOf(c.id) >= 0) continue;
+        var pp = String(c.data_vencimento).slice(0,10).split("-").map(Number);
+        var alvo = c.recorrente !== false
+          ? new Date(agora.getFullYear(), agora.getMonth(), Math.min(pp[2], new Date(agora.getFullYear(), agora.getMonth()+1, 0).getDate()))
+          : new Date(pp[0], pp[1]-1, pp[2]);
+        var dias = Math.round((alvo - hoje0) / 86400000);
+        if (dias > 3) continue;
+        var vf = c.valor ? " · R$ " + Number(c.valor).toFixed(2).replace(".", ",") : "";
+        var tit = dias < 0 ? "Conta vencida: " + c.nome : dias === 0 ? "Conta vence hoje: " + c.nome : "Conta vence em " + dias + " dia" + (dias > 1 ? "s" : "") + ": " + c.nome;
+        extras.push({ id: "conta__" + c.id + "__" + ac.mes, tipo: "conta", icon: "💸", titulo: tit, desc: "Venc. " + String(alvo.getDate()).padStart(2,"0") + "/" + String(alvo.getMonth()+1).padStart(2,"0") + vf, cor: dias < 0 ? "#ef4444" : "#f59e0b" });
+      }
+      // Reposição de estoque (consumo dos últimos 30 dias)
+      var sem = Math.floor(Date.now() / (7 * 86400000));
+      for (var ei = 0; ei < estoqueProdutos.length; ei++) {
+        var ep = estoqueProdutos[ei];
+        if (ep.ativo === false) continue;
+        var cons = Number(consumo30[ep.id]) || 0;
+        var qa = Number(ep.quantidade_atual) || 0;
+        var porDia = cons / 30;
+        var diasRest = porDia > 0 ? qa / porDia : null;
+        var baixo = Number(ep.quantidade_minima) > 0 && qa <= Number(ep.quantidade_minima);
+        if (!baixo && !(diasRest !== null && diasRest <= 7)) continue;
+        var sug = cons > 0 ? Math.max(0, Math.ceil((cons - qa) * 10) / 10) : 0;
+        var fmt = function(n) { return String(Number(Number(n).toFixed(2))).replace(".", ","); };
+        extras.push({ id: "repor__" + ep.id + "__" + sem, tipo: "estoque", icon: "📦", titulo: "Repor: " + ep.nome,
+          desc: "Restam " + fmt(qa) + " " + ep.unidade + (diasRest !== null ? " (~" + Math.max(0, Math.floor(diasRest)) + " dias)" : "") + (sug > 0 ? " · sugestão: comprar " + fmt(sug) + " " + ep.unidade + " (cobre 30 dias)" : ""),
+          cor: (diasRest !== null && diasRest <= 3) || qa <= 0 ? "#ef4444" : "#f59e0b" });
+      }
+    }
+    return revisoes.concat(prazosFiltrados, extras);
   }
   var todasNotifs = buildNotifs();
   var notifNaoLidas = todasNotifs.filter(function(n) { return !lidas.has(n.id); });
@@ -1165,7 +1210,9 @@ export default function App({user,onLogout}) {
     try { localStorage.setItem("notif_lidas", JSON.stringify(Array.from(novas))); } catch(e) {}
   }
   function notifAcao(n) {
-    if (n.tipo === "revisao") { setActiveTab("abertos"); setFilterSt("revisao"); setFilterPrazo("red"); }
+    if (n.tipo === "conta") { setActiveTab("financeiro"); }
+    else if (n.tipo === "estoque") { setActiveTab("estoque"); }
+    else if (n.tipo === "revisao") { setActiveTab("abertos"); setFilterSt("revisao"); setFilterPrazo("red"); }
     else { setActiveTab("abertos"); setFilterPrazo("red"); setFilterSt("all"); }
     setShowNotifPanel(false);
   }
@@ -1325,7 +1372,7 @@ export default function App({user,onLogout}) {
                     <div style={{padding:"32px 16px",textAlign:"center",color:"#94a3b8"}}>
                       <div style={{fontSize:32,marginBottom:8}}>✅</div>
                       <div style={{fontSize:13,fontWeight:500}}>Tudo em dia!</div>
-                      <div style={{fontSize:12,marginTop:4}}>Nenhum prazo urgente no momento.</div>
+                      <div style={{fontSize:12,marginTop:4}}>Nenhum prazo, conta ou reposição urgente.</div>
                     </div>
                   ):(
                     todasNotifs.map(n=>{
