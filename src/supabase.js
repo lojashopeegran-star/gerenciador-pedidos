@@ -815,6 +815,21 @@ export async function fetchMovimentosComPreco(userId, orgId, mes) {
   return data || []
 }
 
+// Saídas de estoque do mês (material realmente consumido) — mes = "YYYY-MM"
+export async function fetchSaidasMes(userId, orgId, mes) {
+  const [y, m] = mes.split('-').map(Number)
+  const inicio = new Date(y, m - 1, 1).toISOString()
+  const fim = new Date(y, m, 1).toISOString()
+  let q = supabase.from('estoque_movimentos')
+    .select('*, estoque_produtos(nome, unidade, preco_unitario)')
+    .gte('criado_em', inicio).lt('criado_em', fim)
+    .eq('tipo', 'saida')
+  q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
+  const { data, error } = await q.order('criado_em', { ascending: false })
+  if (error) { console.error('fetchSaidasMes error:', error.message); return [] }
+  return data || []
+}
+
 // ─── Custos Fixos ─────────────────────────────────────────────────────────────
 
 export async function fetchCustosFixos(userId, orgId) {

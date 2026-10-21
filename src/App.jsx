@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, lazy, Suspense } from "react";
 // XLSX carregado sob demanda para não bloquear o primeiro carregamento
 let _XLSX = null;
 const getXLSX = async () => { if (!_XLSX) _XLSX = await import("xlsx"); return _XLSX; };
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -446,7 +446,8 @@ export default function App({user,onLogout}) {
   const [custoObs,            setCustoObs]            = useState("");
   const [custoVenc,           setCustoVenc]           = useState("");
   const [custosPagos,         setCustosPagos]         = useState([]); // ids pagos no mês finMes
-  const [projUsaEstoque,      setProjUsaEstoque]      = useState(true);
+  const [projBase,            setProjBase]            = useState("compras"); // compras | saidas | produto
+  const [finSaidas,           setFinSaidas]           = useState([]);
   const [projEstoque,         setProjEstoque]         = useState("");   // vazio = usa o gasto real do mês
   const [projOutros,          setProjOutros]          = useState("");
   const [projLucro,           setProjLucro]           = useState("");
@@ -606,6 +607,7 @@ export default function App({user,onLogout}) {
   useEffect(() => {
     if (!user || !orgId) return;
     fetchPagamentosCustos(user.id, orgId, finMes).then(setCustosPagos);
+    fetchSaidasMes(user.id, orgId, finMes).then(setFinSaidas);
   }, [finMes, orgId, user?.id]);
   const minhaCor              = membro?.cor || "#059669";
   const meuNome                = membro?.nome || user?.email?.split("@")[0] || "Você";
@@ -3869,7 +3871,23 @@ export default function App({user,onLogout}) {
               const estoqueVal = projEstoque!=="" ? (Number(projEstoque)||0) : totalMaterial;
               const outros = Number(projOutros)||0;
               const lucroDes = Number(projLucro)||0;
-              const meta = totalFixos + (projUsaEstoque?estoqueVal:0) + outros + lucroDes;
+              const usaCompras = projBase==="compras";
+              const ja = Number(projJa)||0;
+              // Saídas do estoque do mês, agrupadas por material e valorizadas pelo preço cadastrado no Estoque+
+              const saidasMap = {};
+              finSaidas.forEach(m=>{
+                const nome = m.estoque_produtos?.nome||"(material removido)";
+                const pr = Number(m.estoque_produtos?.preco_unitario)||0;
+                const q = Number(m.quantidade)||0;
+                if(!saidasMap[nome]) saidasMap[nome]={nome,un:m.estoque_produtos?.unidade||"",qtd:0,pr,custo:0};
+                saidasMap[nome].qtd += q; saidasMap[nome].custo += q*pr;
+              });
+              const saidasLista = Object.values(saidasMap).sort((a,b)=>b.custo-a.custo);
+              const totalSaidas = saidasLista.reduce((a,x)=>a+x.custo,0);
+              const semPreco = saidasLista.filter(x=>!x.pr).length;
+              const matPorPedido = ja>0 ? totalSaidas/ja : null;
+              const saidasComoMeta = projBase==="saidas" && ja<=0;
+              const meta = totalFixos + (usaCompras?estoqueVal:0) + (saidasComoMeta?totalSaidas:0) + outros + lucroDes;
 
               const todas = [];
               produtosCalc.forEach(p=>{
@@ -3877,7 +3895,7 @@ export default function App({user,onLogout}) {
                 vs.forEach(v=>{
                   const liq = liquidoDe(p,v.preco_venda);
                   const mp = custoMpDe(v);
-                  todas.push({id:v.id, nome:p.nome+(vs.length>1?" · "+v.nome:""), preco:Number(v.preco_venda)||0, liq, mp, contrib: liq-(projUsaEstoque?0:mp)});
+                  todas.push({id:v.id, nome:p.nome+(vs.length>1?" · "+v.nome:""), preco:Number(v.preco_venda)||0, liq, mp, contrib: liq-(projBase==="produto"?mp:(projBase==="saidas"&&matPorPedido!==null?matPorPedido:0))});
                 });
               });
               const validas = todas.filter(x=>x.preco>0&&x.contrib>0);
@@ -3889,7 +3907,6 @@ export default function App({user,onLogout}) {
               const precoMedio  = soma>0 ? validas.reduce((a,x,i)=>a+x.preco*pesos[i],0)/soma : 0;
               const unidades = contribMedia>0 ? Math.ceil(meta/contribMedia) : null;
               const faturamento = unidades!==null ? unidades*precoMedio : null;
-              const ja = Number(projJa)||0;
               const faltam = unidades!==null ? Math.max(0,unidades-ja) : null;
               const [fy,fmo] = finMes.split("-").map(Number);
               const diasMes = new Date(fy,fmo,0).getDate();
@@ -3909,22 +3926,29 @@ export default function App({user,onLogout}) {
                     <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:6}}>
                       <span>📋 Custos fixos</span><strong>{fm(totalFixos)}</strong>
                     </div>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap",marginBottom:6}}>
-                      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}>
-                        <input type="checkbox" checked={projUsaEstoque} onChange={e=>setProjUsaEstoque(e.target.checked)} style={{width:15,height:15}} />
-                        📦 Compras de estoque/material
-                      </label>
-                      {projUsaEstoque&&(
+                    <div style={{marginBottom:6}}>
+                      <label style={lb}>Como considerar o material (estoque)?</label>
+                      <select value={projBase} onChange={e=>setProjBase(e.target.value)} style={{...inp,background:"#fff"}}>
+                        <option value="compras">📦 Compras de estoque do mês (o que gastei comprando)</option>
+                        <option value="saidas">📤 Consumo real: saídas do estoque (o que usei nos pedidos)</option>
+                        <option value="produto">🧱 Custo de matéria-prima de cada produto (receita)</option>
+                      </select>
+                    </div>
+                    {usaCompras&&(
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:4}}>
+                        <span style={{fontSize:13}}>📦 Compras do mês</span>
                         <div style={{display:"flex",alignItems:"center",gap:6}}>
                           <span style={{fontSize:11,color:"#94a3b8"}}>R$</span>
                           <input type="number" min="0" step="0.01" value={projEstoque} onChange={e=>setProjEstoque(e.target.value)} placeholder={totalMaterial.toFixed(2)} style={{...inp,width:110}} />
                         </div>
-                      )}
-                    </div>
-                    <div style={{fontSize:10,color:"#94a3b8",margin:"-2px 0 8px 21px"}}>
-                      {projUsaEstoque
-                        ? `Vem do gasto real do mês (${fm(totalMaterial)}); edite para simular outro valor. Com isso marcado, o custo de matéria-prima por unidade não é descontado de novo.`
-                        : "Desmarcado: o custo de matéria-prima de cada produto é descontado por unidade vendida."}
+                      </div>
+                    )}
+                    <div style={{fontSize:10,color:"#94a3b8",margin:"0 0 8px"}}>
+                      {projBase==="compras" && `Gasto real do mês: ${fm(totalMaterial)} (edite para simular outro valor). O custo de matéria-prima por unidade não é descontado de novo.`}
+                      {projBase==="saidas" && (ja>0
+                        ? `Saídas do mês ${fm(totalSaidas)} ÷ ${ja} pedidos = ${fm(matPorPedido)} de material por pedido, descontado de cada venda.`
+                        : `Informe os pedidos vendidos no mês (seção 2) para virar custo por pedido. Enquanto isso, as saídas (${fm(totalSaidas)}) entram como valor fixo na meta.`)}
+                      {projBase==="produto" && "O custo de matéria-prima de cada produto é descontado por unidade vendida."}
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                       <div>
@@ -3942,7 +3966,44 @@ export default function App({user,onLogout}) {
                   </div>
 
                   {/* Mix de produtos */}
-                  <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:6}}>2) Quanto cada venda deixa para cobrir os custos</div>
+                  <div style={{background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:10,padding:"12px 14px",marginBottom:12}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#0369a1",marginBottom:8}}>2) Material realmente usado (saídas do estoque em {finMes})</div>
+                    {saidasLista.length===0 ? (
+                      <div style={{fontSize:12,color:"#94a3b8"}}>Nenhuma saída de estoque registrada neste mês.</div>
+                    ) : (
+                      <div style={{overflowX:"auto"}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                          <thead><tr>{["Material","Saiu","Preço unit.","Custo"].map(h=><th key={h} style={{...TH,padding:"5px 8px"}}>{h}</th>)}</tr></thead>
+                          <tbody>
+                            {saidasLista.map(x=>(
+                              <tr key={x.nome} style={{borderBottom:"1px solid #e0f2fe"}}>
+                                <td style={{padding:"5px 8px",fontWeight:600}}>{x.nome}</td>
+                                <td style={{padding:"5px 8px"}}>{x.qtd} {x.un}</td>
+                                <td style={{padding:"5px 8px"}}>{x.pr?fm(x.pr):<span style={{color:"#f59e0b"}}>sem preço</span>}</td>
+                                <td style={{padding:"5px 8px",fontWeight:700,color:"#0369a1"}}>{fm(x.custo)}</td>
+                              </tr>
+                            ))}
+                            <tr style={{background:"#e0f2fe",fontWeight:800}}>
+                              <td colSpan={3} style={{padding:"6px 8px"}}>Total usado no mês</td>
+                              <td style={{padding:"6px 8px",color:"#0369a1"}}>{fm(totalSaidas)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {semPreco>0&&<div style={{fontSize:10,color:"#f59e0b",marginTop:6}}>⚠️ {semPreco} material(is) sem preço no Estoque+ — o custo deles está contando como R$ 0,00.</div>}
+                    <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginTop:10}}>
+                      <label style={{fontSize:11,fontWeight:600,color:"#0369a1"}}>Pedidos/unidades vendidos no mês:</label>
+                      <input type="number" min="0" value={projJa} onChange={e=>setProjJa(e.target.value)} placeholder="Ex: 120" style={{...inp,width:100}} />
+                    </div>
+                    {matPorPedido!==null&&(
+                      <div style={{marginTop:8,fontSize:13,color:"#0c4a6e"}}>
+                        Para <strong>{ja}</strong> pedidos foram usados <strong>{fm(totalSaidas)}</strong> de material → <strong style={{fontSize:15}}>{fm(matPorPedido)} por pedido</strong>
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:6}}>3) Quanto cada venda deixa para cobrir os custos</div>
                   {todas.length===0 ? (
                     <div style={{fontSize:12,color:"#94a3b8",padding:"8px 0 12px"}}>Cadastre produtos com preço na aba Produtos para calcular.</div>
                   ) : (
@@ -3969,7 +4030,7 @@ export default function App({user,onLogout}) {
                       </table>
                     </div>
                   )}
-                  <div style={{fontSize:10,color:"#94a3b8",marginBottom:12}}>"Sobra por venda" = preço − comissão, imposto, adiantamento e taxa fixa da Shopee (os % de cada produto){projUsaEstoque?"":" − custo de matéria-prima"}. Deixe os % em branco para dividir as vendas igualmente entre os produtos; ou informe a proporção que você vende (ex: 70 e 30).</div>
+                  <div style={{fontSize:10,color:"#94a3b8",marginBottom:12}}>"Sobra por venda" = preço − comissão, imposto, adiantamento e taxa fixa da Shopee (os % de cada produto){projBase==="produto"?" − custo de matéria-prima do produto":(projBase==="saidas"&&matPorPedido!==null?" − material médio por pedido (saídas do estoque)":"")}. Deixe os % em branco para dividir as vendas igualmente entre os produtos; ou informe a proporção que você vende (ex: 70 e 30).</div>
 
                   {/* Resultado */}
                   <div style={{background:"linear-gradient(135deg,#7c3aed,#6d28d9)",borderRadius:12,padding:"14px 16px",color:"#fff"}}>
