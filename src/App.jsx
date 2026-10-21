@@ -2448,7 +2448,7 @@ export default function App({user,onLogout}) {
                           <td style={TD}><strong>{mp.nome}</strong></td>
                           <td style={TD}>{fmtR(mp.custo_unidade_compra)}</td>
                           <td style={TD}>{mp.qtd_por_unidade_compra} {mp.unidade}</td>
-                          <td style={{...TD,fontWeight:700,color:"#f59e0b"}}>R$ {custoUnitMp(mp).toFixed(4)}/{mp.unidade}</td>
+                          <td style={{...TD,fontWeight:700,color:"#f59e0b"}}>R$ {custoUnitMp(mp).toFixed(2)}/{mp.unidade}</td>
                           <td style={TD}>{usosDaMp(mp.id)} vínculo(s)</td>
                           <td style={TD}>
                             <div style={{display:"flex",gap:6}}>
@@ -2525,13 +2525,13 @@ export default function App({user,onLogout}) {
                                 <select value={m.mpId} onChange={e=>setVarMp(v.key,mi,{mpId:e.target.value})}
                                   style={{width:"100%",padding:"8px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",background:"#fff",boxSizing:"border-box"}}>
                                   <option value="">Escolher matéria-prima…</option>
-                                  {materiasPrimas.map(x=><option key={x.id} value={x.id}>{x.nome} (R$ {custoUnitMp(x).toFixed(4)}/{x.unidade})</option>)}
+                                  {materiasPrimas.map(x=><option key={x.id} value={x.id}>{x.nome} (R$ {custoUnitMp(x).toFixed(2)}/{x.unidade})</option>)}
                                 </select>
                                 <input type="number" min="0" step="any" value={m.qtd} onChange={e=>setVarMp(v.key,mi,{qtd:e.target.value})} placeholder={mp?`qtd (${mp.unidade})`:"qtd"}
                                   style={{width:"100%",padding:"8px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",boxSizing:"border-box"}} />
                                 <button onClick={()=>delVarMp(v.key,mi)} title="Remover" style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:6,height:30,cursor:"pointer",fontSize:12}}>✕</button>
                               </div>
-                              {mp&&Number(m.qtd)>0&&<div style={{fontSize:10,color:"#f59e0b",fontWeight:600,margin:"2px 0 0 4px"}}>→ R$ {custoLin.toFixed(4)}</div>}
+                              {mp&&Number(m.qtd)>0&&<div style={{fontSize:10,color:"#f59e0b",fontWeight:600,margin:"2px 0 0 4px"}}>→ R$ {custoLin.toFixed(2)}</div>}
                             </div>
                           );
                         })}
@@ -2612,7 +2612,7 @@ export default function App({user,onLogout}) {
                               </div>
                               <div style={{fontSize:11,color:"#374151"}}>
                                 {o.colunas} col × {o.linhas} lin = <strong style={{color:"#7c3aed"}}>{o.total} {mpUnidadeCorte}s</strong>
-                                {mpCustoCompra&&<span style={{color:"#059669",fontWeight:700}}> · R$ {o.custo_cada.toFixed(4)}/{mpUnidadeCorte}</span>}
+                                {mpCustoCompra&&<span style={{color:"#059669",fontWeight:700}}> · R$ {o.custo_cada.toFixed(2)}/{mpUnidadeCorte}</span>}
                               </div>
                               <div style={{fontSize:10,color:"#94a3b8",marginTop:1}}>Sobra: {o.sobra_larg}cm na largura · {o.sobra_comp}cm no comprimento</div>
                               <button onClick={()=>aplicarDimensao(i)}
@@ -2636,7 +2636,7 @@ export default function App({user,onLogout}) {
                       {["folha","pedaço","un","cx","pct","rolo","m","cm","kg","g","l","ml"].map(u=><option key={u} value={u}>{u}</option>)}
                     </select>
                   </div>
-                  {mpCustoCompra&&mpQtdPorCompra&&<span style={{fontSize:10,color:"#059669",fontWeight:600}}>→ R$ {(Number(mpCustoCompra)/Number(mpQtdPorCompra)).toFixed(4)} por {mpUnidade}</span>}
+                  {mpCustoCompra&&mpQtdPorCompra&&<span style={{fontSize:10,color:"#059669",fontWeight:600}}>→ R$ {(Number(mpCustoCompra)/Number(mpQtdPorCompra)).toFixed(2)} por {mpUnidade}</span>}
                 </div>
               </div>
               <div style={{display:"flex",gap:10,marginTop:18}}>
@@ -2720,15 +2720,15 @@ export default function App({user,onLogout}) {
                               return (
                                 <tr key={l.id} style={{borderBottom:"1px solid #f1f5f9"}}>
                                   <td style={TD}><strong>{m.nome}</strong></td>
-                                  <td style={TD}>R$ {custoUnitMp(m).toFixed(4)}/{m.unidade}</td>
+                                  <td style={TD}>R$ {custoUnitMp(m).toFixed(2)}/{m.unidade}</td>
                                   <td style={TD}>{l.qtd_usada_por_produto} {m.unidade}</td>
-                                  <td style={{...TD,fontWeight:700,color:"#f59e0b"}}>R$ {custoLinha(l).toFixed(4)}</td>
+                                  <td style={{...TD,fontWeight:700,color:"#f59e0b"}}>R$ {custoLinha(l).toFixed(2)}</td>
                                 </tr>
                               );
                             })}
                             <tr style={{background:"#f8fafc",fontWeight:700}}>
                               <td colSpan={3} style={{...TD,color:"#374151"}}>Total custo de produção</td>
-                              <td style={{...TD,fontSize:14,color:"#f59e0b"}}>R$ {custo.toFixed(4)}</td>
+                              <td style={{...TD,fontSize:14,color:"#f59e0b"}}>R$ {custo.toFixed(2)}</td>
                             </tr>
                           </tbody>
                         </table>
