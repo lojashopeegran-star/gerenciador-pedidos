@@ -3865,6 +3865,49 @@ export default function App({user,onLogout}) {
               )}
             </div>
 
+            {/* Material usado no mês (saídas do estoque) */}
+            {(()=>{
+              const fq = (n) => Number(Number(n).toFixed(3)).toString().replace(".",",");
+              const fm = (n) => "R$ "+Number(n||0).toFixed(2).replace(".",",");
+              const mapa = {};
+              finSaidas.forEach(m=>{
+                const nome = m.estoque_produtos?.nome||"(material removido)";
+                if(!mapa[nome]) mapa[nome]={nome,un:m.estoque_produtos?.unidade||"un",qtd:0,custo:0,saidas:0};
+                const q = Number(m.quantidade)||0;
+                mapa[nome].qtd += q; mapa[nome].saidas += 1;
+                mapa[nome].custo += q*(Number(m.estoque_produtos?.preco_unitario)||0);
+              });
+              const lista = Object.values(mapa).sort((a,b)=>a.nome.localeCompare(b.nome));
+              const totalCusto = lista.reduce((a,x)=>a+x.custo,0);
+              return (
+                <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:4}}>📤 Material usado em {finMes}</div>
+                  <div style={{fontSize:11,color:"#94a3b8",marginBottom:12}}>Tudo que saiu do estoque no mês, por material.</div>
+                  {lista.length===0 ? (
+                    <div style={{textAlign:"center",padding:"16px 0",color:"#94a3b8",fontSize:12}}>Nenhuma saída de estoque registrada neste mês.</div>
+                  ) : (
+                    <>
+                      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:8}}>
+                        {lista.map(x=>(
+                          <div key={x.nome} style={{background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:10,padding:"10px 12px"}}>
+                            <div style={{fontSize:20,fontWeight:800,color:"#0369a1"}}>{fq(x.qtd)} <span style={{fontSize:13,fontWeight:700}}>{x.un}</span></div>
+                            <div style={{fontSize:12,fontWeight:600,color:"#1e293b",marginTop:2}}>{x.nome}</div>
+                            <div style={{fontSize:10,color:"#64748b",marginTop:2}}>{x.saidas} saída{x.saidas>1?"s":""}{x.custo>0?` · ${fm(x.custo)}`:""}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {totalCusto>0&&(
+                        <div style={{display:"flex",justifyContent:"space-between",marginTop:10,padding:"8px 10px",background:"#e0f2fe",borderRadius:8,fontSize:13}}>
+                          <strong style={{color:"#0c4a6e"}}>Custo do material usado</strong>
+                          <strong style={{color:"#0369a1"}}>{fm(totalCusto)}</strong>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Calculadora de projeção (ponto de equilíbrio) */}
             {(()=>{
               const fm = (n) => "R$ "+Number(n||0).toFixed(2).replace(".",",");
