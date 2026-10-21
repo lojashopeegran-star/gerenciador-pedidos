@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, lazy, Suspense } from "react";
 // XLSX carregado sob demanda para não bloquear o primeiro carregamento
 let _XLSX = null;
 const getXLSX = async () => { if (!_XLSX) _XLSX = await import("xlsx"); return _XLSX; };
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -437,6 +437,7 @@ export default function App({user,onLogout}) {
   const [custoRecorrente,     setCustoRecorrente]     = useState(true);
   const [custoObs,            setCustoObs]            = useState("");
   const [custoVenc,           setCustoVenc]           = useState("");
+  const [custosPagos,         setCustosPagos]         = useState([]); // ids pagos no mês finMes
   const [salvandoCusto,       setSalvandoCusto]       = useState(false);
   const [finMes,              setFinMes]              = useState(() => new Date().toISOString().slice(0,7));
   const [finMovimentos,       setFinMovimentos]       = useState([]);
@@ -588,6 +589,10 @@ export default function App({user,onLogout}) {
   const podeEditarStatus     = membro ? membro.pode_editar_status     : true;
   const isAdminEquipe        = membro ? membro.is_admin : true;
   const orgId                = membro?.organizacao_id || null;
+  useEffect(() => {
+    if (!user || !orgId) return;
+    fetchPagamentosCustos(user.id, orgId, finMes).then(setCustosPagos);
+  }, [finMes, orgId, user?.id]);
   const minhaCor              = membro?.cor || "#059669";
   const meuNome                = membro?.nome || user?.email?.split("@")[0] || "Você";
 
@@ -3651,25 +3656,32 @@ export default function App({user,onLogout}) {
         // Vencimento: datas "YYYY-MM-DD" tratadas no fuso local (sem deslocar o dia)
         const parseData = (s) => { const [y,m,d]=String(s).slice(0,10).split("-").map(Number); return new Date(y,m-1,d); };
         const fmtData = (d) => String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();
-        const infoVenc = (c) => {
+        const infoVenc = (c, pago) => {
           if (!c.data_vencimento) return null;
           const base = parseData(c.data_vencimento);
           const agora = new Date(); const hoje = new Date(agora.getFullYear(),agora.getMonth(),agora.getDate());
           let alvo = base;
           if (c.recorrente!==false) {
-            const dia = base.getDate();
-            const noMes = (a,m)=>new Date(a,m,Math.min(dia,new Date(a,m+1,0).getDate()));
-            alvo = noMes(hoje.getFullYear(),hoje.getMonth());
-            if (alvo<hoje) alvo = noMes(hoje.getFullYear(),hoje.getMonth()+1);
+            const [fy,fm] = finMes.split("-").map(Number);
+            alvo = new Date(fy,fm-1,Math.min(base.getDate(),new Date(fy,fm,0).getDate()));
           }
           const dias = Math.round((alvo-hoje)/86400000);
           let txt, cor, bg;
-          if (dias<0)       { txt="Venceu em "+fmtData(alvo); cor="#991b1b"; bg="#fde8e8"; }
+          if (pago)         { txt="Pago · venc. "+fmtData(alvo).slice(0,5); cor="#065f46"; bg="#d1fae5"; }
+          else if (dias<0)  { txt="Venceu em "+fmtData(alvo).slice(0,5); cor="#991b1b"; bg="#fde8e8"; }
           else if (dias===0){ txt="Vence hoje"; cor="#991b1b"; bg="#fde8e8"; }
           else if (dias<=5) { txt="Vence em "+dias+" dia"+(dias>1?"s":"")+" ("+fmtData(alvo).slice(0,5)+")"; cor="#92400e"; bg="#fef3c7"; }
           else              { txt="Vence "+fmtData(alvo).slice(0,5); cor="#475569"; bg="#f1f5f9"; }
-          if (c.recorrente!==false) txt = "Todo dia "+base.getDate()+" · "+txt;
           return {txt,cor,bg};
+        };
+        const alternarPago = async (c) => {
+          const jaPago = custosPagos.includes(c.id);
+          setCustosPagos(l=>jaPago?l.filter(x=>x!==c.id):[...l,c.id]); // atualiza na hora
+          const res = await marcarCustoPago(user.id,orgId,c.id,finMes,!jaPago);
+          if (res.error) {
+            setCustosPagos(l=>jaPago?[...l,c.id]:l.filter(x=>x!==c.id));
+            showToast("❌ "+res.error,"#991b1b");
+          }
         };
         const salvarCusto = async () => {
           if (!custoNome.trim()||!custoValor||!custoVenc) return;
@@ -3798,11 +3810,17 @@ export default function App({user,onLogout}) {
                             <div>
                               <span style={{fontSize:13,color:"#374151"}}>{c.nome}</span>
                               {!c.recorrente&&<span style={{fontSize:10,background:"#fef3c7",color:"#92400e",borderRadius:6,padding:"1px 6px",marginLeft:6}}>único</span>}
-                              {(()=>{const v=infoVenc(c);return v?<div style={{marginTop:3}}><span style={{fontSize:10,fontWeight:700,background:v.bg,color:v.cor,borderRadius:6,padding:"2px 7px"}}>📅 {v.txt}</span></div>:<div style={{marginTop:3}}><span style={{fontSize:10,color:"#94a3b8"}}>sem vencimento — clique em ✏️ para definir</span></div>;})()}
+                              {(()=>{const v=infoVenc(c,custosPagos.includes(c.id));return v?<div style={{marginTop:3}}><span style={{fontSize:10,fontWeight:700,background:v.bg,color:v.cor,borderRadius:6,padding:"2px 7px"}}>📅 {v.txt}</span></div>:<div style={{marginTop:3}}><span style={{fontSize:10,color:"#94a3b8"}}>sem vencimento — clique em ✏️ para definir</span></div>;})()}
                               {c.observacoes&&<div style={{fontSize:10,color:"#94a3b8",fontStyle:"italic"}}>{c.observacoes}</div>}
                             </div>
                             <div style={{display:"flex",alignItems:"center",gap:8}}>
                               <span style={{fontSize:13,fontWeight:700,color:"#059669"}}>R$ {Number(c.valor).toFixed(2).replace(".",",")}</span>
+                              {(()=>{const pago=custosPagos.includes(c.id);return (
+                                <button onClick={()=>alternarPago(c)} title={pago?"Pago — clique para desmarcar":"Não pago — clique para marcar como pago"}
+                                  style={{padding:"3px 9px",background:pago?"#d1fae5":"#fde8e8",color:pago?"#065f46":"#991b1b",border:`1.5px solid ${pago?"#6ee7b7":"#fecaca"}`,borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+                                  {pago?"✅ Pago":"❌ Não pago"}
+                                </button>
+                              );})()}
                               <button onClick={()=>abrirCustoForm(c)} style={{padding:"3px 7px",background:"#f1f5f9",border:"none",borderRadius:6,fontSize:11,cursor:"pointer"}}>✏️</button>
                               <button onClick={()=>excluirCusto(c.id)} style={{padding:"3px 7px",background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:6,fontSize:11,cursor:"pointer"}}>🗑️</button>
                             </div>
@@ -3815,6 +3833,12 @@ export default function App({user,onLogout}) {
                     <span style={{fontSize:13,fontWeight:700,color:"#065f46"}}>Total fixos</span>
                     <span style={{fontSize:14,fontWeight:800,color:"#065f46"}}>R$ {totalFixos.toFixed(2).replace(".",",")}</span>
                   </div>
+                  {(()=>{const pagoTot=custosFixos.filter(c=>custosPagos.includes(c.id)).reduce((s,c)=>s+Number(c.valor),0);return (
+                    <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",padding:"4px 10px",fontSize:12}}>
+                      <span style={{color:"#065f46",fontWeight:700}}>✅ Pago: R$ {pagoTot.toFixed(2).replace(".",",")}</span>
+                      <span style={{color:"#991b1b",fontWeight:700}}>❌ Falta pagar: R$ {(totalFixos-pagoTot).toFixed(2).replace(".",",")}</span>
+                    </div>
+                  );})()}
                 </div>
               )}
             </div>

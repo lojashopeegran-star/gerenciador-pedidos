@@ -843,6 +843,26 @@ export async function salvarCustoFixo(userId, orgId, custo) {
   }
 }
 
+// IDs dos custos fixos já pagos no mês (formato YYYY-MM)
+export async function fetchPagamentosCustos(userId, orgId, mes) {
+  let q = supabase.from('custos_fixos_pagamentos').select('custo_id').eq('mes', mes)
+  q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
+  const { data, error } = await q
+  if (error) { console.error('fetchPagamentosCustos error:', error.message); return [] }
+  return (data || []).map(r => r.custo_id)
+}
+
+export async function marcarCustoPago(userId, orgId, custoId, mes, pago) {
+  if (pago) {
+    const rec = { custo_id: custoId, mes }
+    if (orgId) rec.organizacao_id = orgId; else rec.user_id = userId
+    const { error } = await supabase.from('custos_fixos_pagamentos').upsert(rec, { onConflict: 'custo_id,mes' })
+    return error ? { error: error.message } : { success: true }
+  }
+  const { error } = await supabase.from('custos_fixos_pagamentos').delete().eq('custo_id', custoId).eq('mes', mes)
+  return error ? { error: error.message } : { success: true }
+}
+
 export async function excluirCustoFixo(id) {
   const { error } = await supabase.from('custos_fixos').update({ ativo: false }).eq('id', id)
   return error ? { error: error.message } : { success: true }
