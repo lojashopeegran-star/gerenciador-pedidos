@@ -317,6 +317,14 @@ function TabBar({tabs,active,onChange}) {
 
 const TH={padding:"9px 12px",textAlign:"left",fontWeight:700,fontSize:10,color:"#64748b",letterSpacing:0.5,textTransform:"uppercase",whiteSpace:"nowrap",borderBottom:"2px solid #e2e8f0"};
 const TD={padding:"7px 11px",verticalAlign:"middle"};
+// ── Helpers de cálculo de produto (usados na projeção do Financeiro) ──
+const _n = (s,d) => (s===""||s==null||isNaN(Number(s))) ? d : Number(s);
+const liquidoDe = (p,preco) => Number(preco||0)*(1-(_n(p.taxa_plataforma_pct,0)+_n(p.taxa_imposto_pct,0)+_n(p.taxa_adiantamento_pct,0))/100) - _n(p.taxa_fixa,0);
+const custoMpDe = (v) => (v.produto_materias_primas||[]).reduce((a,l)=>{
+  const m = l.materias_primas || l;
+  const un = Number(m.qtd_por_unidade_compra)>0 ? Number(m.custo_unidade_compra)/Number(m.qtd_por_unidade_compra) : 0;
+  return a + un*Number(l.qtd_usada_por_produto||0);
+},0);
 
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
 export default function App({user,onLogout}) {
@@ -438,6 +446,12 @@ export default function App({user,onLogout}) {
   const [custoObs,            setCustoObs]            = useState("");
   const [custoVenc,           setCustoVenc]           = useState("");
   const [custosPagos,         setCustosPagos]         = useState([]); // ids pagos no mês finMes
+  const [projUsaEstoque,      setProjUsaEstoque]      = useState(true);
+  const [projEstoque,         setProjEstoque]         = useState("");   // vazio = usa o gasto real do mês
+  const [projOutros,          setProjOutros]          = useState("");
+  const [projLucro,           setProjLucro]           = useState("");
+  const [projJa,              setProjJa]              = useState("");
+  const [projMix,             setProjMix]             = useState({});   // {variacaoId: "%"}
   const [salvandoCusto,       setSalvandoCusto]       = useState(false);
   const [finMes,              setFinMes]              = useState(() => new Date().toISOString().slice(0,7));
   const [finMovimentos,       setFinMovimentos]       = useState([]);
@@ -3848,6 +3862,142 @@ export default function App({user,onLogout}) {
                 </div>
               )}
             </div>
+
+            {/* Calculadora de projeção (ponto de equilíbrio) */}
+            {(()=>{
+              const fm = (n) => "R$ "+Number(n||0).toFixed(2).replace(".",",");
+              const estoqueVal = projEstoque!=="" ? (Number(projEstoque)||0) : totalMaterial;
+              const outros = Number(projOutros)||0;
+              const lucroDes = Number(projLucro)||0;
+              const meta = totalFixos + (projUsaEstoque?estoqueVal:0) + outros + lucroDes;
+
+              const todas = [];
+              produtosCalc.forEach(p=>{
+                const vs = p.produto_variacoes||[];
+                vs.forEach(v=>{
+                  const liq = liquidoDe(p,v.preco_venda);
+                  const mp = custoMpDe(v);
+                  todas.push({id:v.id, nome:p.nome+(vs.length>1?" · "+v.nome:""), preco:Number(v.preco_venda)||0, liq, mp, contrib: liq-(projUsaEstoque?0:mp)});
+                });
+              });
+              const validas = todas.filter(x=>x.preco>0&&x.contrib>0);
+              const peso = (x) => { const m=projMix[x.id]; return (m===undefined||m==="")?null:Math.max(0,Number(m)||0); };
+              const algumMix = validas.some(x=>peso(x)!==null);
+              const pesos = validas.map(x=>algumMix?(peso(x)||0):1);
+              const soma = pesos.reduce((a,b)=>a+b,0);
+              const contribMedia = soma>0 ? validas.reduce((a,x,i)=>a+x.contrib*pesos[i],0)/soma : 0;
+              const precoMedio  = soma>0 ? validas.reduce((a,x,i)=>a+x.preco*pesos[i],0)/soma : 0;
+              const unidades = contribMedia>0 ? Math.ceil(meta/contribMedia) : null;
+              const faturamento = unidades!==null ? unidades*precoMedio : null;
+              const ja = Number(projJa)||0;
+              const faltam = unidades!==null ? Math.max(0,unidades-ja) : null;
+              const [fy,fmo] = finMes.split("-").map(Number);
+              const diasMes = new Date(fy,fmo,0).getDate();
+              const hj = new Date();
+              const ehMesAtual = hj.getFullYear()===fy && hj.getMonth()+1===fmo;
+              const diasRest = ehMesAtual ? diasMes-hj.getDate()+1 : diasMes;
+              const inp = {width:"100%",padding:"8px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"};
+              const lb = {fontSize:10,fontWeight:600,color:"#64748b",display:"block",marginBottom:2};
+              return (
+                <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:4}}>🎯 Calculadora de projeção — {finMes}</div>
+                  <div style={{fontSize:11,color:"#94a3b8",marginBottom:12}}>Quanto você precisa vender no mês para cobrir os custos (ponto de equilíbrio).</div>
+
+                  {/* O que precisa ser coberto */}
+                  <div style={{background:"#f8fafc",borderRadius:10,padding:"12px 14px",marginBottom:12}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:8}}>1) O que precisa ser pago</div>
+                    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:6}}>
+                      <span>📋 Custos fixos</span><strong>{fm(totalFixos)}</strong>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap",marginBottom:6}}>
+                      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer"}}>
+                        <input type="checkbox" checked={projUsaEstoque} onChange={e=>setProjUsaEstoque(e.target.checked)} style={{width:15,height:15}} />
+                        📦 Compras de estoque/material
+                      </label>
+                      {projUsaEstoque&&(
+                        <div style={{display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{fontSize:11,color:"#94a3b8"}}>R$</span>
+                          <input type="number" min="0" step="0.01" value={projEstoque} onChange={e=>setProjEstoque(e.target.value)} placeholder={totalMaterial.toFixed(2)} style={{...inp,width:110}} />
+                        </div>
+                      )}
+                    </div>
+                    <div style={{fontSize:10,color:"#94a3b8",margin:"-2px 0 8px 21px"}}>
+                      {projUsaEstoque
+                        ? `Vem do gasto real do mês (${fm(totalMaterial)}); edite para simular outro valor. Com isso marcado, o custo de matéria-prima por unidade não é descontado de novo.`
+                        : "Desmarcado: o custo de matéria-prima de cada produto é descontado por unidade vendida."}
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                      <div>
+                        <label style={lb}>Outros custos do mês (R$)</label>
+                        <input type="number" min="0" step="0.01" value={projOutros} onChange={e=>setProjOutros(e.target.value)} placeholder="0,00" style={inp} />
+                      </div>
+                      <div>
+                        <label style={lb}>Lucro que quero tirar (R$)</label>
+                        <input type="number" min="0" step="0.01" value={projLucro} onChange={e=>setProjLucro(e.target.value)} placeholder="0,00" style={inp} />
+                      </div>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",marginTop:10,paddingTop:8,borderTop:"1px solid #e2e8f0",fontSize:13}}>
+                      <strong style={{color:"#1e293b"}}>Meta a cobrir</strong><strong style={{color:"#7c3aed",fontSize:15}}>{fm(meta)}</strong>
+                    </div>
+                  </div>
+
+                  {/* Mix de produtos */}
+                  <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:6}}>2) Quanto cada venda deixa para cobrir os custos</div>
+                  {todas.length===0 ? (
+                    <div style={{fontSize:12,color:"#94a3b8",padding:"8px 0 12px"}}>Cadastre produtos com preço na aba Produtos para calcular.</div>
+                  ) : (
+                    <div style={{overflowX:"auto",marginBottom:6}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead><tr>{["Produto / variação","Preço","Sobra por venda","% das vendas","Só vendendo este"].map(h=><th key={h} style={{...TH,padding:"6px 8px"}}>{h}</th>)}</tr></thead>
+                        <tbody>
+                          {todas.map(x=>{
+                            const ok = x.preco>0&&x.contrib>0;
+                            const un = ok ? Math.ceil(meta/x.contrib) : null;
+                            return (
+                              <tr key={x.id} style={{borderBottom:"1px solid #f1f5f9",opacity:ok?1:0.6}}>
+                                <td style={{padding:"6px 8px",fontWeight:600}}>{x.nome}</td>
+                                <td style={{padding:"6px 8px"}}>{fm(x.preco)}</td>
+                                <td style={{padding:"6px 8px",fontWeight:700,color:x.contrib>0?"#059669":"#ef4444"}}>{fm(x.contrib)}</td>
+                                <td style={{padding:"6px 8px",width:90}}>
+                                  {ok ? <input type="number" min="0" value={projMix[x.id]??""} onChange={e=>setProjMix(m=>({...m,[x.id]:e.target.value}))} placeholder="auto" style={{...inp,padding:"5px 8px",fontSize:12}} /> : <span style={{fontSize:10,color:"#ef4444"}}>sem lucro</span>}
+                                </td>
+                                <td style={{padding:"6px 8px",color:"#374151"}}>{ok ? <><strong>{un}</strong> un · {fm(un*x.preco)}</> : "—"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <div style={{fontSize:10,color:"#94a3b8",marginBottom:12}}>"Sobra por venda" = preço − comissão, imposto, adiantamento e taxa fixa da Shopee (os % de cada produto){projUsaEstoque?"":" − custo de matéria-prima"}. Deixe os % em branco para dividir as vendas igualmente entre os produtos; ou informe a proporção que você vende (ex: 70 e 30).</div>
+
+                  {/* Resultado */}
+                  <div style={{background:"linear-gradient(135deg,#7c3aed,#6d28d9)",borderRadius:12,padding:"14px 16px",color:"#fff"}}>
+                    {unidades===null ? (
+                      <div style={{fontSize:13}}>Nenhum produto com lucro por venda positivo. Confira preços e custos na aba Produtos.</div>
+                    ) : (
+                      <>
+                        <div style={{fontSize:11,opacity:.85,marginBottom:6}}>Para cobrir {fm(meta)} você precisa vender no mês:</div>
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:12}}>
+                          <div><div style={{fontSize:22,fontWeight:800}}>{unidades}</div><div style={{fontSize:10,opacity:.85}}>unidades (≈ {(unidades/diasMes).toFixed(1)}/dia no mês todo)</div></div>
+                          <div><div style={{fontSize:22,fontWeight:800}}>{fm(faturamento)}</div><div style={{fontSize:10,opacity:.85}}>de faturamento (preço médio {fm(precoMedio)})</div></div>
+                          <div><div style={{fontSize:22,fontWeight:800}}>{fm(contribMedia)}</div><div style={{fontSize:10,opacity:.85}}>sobra média por venda</div></div>
+                        </div>
+                        <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid rgba(255,255,255,.25)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                          <label style={{fontSize:11,opacity:.9}}>Já vendi no mês (unidades):</label>
+                          <input type="number" min="0" value={projJa} onChange={e=>setProjJa(e.target.value)} placeholder="0" style={{width:90,padding:"6px 8px",border:"none",borderRadius:8,fontSize:13,outline:"none"}} />
+                          {ja>0&&(
+                            <span style={{fontSize:12,fontWeight:700}}>
+                              {faltam===0 ? "✅ Meta batida!" : `Faltam ${faltam} un · ${(faltam/Math.max(diasRest,1)).toFixed(1)}/dia nos ${diasRest} dias restantes`}
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Material por fornecedor */}
             {Object.keys(porFornecedor).length>0&&(
