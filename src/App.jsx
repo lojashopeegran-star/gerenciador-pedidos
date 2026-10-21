@@ -2943,6 +2943,17 @@ export default function App({user,onLogout}) {
           setMpModoDimensao(false); setMpRoloLargura(""); setMpRoloComprimento(""); setMpCorteL(""); setMpCorteC(""); setMpUnidadeCorte("folha");
           setShowMpForm(true);
         };
+        const puxarDoEstoque = (id) => {
+          setMpEstoqueId(id);
+          const ep = estoqueProdutos.find(x=>x.id===id);
+          if (!ep) return;
+          const unidades = ["folha","pedaço","un","cx","pct","rolo","m","cm","kg","g","l","ml"];
+          setMpNome(ep.nome);
+          setMpCustoCompra(ep.preco_unitario?Number(ep.preco_unitario).toFixed(2):"");
+          setMpQtdPorCompra("1");
+          setMpUnidade(unidades.includes(ep.unidade)?ep.unidade:"un");
+          setMpRendimento("");
+        };
         const calcDimensao = () => {
           const rl = Number(mpRoloLargura); const rc = Number(mpRoloComprimento)*100;
           const cl = Number(mpCorteL); const cc = Number(mpCorteC);
@@ -3161,6 +3172,20 @@ export default function App({user,onLogout}) {
             <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:500,boxShadow:"0 20px 60px rgba(0,0,0,0.2)",margin:"auto"}}>
               <h3 style={{margin:"0 0 14px",fontSize:15,fontWeight:700}}>{editandoMp?"✏️ Editar matéria-prima":"+ Nova matéria-prima"}</h3>
               <div style={{display:"flex",flexDirection:"column",gap:11}}>
+                {!editandoMp&&estoqueProdutos.filter(x=>x.ativo!==false).length>0&&(
+                  <div style={{background:"#f0fdfa",border:"1.5px solid #99f6e4",borderRadius:12,padding:"10px 12px"}}>
+                    <label style={{fontSize:11,fontWeight:700,color:"#0d9488",display:"block",marginBottom:4}}>📦 Puxar do Estoque (preenche nome, custo e unidade)</label>
+                    <select value={mpEstoqueId} onChange={e=>puxarDoEstoque(e.target.value)}
+                      style={{width:"100%",padding:"8px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",background:"#fff",boxSizing:"border-box"}}>
+                      <option value="">Escolher item do estoque…</option>
+                      {estoqueProdutos.filter(x=>x.ativo!==false).map(x=>{
+                        const ja = materiasPrimas.some(m=>m.estoque_produto_id===x.id);
+                        return <option key={x.id} value={x.id}>{x.nome} ({x.unidade}){x.preco_unitario?` · R$ ${Number(x.preco_unitario).toFixed(2)}`:""}{ja?" ✓ já cadastrada":""}</option>;
+                      })}
+                    </select>
+                    <div style={{fontSize:10,color:"#64748b",marginTop:4}}>Depois é só ajustar quanto 1 unidade do estoque rende e as demais características.</div>
+                  </div>
+                )}
                 <div>
                   <label style={lbl}>Nome do material *</label>
                   <input value={mpNome} onChange={e=>setMpNome(e.target.value)} placeholder="Ex: Manta Imã, Papel micro poroso, Envelope..." style={{...inp,padding:"9px 12px"}} />
