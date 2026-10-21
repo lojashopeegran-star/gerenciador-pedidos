@@ -594,8 +594,7 @@ export default function App({user,onLogout}) {
       const orgId = m?.organizacao_id || null;
 
       if (orgId) {
-        const org = await fetchOrganizacao(orgId);
-        setOrganizacao(org);
+        fetchOrganizacao(orgId).then(setOrganizacao);
         // Todos os membros precisam da lista da equipe para resolver as cores
         // de quem marcou cada pedido como feito — não só o admin.
         fetchMembrosDaOrganizacao(orgId).then(setMembrosEquipe);

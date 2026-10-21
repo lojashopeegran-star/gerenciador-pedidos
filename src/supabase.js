@@ -37,28 +37,43 @@ export async function getSession() { const { data } = await supabase.auth.getSes
 // ── Pedidos — paginated to get ALL records ────────────────────────────────────
 export async function fetchPedidos(userId, orgId) {
   if (!supabase || !userId) return []
-  let allData = []
-  let from = 0
-  const pageSize = 500
-  let page = 0
-  while (true) {
-    page++
-    let query = supabase.from('pedidos').select('*', { count: 'exact' })
-    query = orgId ? query.eq('organizacao_id', orgId) : query.eq('user_id', userId)
-    query = query.is('arquivado_em', null)  // ignora soft-deleted
-    const { data, error, count } = await query
-      .order('id', { ascending: true })
-      .range(from, from + pageSize - 1)
-    if (error) { console.error('fetchPedidos error:', error); break }
-    console.log(`fetchPedidos page ${page}: got ${data?.length} rows, total in DB: ${count}`)
-    if (!data || data.length === 0) break
-    allData = allData.concat(data)
-    if (data.length < pageSize) break
-    from += pageSize
-    if (page > 100) { console.error('fetchPedidos: too many pages, stopping'); break }
+  const pageSize = 1000
+  const base = () => {
+    let q = supabase.from('pedidos').select('*')
+    q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
+    return q.is('arquivado_em', null) // ignora soft-deleted
   }
-  console.log('fetchPedidos total loaded:', allData.length)
-  return allData.map(dbToRow)
+  const pagina = async (n) => {
+    const { data, error } = await base().order('id', { ascending: true }).range(n * pageSize, n * pageSize + pageSize - 1)
+    if (error) { console.error('fetchPedidos error:', error); return null }
+    return data || []
+  }
+  // 1ª página já mostra quantas existem; as demais vêm em paralelo (antes era uma por vez + contagem exata em cada)
+  let cq = supabase.from('pedidos').select('id', { count: 'estimated', head: true })
+  cq = orgId ? cq.eq('organizacao_id', orgId) : cq.eq('user_id', userId)
+  cq = cq.is('arquivado_em', null)
+  const [primeira, cnt] = await Promise.all([pagina(0), cq])
+  if (!primeira) return []
+  let all = primeira
+  if (primeira.length === pageSize) {
+    const estimado = Number(cnt?.count) || 0
+    let n = 1
+    // estimativa só orienta quantas páginas pedir; continua até vir página incompleta
+    const lote = Math.max(4, Math.ceil(estimado / pageSize) + 2 - 1)
+    while (true) {
+      const idx = Array.from({ length: Math.min(lote, 40) }, (_, i) => n + i)
+      const res = await Promise.all(idx.map(pagina))
+      let fim = false
+      for (const r of res) {
+        if (!r) { fim = true; break }
+        all = all.concat(r)
+        if (r.length < pageSize) { fim = true; break }
+      }
+      if (fim || n > 200) break
+      n += idx.length
+    }
+  }
+  return all.map(dbToRow)
 }
 
 export async function upsertPedidos(rows, userId, orgId, onProgress) {
