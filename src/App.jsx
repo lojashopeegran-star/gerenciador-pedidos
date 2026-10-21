@@ -396,6 +396,7 @@ export default function App({user,onLogout}) {
   const [estoqueProdQtd,     setEstoqueProdQtd]     = useState("");
   const [estoqueProdMin,     setEstoqueProdMin]     = useState("");
   const [salvandoProduto,    setSalvandoProduto]    = useState(false);
+  const [abrirPlusAposSalvar, setAbrirPlusAposSalvar] = useState(false);
   const [showMovForm,        setShowMovForm]        = useState(null); // produtoId ou null
   const [movTipo,            setMovTipo]            = useState("entrada");
   const [movQtd,             setMovQtd]             = useState("");
@@ -2914,7 +2915,18 @@ export default function App({user,onLogout}) {
           setSalvandoProduto(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
           setShowEstoqueForm(false);
-          reloadEstoque();
+          const produtos = await fetchEstoqueProdutos(user.id, orgId);
+          setEstoqueProdutos(produtos);
+          fetchMovimentosEstoque(user.id, orgId, null, 100).then(setEstoqueMovimentos);
+          if (abrirPlusAposSalvar && res.data?.[0]) {
+            const novo = res.data[0];
+            setAbrirPlusAposSalvar(false);
+            setEstoqueProdPlusId(novo.id);
+            setEstoqueProdFornId(""); setEstoqueProdPreco(""); setEstoqueProdLink(""); setEstoqueProdObs(""); setEstoqueProdCat("");
+            setShowEstoqueProdPlus(true);
+          } else {
+            setAbrirPlusAposSalvar(false);
+          }
           showToast(editandoProduto?"✅ Produto atualizado!":"✅ Produto cadastrado!","#059669");
         };
         const excluirProduto = async (id) => {
@@ -2955,9 +2967,6 @@ export default function App({user,onLogout}) {
                     style={{paddingLeft:32,paddingRight:12,paddingTop:8,paddingBottom:8,border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",width:190,background:"#fff"}}
                   />
                 </div>
-                <button onClick={abrirFormNovo} style={{background:"linear-gradient(135deg,#0d9488,#0891b2)",color:"#fff",border:"none",borderRadius:10,padding:"9px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
-                  + Novo Material
-                </button>
                 <button onClick={()=>{
                   if (estoquePlusDesbloqueado) { setActiveTab("estoque_plus"); }
                   else if (!estoquePlusConfig) { setShowDefinirPin(true); }
@@ -3275,7 +3284,7 @@ export default function App({user,onLogout}) {
                 <span style={{background:"#ede9fe",color:"#6d28d9",borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>Área restrita</span>
               </div>
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                <button onClick={()=>abrirFormNovoProd()} style={{background:"linear-gradient(135deg,#7c3aed,#6d28d9)",color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Novo Material</button>
+                <button onClick={()=>{setAbrirPlusAposSalvar(true);setEditandoProduto(null);setEstoqueProdNome("");setEstoqueProdUnidade("un");setEstoqueProdQtd("0");setEstoqueProdMin("0");setShowEstoqueForm(true);}} style={{background:"linear-gradient(135deg,#7c3aed,#6d28d9)",color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+ Novo Material</button>
                 <button onClick={()=>setShowDefinirPin(true)} style={{background:"#f1f5f9",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"8px 14px",fontSize:12,cursor:"pointer"}}>⚙️ Alterar PIN</button>
                 <button onClick={()=>{setEstoquePlusDesbloqueado(false);setActiveTab("estoque");}} style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>🔒 Trancar</button>
               </div>

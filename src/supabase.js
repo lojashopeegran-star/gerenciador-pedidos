@@ -527,11 +527,12 @@ export async function salvarEstoqueProduto(userId, orgId, produto) {
   if (produto.id) {
     const { error } = await supabase.from('estoque_produtos').update({ ...rec, atualizado_em: new Date().toISOString() }).eq('id', produto.id)
     if (error) return { error: error.message }
+    return { success: true }
   } else {
-    const { error } = await supabase.from('estoque_produtos').insert(rec)
+    const { data, error } = await supabase.from('estoque_produtos').insert(rec).select()
     if (error) return { error: error.message }
+    return { success: true, data }
   }
-  return { success: true }
 }
 
 export async function excluirEstoqueProduto(produtoId) {
