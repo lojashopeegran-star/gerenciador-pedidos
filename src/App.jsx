@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, lazy, Suspense } from "react";
 // XLSX carregado sob demanda para não bloquear o primeiro carregamento
 let _XLSX = null;
 const getXLSX = async () => { if (!_XLSX) _XLSX = await import("xlsx"); return _XLSX; };
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 // ── Column maps — matched to REAL Shopee spreadsheet columns ─────────────────
 const PEDIDO_COLS = {
@@ -775,6 +775,17 @@ export default function App({user,onLogout}) {
   const logOp = (op) => registrarOperacao(orgId, user?.id, meuNome, op);
 
   // ── Histórico de operações (desfazer) ───────────────────────────────────────
+  const desfazerLancamento = async (m) => {
+    const nome = m.estoque_produtos?.nome||"material";
+    const un = m.estoque_produtos?.unidade||"";
+    const acaoTxt = m.tipo==="entrada" ? `retirar ${m.quantidade} ${un} do saldo` : `devolver ${m.quantidade} ${un} ao saldo`;
+    if (!window.confirm(`Desfazer este lançamento de ${m.tipo==="entrada"?"ENTRADA":"SAÍDA"} de ${m.quantidade} ${un} de "${nome}"?\n\nIsso vai ${acaoTxt} e apagar o lançamento.`)) return;
+    const r = await desfazerMovimentoEstoque(m, {userId:user.id, orgId});
+    if (r.error) { showToast("❌ "+r.error,"#991b1b"); return; }
+    logOp({tipo:"estoque",acao:"desfazer_lancamento",descricao:`Lançamento desfeito: ${m.tipo} de ${m.quantidade} ${un} de ${nome}`,tabela:"lancamento_removido",registro_id:m.id});
+    await recarregarTudo();
+    showToast("↩ Lançamento desfeito.","#059669");
+  };
   const recarregarTudo = async () => {
     if (!user) return;
     const [ep, em, fo, cf, mp, pr, fm, fs, pg, mm] = await Promise.all([
@@ -3836,7 +3847,7 @@ export default function App({user,onLogout}) {
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                     <thead>
                       <tr>
-                        {["Data","Produto","Tipo","Qtd","Motivo","Quem"].map(h=>(
+                        {["Data","Produto","Tipo","Qtd","Motivo","Quem",""].map(h=>(
                           <th key={h} style={{...TH}}>{h}</th>
                         ))}
                       </tr>
@@ -3854,6 +3865,7 @@ export default function App({user,onLogout}) {
                           <td style={TD}><strong>{m.quantidade}</strong> {m.estoque_produtos?.unidade||""}</td>
                           <td style={TD}>{m.motivo||"—"}</td>
                           <td style={TD}>{m.registrado_por||"—"}</td>
+                          <td style={TD}>{isAdminEquipe&&<button onClick={()=>desfazerLancamento(m)} title="Desfazer este lançamento" style={{background:"#f1f5f9",border:"none",borderRadius:6,padding:"4px 8px",fontSize:11,cursor:"pointer",color:"#374151",whiteSpace:"nowrap"}}>↩ Desfazer</button>}</td>
                         </tr>
                       ))}
                     </tbody>

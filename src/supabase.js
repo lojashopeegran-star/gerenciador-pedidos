@@ -1231,3 +1231,9 @@ export async function excluirKit(id) {
   const { error } = await supabase.from('mp_kits').update({ ativo: false }).eq('id', id)
   return error ? { error: error.message } : { success: true }
 }
+
+// Desfaz um lançamento de estoque (entrada ou saída): devolve/retira a quantidade do saldo e apaga o lançamento
+export async function desfazerMovimentoEstoque(m, ctx) {
+  const op = { tabela: 'estoque_movimentos', acao: 'criar', registro_id: m.id, depois: { id: m.id, produto_id: m.produto_id, tipo: m.tipo, quantidade: m.quantidade } }
+  return _reverter(op, ctx)
+}
