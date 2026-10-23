@@ -3699,6 +3699,19 @@ export default function App({user,onLogout}) {
         };
         const salvarMov = async () => {
           if (!movQtd || Number(movQtd)<=0) { showToast("❌ Informe a quantidade.","#991b1b"); return; }
+          {
+            // Confirmação para lançamentos grandes (evita erro de digitação, ex: 8 em vez de 1)
+            const pc = estoqueProdutos.find(x=>x.id===showMovForm);
+            const q = Number(movQtd), saldo = Number(pc?.quantidade_atual)||0, un = pc?.unidade||"";
+            let aviso = null;
+            if (movTipo==="saida") {
+              if (q>saldo) aviso = `Você está dando saída de ${q} ${un}, mas o saldo é só ${saldo} ${un}. O estoque ficaria NEGATIVO.`;
+              else if (q>=5 || (saldo>0 && q>=saldo*0.5)) aviso = `Você está dando saída de ${q} ${un} de "${pc?.nome}" (saldo atual: ${saldo} ${un}; ficaria ${Number((saldo-q).toFixed(3))} ${un}).`;
+            } else if (q>=10) {
+              aviso = `Você está dando entrada de ${q} ${un} em "${pc?.nome}" (saldo atual: ${saldo} ${un}; ficaria ${Number((saldo+q).toFixed(3))} ${un}).`;
+            }
+            if (aviso && !window.confirm(aviso+"\n\nConfirma?")) return;
+          }
           setSalvandoMov(true);
           const res = await registrarMovimentoEstoque(user.id, orgId, meuNome, {
             produto_id: showMovForm,
