@@ -3192,7 +3192,7 @@ export default function App({user,onLogout}) {
           showToast(`✅ ${novas} variação(ões) adicionada(s)${atual?` e ${atual} atualizada(s)`:""}. Agora é só vincular as matérias-primas.`,"#059669",5000);
         };
         const importVarModal = impVar&&(
-          <div onClick={()=>impVar.fase!=="lendo"&&setImpVar(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",zIndex:9600,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div onClick={()=>impVar.fase!=="lendo"&&setImpVar(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",zIndex:10100,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
             <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(560px,100%)",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,.3)"}}>
               <div style={{padding:"16px 20px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{fontSize:16,fontWeight:800,color:"#1e293b"}}>📷 Importar variações de um print</div>
