@@ -846,7 +846,7 @@ export async function fetchMovimentosComPreco(userId, orgId, mes) {
     .eq('tipo', 'entrada')
   q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
   const { data } = await q.order('criado_em', { ascending: false })
-  return (data || []).filter(m => !String(m.motivo || '').startsWith('Estorno'))
+  return (data || []).filter(m => !String(m.motivo || '').startsWith('Estorno') && !String(m.motivo || '').startsWith('Ajuste de contagem'))
 }
 
 // Saídas de estoque do mês (material realmente consumido) — mes = "YYYY-MM"
@@ -862,7 +862,7 @@ export async function fetchSaidasMes(userId, orgId, mes) {
   q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
   const { data, error } = await q.order('criado_em', { ascending: false })
   if (error) { console.error('fetchSaidasMes error:', error.message); return [] }
-  return (data || []).map(m => m.tipo === 'entrada' ? { ...m, quantidade: -Number(m.quantidade) } : m)
+  return (data || []).filter(m => !String(m.motivo || '').startsWith('Ajuste de contagem')).map(m => m.tipo === 'entrada' ? { ...m, quantidade: -Number(m.quantidade) } : m)
 }
 
 // ─── Histórico de operações e desfazer ───────────────────────────────────────
@@ -1187,7 +1187,7 @@ export async function fetchConsumoRecente(userId, orgId, dias = 30) {
   q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
   const { data } = await q.limit(5000)
   const mapa = {}
-  ;(data || []).forEach(m => { mapa[m.produto_id] = (mapa[m.produto_id] || 0) + (m.tipo === 'entrada' ? -1 : 1) * (Number(m.quantidade) || 0) })
+  ;(data || []).filter(m => !String(m.motivo || '').startsWith('Ajuste de contagem')).forEach(m => { mapa[m.produto_id] = (mapa[m.produto_id] || 0) + (m.tipo === 'entrada' ? -1 : 1) * (Number(m.quantidade) || 0) })
   return mapa
 }
 
@@ -1236,4 +1236,82 @@ export async function excluirKit(id) {
 export async function desfazerMovimentoEstoque(m, ctx) {
   const op = { tabela: 'estoque_movimentos', acao: 'criar', registro_id: m.id, depois: { id: m.id, produto_id: m.produto_id, tipo: m.tipo, quantidade: m.quantidade } }
   return _reverter(op, ctx)
+}
+
+
+// ─── Robustez: erros, sincronização UpSeller, backup, resumo semanal ─────────
+
+export async function registrarErroApp(ctx, erro, contexto) {
+  try {
+    if (!supabase || !ctx?.userId) return
+    await supabase.from('erros_app').insert({
+      organizacao_id: ctx.orgId || null, user_id: ctx.userId, usuario_nome: ctx.nome || null,
+      mensagem: String(erro?.message || erro || 'erro').slice(0, 1000),
+      stack: String(erro?.stack || '').slice(0, 4000),
+      contexto: contexto ? String(contexto).slice(0, 1000) : null,
+      url: typeof location !== 'undefined' ? location.href : null,
+    })
+  } catch (e) { /* não pode falhar ao registrar falha */ }
+}
+
+export async function fetchErrosApp(orgId, limite = 30) {
+  const { data, error } = await supabase.from('erros_app').select('*').eq('organizacao_id', orgId)
+    .order('criado_em', { ascending: false }).limit(limite)
+  return error ? { error: error.message } : (data || [])
+}
+
+// Última vez que o UpSeller trouxe/atualizou pedidos (a baixa de estoque depende disso)
+export async function fetchSyncUpseller() {
+  try {
+    const [a, b] = await Promise.all([
+      supabase.from('upseller_pedidos_reais').select('coletado_em').not('coletado_em', 'is', null).order('coletado_em', { ascending: false }).limit(1),
+      supabase.from('upseller_pedidos_reais').select('atualizado_em').not('atualizado_em', 'is', null).order('atualizado_em', { ascending: false }).limit(1),
+    ])
+    const t = [a.data?.[0]?.coletado_em, b.data?.[0]?.atualizado_em].filter(Boolean).map(x => new Date(x).getTime())
+    return t.length ? new Date(Math.max(...t)).toISOString() : null
+  } catch (e) { return null }
+}
+
+export async function fetchBackups(orgId) {
+  const { data, error } = await supabase.from('backup_snapshots').select('id, origem, resumo, criado_em')
+    .eq('organizacao_id', orgId).order('criado_em', { ascending: false }).limit(12)
+  return error ? { error: error.message } : (data || [])
+}
+export async function gerarBackupAgora(orgId) {
+  const { data, error } = await supabase.rpc('gerar_backup', { p_org: orgId, p_origem: 'manual' })
+  return error ? { error: error.message } : { success: true, id: data }
+}
+export async function fetchBackupDados(id) {
+  const { data, error } = await supabase.from('backup_snapshots').select('dados, criado_em').eq('id', id).maybeSingle()
+  return error || !data ? { error: error?.message || 'Backup não encontrado' } : data
+}
+
+// Números da semana (de `desdeIso` até agora) para o resumo semanal
+export async function fetchResumoSemanal(userId, orgId, desdeIso) {
+  const q = (extra) => {
+    let r = supabase.from('upseller_pedidos_reais').select('id', { count: 'exact', head: true })
+      .gte('data_pedido', desdeIso).is('excluido_em', null)
+    return extra ? extra(r) : r
+  }
+  const [tot, canc, movs] = await Promise.all([
+    q(r => r.or('status_upseller.is.null,status_upseller.neq.cancelado')),
+    q(r => r.eq('status_upseller', 'cancelado')),
+    supabase.from('estoque_movimentos').select('produto_id, quantidade, tipo, motivo, estoque_produtos(nome, unidade)')
+      .eq('organizacao_id', orgId).gte('criado_em', desdeIso).limit(5000),
+  ])
+  const uso = {}
+  ;(movs.data || []).forEach(m => {
+    const mot = String(m.motivo || '')
+    if (mot.startsWith('Ajuste de contagem')) return
+    const ehSaida = m.tipo === 'saida'
+    const ehEstorno = m.tipo === 'entrada' && mot.startsWith('Estorno')
+    if (!ehSaida && !ehEstorno) return
+    const k = m.produto_id
+    uso[k] = uso[k] || { nome: m.estoque_produtos?.nome || '?', unidade: m.estoque_produtos?.unidade || '', qtd: 0 }
+    uso[k].qtd += (ehSaida ? 1 : -1) * (Number(m.quantidade) || 0)
+  })
+  return {
+    pedidos: tot.count || 0, cancelados: canc.count || 0,
+    uso: Object.values(uso).filter(u => u.qtd > 0).sort((a, b) => b.qtd - a.qtd),
+  }
 }

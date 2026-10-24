@@ -1,4 +1,5 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import AppShell from './AppShell.jsx'
-ReactDOM.createRoot(document.getElementById('root')).render(<AppShell />)
+import ErrorBoundary from './ErrorBoundary.jsx'
+ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><AppShell /></ErrorBoundary>)
