@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, lazy, Suspense } from "react";
 const Ferramentas = lazy(() => import("./Ferramentas.jsx"));
 import { getXLSX, PEDIDO_COLS, DEVOLUCAO_COLS, norm, parseSheet, normStatus, mesReferencia, mesLabel, corRecorrencia, formatMotivoCancelamento, isEnviado, isCancelado, isAberto, isHistorico, deadlineInfo, fmtBRL, currentMes, StatusBadge, StyledCheckbox, FeitoButton, RevisaoButton, VazioButton, ExpandCell, DropZone, Toast, RevisaoModal, FinanceGate, TabBar, TH, TD, _n, _norm, _tokens, similaridade, melhorMatch, mapUnidade, arquivoParaBase64, prepararImagemNota, fmtBRLn, quandoFmt, liquidoDe, custoMpDe } from "./helpers.jsx";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, lerVariacoesPrint, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 export default function App({user,onLogout}) {
   const [allPedidos,    setAllPedidos]    = useState([]);
@@ -151,6 +151,25 @@ export default function App({user,onLogout}) {
   const [materiasPrimas, setMateriasPrimas] = useState([]);
   const [showMpLib, setShowMpLib] = useState(false);
   const [prodVars, setProdVars] = useState([]);
+  const [impVar, setImpVar] = useState(null); // importar variações de um print: {fase:'lendo'|'revisar', itens:[{k,nome,preco,ok}], erro}
+  const lerPrintVariacoes = async (file) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setImpVar({fase:"inicio",itens:[],erro:"Envie uma imagem (print JPG/PNG)."}); return; }
+    setImpVar({fase:"lendo",itens:[],erro:""});
+    let img;
+    try { img = await prepararImagemNota(file); } catch { setImpVar({fase:"inicio",itens:[],erro:"Não consegui abrir a imagem."}); return; }
+    const r = await lerVariacoesPrint(img.mime, img.base64);
+    if (r.error) { setImpVar({fase:"inicio",itens:[],erro:r.error}); return; }
+    const itens = (r.variacoes||[]).filter(v=>String(v.nome||"").trim()).map((v,i)=>({k:i, nome:String(v.nome).trim(), preco:Number(v.preco)>0?String(Number(v.preco)):"", ok:true}));
+    if (!itens.length) { setImpVar({fase:"inicio",itens:[],erro:"Não encontrei variações nesse print."}); return; }
+    setImpVar({fase:"revisar",itens,erro:""});
+  };
+  useEffect(() => {
+    if (!impVar || impVar.fase!=="inicio") return;
+    const onPaste = (e) => { const f=[...(e.clipboardData?.files||[])].find(x=>x.type.startsWith("image/")); if (f) { e.preventDefault(); lerPrintVariacoes(f); } };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [impVar?.fase]); // eslint-disable-line react-hooks/exhaustive-deps
   const [produtoAtivo,          setProdutoAtivo]          = useState(null); // produto selecionado para ver detalhes
   const [showProdutoForm,       setShowProdutoForm]       = useState(false);
   const [editandoProdutoCalc,   setEditandoProdutoCalc]   = useState(null);
@@ -2854,6 +2873,7 @@ export default function App({user,onLogout}) {
                   <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>🎛️ Variações</div>
                   <div style={{display:"flex",gap:8}}>
                     <button onClick={()=>abrirMpForm()} style={{background:"#f0fdfa",color:"#0d9488",border:"1px solid #99f6e4",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>🧱 + Nova matéria-prima</button>
+                    <button onClick={()=>setImpVar({fase:"inicio",itens:[],erro:""})} style={{background:"#eef2ff",color:"#4338ca",border:"1px solid #c7d2fe",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📷 Importar de print</button>
                     <button onClick={addVar} style={{background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Variação</button>
                   </div>
                 </div>
@@ -3156,7 +3176,60 @@ export default function App({user,onLogout}) {
             </div>
           </div>
         );
-        const modais = <>{mpLibModal}{produtoFormModal}{mpFormModal}{kitFormModal}{vincModal}</>;
+        const setImpItem = (k,patch) => setImpVar(v=>({...v,itens:v.itens.map(i=>i.k===k?{...i,...patch}:i)}));
+        const aplicarImpVar = () => {
+          const escolhidos = impVar.itens.filter(i=>i.ok&&i.nome.trim());
+          const base0 = prodVars.filter(v=>String(v.nome||"").trim()||v.mps.some(m=>m.mpId));
+          const base = [...base0];
+          let novas=0, atual=0;
+          escolhidos.forEach(it=>{
+            const idx = base.findIndex(v=>norm(v.nome)===norm(it.nome));
+            if (idx>=0) { base[idx]={...base[idx],preco:it.preco}; atual++; }
+            else { base.push({...novaVar(it.nome.trim()),preco:it.preco}); novas++; }
+          });
+          setProdVars(base);
+          setImpVar(null);
+          showToast(`✅ ${novas} variação(ões) adicionada(s)${atual?` e ${atual} atualizada(s)`:""}. Agora é só vincular as matérias-primas.`,"#059669",5000);
+        };
+        const importVarModal = impVar&&(
+          <div onClick={()=>impVar.fase!=="lendo"&&setImpVar(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.55)",zIndex:9600,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:18,width:"min(560px,100%)",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,.3)"}}>
+              <div style={{padding:"16px 20px 8px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:16,fontWeight:800,color:"#1e293b"}}>📷 Importar variações de um print</div>
+                <button onClick={()=>setImpVar(null)} style={{background:"#f1f5f9",border:"none",borderRadius:8,width:28,height:28,cursor:"pointer"}}>✕</button>
+              </div>
+              <div style={{padding:"0 20px 18px",overflowY:"auto"}}>
+                {impVar.fase==="inicio"&&(<>
+                  <div style={{fontSize:12,color:"#64748b",marginBottom:10,lineHeight:1.5}}>Envie o print da tabela de variações. O sistema lê o <b>nome na 1ª coluna (esquerda)</b> e o <b>preço da última coluna (direita)</b>. Você confere antes de adicionar.</div>
+                  <label style={{display:"block",border:"2px dashed #c7d2fe",background:"#f5f7ff",borderRadius:14,padding:"26px 12px",textAlign:"center",cursor:"pointer",color:"#4338ca",fontWeight:700,fontSize:13}}>
+                    📎 Clique para escolher o print<div style={{fontSize:11,fontWeight:500,color:"#818cf8",marginTop:4}}>ou cole aqui com Ctrl+V</div>
+                    <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{lerPrintVariacoes(e.target.files?.[0]);e.target.value="";}}/>
+                  </label>
+                  {impVar.erro&&<div style={{marginTop:10,fontSize:12,color:"#b91c1c",fontWeight:600}}>❌ {impVar.erro}</div>}
+                </>)}
+                {impVar.fase==="lendo"&&<div style={{padding:"36px 0",textAlign:"center",color:"#4338ca",fontWeight:700,fontSize:14}}>🔎 Lendo o print…</div>}
+                {impVar.fase==="revisar"&&(<>
+                  <div style={{fontSize:12,color:"#64748b",marginBottom:8}}>{impVar.itens.length} variações encontradas. Corrija o que precisar e desmarque o que não quiser. Nomes que já existem no produto só têm o preço atualizado.</div>
+                  <div style={{border:"1px solid #e2e8f0",borderRadius:12,maxHeight:360,overflowY:"auto"}}>
+                    {impVar.itens.map(it=>(
+                      <div key={it.k} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",borderBottom:"1px solid #f1f5f9",opacity:it.ok?1:.45}}>
+                        <input type="checkbox" checked={it.ok} onChange={e=>setImpItem(it.k,{ok:e.target.checked})}/>
+                        <input value={it.nome} onChange={e=>setImpItem(it.k,{nome:e.target.value})} style={{flex:1,minWidth:0,border:"1px solid #e2e8f0",borderRadius:8,padding:"5px 8px",fontSize:13}}/>
+                        <span style={{fontSize:12,color:"#64748b"}}>R$</span>
+                        <input inputMode="decimal" value={it.preco} onChange={e=>setImpItem(it.k,{preco:e.target.value.replace(",",".")})} style={{width:78,border:"1px solid #e2e8f0",borderRadius:8,padding:"5px 8px",fontSize:13,textAlign:"right",borderColor:it.preco?"#e2e8f0":"#fca5a5"}}/>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",marginTop:12,gap:8}}>
+                    <button onClick={()=>setImpVar({fase:"inicio",itens:[],erro:""})} style={{background:"#fff",border:"1px solid #cbd5e1",borderRadius:10,padding:"8px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>← Outro print</button>
+                    <button onClick={aplicarImpVar} disabled={!impVar.itens.some(i=>i.ok&&i.nome.trim())} style={{background:"#4338ca",color:"#fff",border:"none",borderRadius:10,padding:"8px 18px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Adicionar {impVar.itens.filter(i=>i.ok&&i.nome.trim()).length} variações</button>
+                  </div>
+                </>)}
+              </div>
+            </div>
+          </div>
+        );
+        const modais = <>{mpLibModal}{produtoFormModal}{mpFormModal}{kitFormModal}{vincModal}{importVarModal}</>;
 
         // ── Detalhe do produto ──────────────────────────────────────────────
         if (produtoAtivo) {

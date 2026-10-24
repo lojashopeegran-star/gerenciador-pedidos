@@ -1009,6 +1009,22 @@ export async function desfazerOperacoes(ops, ctx, nomeUsuario) {
 }
 
 // Leitura de nota fiscal (foto ou PDF) pelo Gemini
+// Print de tabela de variações: 1ª coluna = nome, última coluna = preço
+export async function lerVariacoesPrint(mime_type, data) {
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+  if (!token) return { error: 'Não autenticado' }
+  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ler-nota-fiscal`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mime_type, data, modo: 'variacoes' }),
+  })
+  let json = null
+  try { json = await res.json() } catch { /* ignore */ }
+  if (!res.ok || json?.error) return { error: json?.error || `Erro ${res.status} ao ler o print` }
+  return { variacoes: json.dados?.variacoes || [] }
+}
+
 export async function lerNotaFiscal(mime_type, data) {
   const { data: { session } } = await supabase.auth.getSession()
   const token = session?.access_token
