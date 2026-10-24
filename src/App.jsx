@@ -348,11 +348,11 @@ const prepararImagemNota = async (file) => {
   try {
     const url = URL.createObjectURL(file);
     const img = await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url; });
-    const max = 2000; const k = Math.min(1, max/Math.max(img.width,img.height));
+    const max = 1600; const k = Math.min(1, max/Math.max(img.width,img.height));
     const c = document.createElement("canvas"); c.width=Math.round(img.width*k); c.height=Math.round(img.height*k);
     c.getContext("2d").drawImage(img,0,0,c.width,c.height);
     URL.revokeObjectURL(url);
-    return { mime:"image/jpeg", base64:c.toDataURL("image/jpeg",0.85).split(",")[1] };
+    return { mime:"image/jpeg", base64:c.toDataURL("image/jpeg",0.8).split(",")[1] };
   } catch { return { mime:file.type||"image/jpeg", base64:await arquivoParaBase64(file) }; }
 };
 const fmtBRLn = (n) => "R$ "+Number(n||0).toFixed(2).replace(".",",");
@@ -645,6 +645,9 @@ export default function App({user,onLogout}) {
   const isAdminEquipe        = membro ? membro.is_admin : true;
   const orgId                = membro?.organizacao_id || null;
   const [pedidosMes, setPedidosMes] = useState(null);
+  const [plusMin, setPlusMin] = useState("");
+  const [plusFornContato, setPlusFornContato] = useState("");
+  const [plusFornSite, setPlusFornSite] = useState("");
   const [kits, setKits] = useState([]);
   const [showKitForm, setShowKitForm] = useState(false);
   const [editandoKit, setEditandoKit] = useState(null);
@@ -890,7 +893,7 @@ export default function App({user,onLogout}) {
       let preco = Number(it.valor_unitario)||0;
       if (!preco && qtd) preco = (Number(it.valor_total)||0)/qtd;
       const m = melhorMatch(it.descricao, estoqueProdutos);
-      return { key:i, descricao:String(it.descricao||""), nome:String(it.descricao||"").trim(), unNota:String(it.unidade||""), un:mapUnidade(it.unidade), qtd:qtd?String(qtd):"", preco:preco?preco.toFixed(2):"", destino:m?m.id:"novo" };
+      return { key:i, descricao:String(it.descricao||""), nome:String(it.descricao||"").trim(), unNota:String(it.unidade||""), un:mapUnidade(it.unidade), qtd:qtd?String(qtd):"", preco:preco?preco.toFixed(2):"", destino:m?m.id:"novo", min:m?String(m.quantidade_minima??""):"" };
     });
     const nomeF = String(d.fornecedor||"").trim();
     const fm = nomeF ? melhorMatch(nomeF, fornecedores, 0.5) : null;
@@ -930,7 +933,7 @@ export default function App({user,onLogout}) {
       let prodId = it.destino;
       let prodAntes = atual.find(x=>x.id===prodId);
       if (prodId==="novo") {
-        const r = await salvarEstoqueProduto(user.id, orgId, { nome:it.nome.trim(), unidade:it.un, quantidade_atual:0, quantidade_minima:0 });
+        const r = await salvarEstoqueProduto(user.id, orgId, { nome:it.nome.trim(), unidade:it.un, quantidade_atual:0, quantidade_minima:Number(it.min)||0 });
         if (r.error || !r.data?.[0]) { await parar("Erro ao criar material "+it.nome+": "+(r.error||"")); return; }
         prodId = r.data[0].id; prodAntes = null;
         await logOp({tipo:"estoque",acao:"criar",descricao:"Material criado: "+it.nome.trim(),tabela:"estoque_produtos",registro_id:prodId,lote_id:lote});
@@ -939,6 +942,11 @@ export default function App({user,onLogout}) {
       const mv = await registrarMovimentoEstoque(user.id, orgId, meuNome, { produto_id:prodId, tipo:"entrada", quantidade:Number(it.qtd), motivo:"Nota fiscal"+(numero?" nº "+numero:""), preco_unitario:preco||null, fornecedor_id:fornId, nota_fiscal:numero||null, criado_em:quando });
       if (mv.error) { await parar("Erro ao lançar entrada de "+(it.nome||it.descricao)+": "+mv.error); return; }
       await logOp({tipo:"estoque",acao:"criar",descricao:`Entrada: ${Number(it.qtd)} ${prodAntes?.unidade||it.un} de ${prodAntes?.nome||it.nome} (nota)`,tabela:"estoque_movimentos",registro_id:mv.movimento.id,depois:{...pick(mv.movimento,COLS_MOV),quantidade:Number(mv.movimento.quantidade)},lote_id:lote});
+      if (it.destino!=="novo" && it.min!=="" && it.min!=null && Number(it.min)!==Number(prodAntes?.quantidade_minima??0)) {
+        const campMin = { quantidade_minima: Number(it.min)||0 };
+        const um = await atualizarEstoqueProdutoPlus(prodId, campMin);
+        if (!um.error) await logOp({tipo:"estoque",acao:"editar",descricao:"Quantidade mínima atualizada: "+(prodAntes?.nome||it.nome),tabela:"estoque_produtos",registro_id:prodId,antes:{quantidade_minima:prodAntes?.quantidade_minima??0},depois:campMin,lote_id:lote});
+      }
       if (preco>0 || fornId) {
         const antesP = { preco_unitario: prodAntes?.preco_unitario ?? null, fornecedor_id: prodAntes?.fornecedor_id ?? null };
         const campos = { preco_unitario: preco>0?preco:antesP.preco_unitario, fornecedor_id: fornId||antesP.fornecedor_id };
@@ -2727,7 +2735,7 @@ export default function App({user,onLogout}) {
                           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8,alignItems:"end"}}>
                             <div style={{gridColumn:"span 2"}}>
                               <label style={lb}>Vai para o material</label>
-                              <select value={it.destino} onChange={e=>setNotaItem(it.key,{destino:e.target.value})} style={{...inp,background:"#fff"}}>
+                              <select value={it.destino} onChange={e=>{const pr=estoqueProdutos.find(x=>x.id===e.target.value);setNotaItem(it.key,{destino:e.target.value,min:pr?String(pr.quantidade_minima??""):""});}} style={{...inp,background:"#fff"}}>
                                 {estoqueProdutos.map(x=><option key={x.id} value={x.id}>{x.nome} ({x.unidade})</option>)}
                                 <option value="novo">➕ Criar novo material</option>
                                 <option value="ignorar">⏭ Ignorar este item</option>
@@ -2745,6 +2753,7 @@ export default function App({user,onLogout}) {
                               <>
                                 <div><label style={lb}>Quantidade ({un})</label><input type="number" min="0" step="any" value={it.qtd} onChange={e=>setNotaItem(it.key,{qtd:e.target.value})} style={inp} /></div>
                                 <div><label style={lb}>Preço por {un} (R$)</label><input type="number" min="0" step="0.01" value={it.preco} onChange={e=>setNotaItem(it.key,{preco:e.target.value})} style={inp} /></div>
+                                <div><label style={lb}>Qtd mínima ({un})</label><input type="number" min="0" step="any" value={it.min??""} onChange={e=>setNotaItem(it.key,{min:e.target.value})} placeholder="alerta" style={inp} /></div>
                                 <div style={{fontSize:12,color:"#374151",paddingBottom:8}}>Subtotal <strong style={{color:"#059669"}}>{fmtBRLn(Number(it.qtd)*(Number(it.preco)||0))}</strong></div>
                               </>
                             )}
@@ -4023,6 +4032,9 @@ export default function App({user,onLogout}) {
           setEstoqueProdLink(p.link_produto||"");
           setEstoqueProdObs(p.observacoes||"");
           setEstoqueProdCat(p.categoria||"");
+          setPlusMin(p.quantidade_minima!=null?String(p.quantidade_minima):"");
+          const fo = fornecedores.find(f=>f.id===p.fornecedor_id);
+          setPlusFornContato(fo?.contato||""); setPlusFornSite(fo?.site_link||"");
           setShowEstoqueProdPlus(true);
         };
         const salvarProdPlus = async () => {
@@ -4035,18 +4047,23 @@ export default function App({user,onLogout}) {
             link_produto:   estoqueProdLink || null,
             observacoes:    estoqueProdObs || null,
             categoria:      estoqueProdCat || null,
+            quantidade_minima: Number(plusMin)||0,
           };
-          const res = await atualizarEstoqueProdutoPlus(estoqueProdPlusId, {
-            preco_unitario: estoqueProdPreco ? Number(estoqueProdPreco) : null,
-            fornecedor_id:  estoqueProdFornId || null,
-            link_produto:   estoqueProdLink || null,
-            observacoes:    estoqueProdObs || null,
-            categoria:      estoqueProdCat || null,
-          });
+          const res = await atualizarEstoqueProdutoPlus(estoqueProdPlusId, camposPlus);
+          // dados do fornecedor (telefone/contato e site) editados aqui
+          const fornSel = fornecedores.find(f=>f.id===estoqueProdFornId);
+          if (!res.error && fornSel && ((fornSel.contato||"")!==plusFornContato.trim() || (fornSel.site_link||"")!==plusFornSite.trim())) {
+            const rf = await salvarFornecedor(user.id, orgId, {id:fornSel.id, nome:fornSel.nome, observacoes:fornSel.observacoes, contato:plusFornContato, site_link:plusFornSite});
+            if (rf.error) showToast("⚠️ Material salvo, mas não consegui atualizar o fornecedor: "+rf.error,"#d97706",6000);
+            else {
+              logOp({tipo:"fornecedores",acao:"editar",descricao:"Fornecedor editado: "+fornSel.nome,tabela:"fornecedores",registro_id:fornSel.id,antes:pick(fornSel,COLS_FORNECEDOR)});
+              reloadForn();
+            }
+          }
           setSalvandoProdPlus(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
           setShowEstoqueProdPlus(false);
-          logOp({tipo:"estoque",acao:"editar",descricao:"Preço/fornecedor atualizado: "+(prodPlusAntes?.nome||"material"),tabela:"estoque_produtos",registro_id:estoqueProdPlusId,antes:pick(prodPlusAntes,["preco_unitario","fornecedor_id","link_produto","observacoes","categoria"]),depois:camposPlus});
+          logOp({tipo:"estoque",acao:"editar",descricao:"Preço/fornecedor atualizado: "+(prodPlusAntes?.nome||"material"),tabela:"estoque_produtos",registro_id:estoqueProdPlusId,antes:pick(prodPlusAntes,["preco_unitario","fornecedor_id","link_produto","observacoes","categoria","quantidade_minima"]),depois:camposPlus});
           fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
           showToast("✅ Informações salvas!","#059669");
         };
@@ -4143,6 +4160,8 @@ export default function App({user,onLogout}) {
                       <div style={{fontSize:12,color:"#374151",marginBottom:2}}>
                         🏭 Fornecedor: {forn ? <strong>{forn.nome}</strong> : <span style={{color:"#94a3b8"}}>não informado</span>}
                       </div>
+                      {(forn?.contato||forn?.site_link)&&<div style={{fontSize:11,color:"#64748b",marginBottom:2}}>{forn.contato&&<span>📞 {forn.contato}</span>}{forn.contato&&forn.site_link&&" · "}{forn.site_link&&<a href={/^https?:/i.test(forn.site_link)?forn.site_link:"https://"+forn.site_link} target="_blank" rel="noreferrer" style={{color:"#6d28d9"}}>🌐 site</a>}</div>}
+                      <div style={{fontSize:12,color:"#374151",marginBottom:2}}>📉 Mínimo: {Number(p.quantidade_minima)>0?<strong>{p.quantidade_minima} {p.unidade}</strong>:<span style={{color:"#94a3b8"}}>não definido</span>}</div>
                       {p.link_produto&&<div style={{fontSize:11,marginBottom:2}}><a href={p.link_produto} target="_blank" rel="noreferrer" style={{color:"#6d28d9"}}>🔗 Ver produto</a></div>}
                       {p.observacoes&&<div style={{fontSize:11,color:"#64748b",fontStyle:"italic",marginBottom:4}}>"{p.observacoes}"</div>}
                       <button onClick={()=>abrirProdPlus(p)} style={{marginTop:6,width:"100%",padding:"5px 0",background:"#ede9fe",color:"#7c3aed",border:"none",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer"}}>✏️ Editar info</button>
@@ -4271,6 +4290,7 @@ export default function App({user,onLogout}) {
                       if (novo) {
                         setEstoqueProdPlusId(novo.id);
                         setEstoqueProdFornId(""); setEstoqueProdPreco(""); setEstoqueProdLink(""); setEstoqueProdObs(""); setEstoqueProdCat("");
+                        setPlusMin(String(Number(estoqueProdMin)||0)); setPlusFornContato(""); setPlusFornSite("");
                         setShowEstoqueProdPlus(true);
                       }
                       showToast("✅ Material cadastrado!","#059669");
@@ -4308,12 +4328,26 @@ export default function App({user,onLogout}) {
                             Nenhum fornecedor cadastrado. Clique em <strong style={{color:"#7c3aed"}}>+ Cadastrar fornecedor</strong> acima.
                           </div>
                         ) : (
-                          <select value={estoqueProdFornId} onChange={e=>setEstoqueProdFornId(e.target.value)}
+                          <select value={estoqueProdFornId} onChange={e=>{setEstoqueProdFornId(e.target.value);const fo=fornecedores.find(f=>f.id===e.target.value);setPlusFornContato(fo?.contato||"");setPlusFornSite(fo?.site_link||"");}}
                             style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",background:"#fff",boxSizing:"border-box"}}>
                             <option value="">— Selecionar fornecedor —</option>
                             {fornecedores.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
                           </select>
                         )}
+                        {estoqueProdFornId&&(
+                          <div style={{marginTop:8,background:"#faf5ff",border:"1px solid #e9d5ff",borderRadius:10,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
+                            <div style={{fontSize:10,fontWeight:700,color:"#7c3aed"}}>DADOS DO FORNECEDOR (valem para todos os materiais dele)</div>
+                            <input value={plusFornContato} onChange={e=>setPlusFornContato(e.target.value)} placeholder="Telefone / WhatsApp / contato"
+                              style={{width:"100%",padding:"8px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                            <input value={plusFornSite} onChange={e=>setPlusFornSite(e.target.value)} placeholder="Site ou link da loja"
+                              style={{width:"100%",padding:"8px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Quantidade mínima ({prod?.unidade||"un"}) — avisa quando precisar repor</label>
+                        <input type="number" min="0" step="any" value={plusMin} onChange={e=>setPlusMin(e.target.value)} placeholder="Ex: 2"
+                          style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
                       </div>
                       <div>
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Categoria</label>
