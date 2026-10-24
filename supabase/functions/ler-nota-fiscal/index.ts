@@ -80,7 +80,15 @@ Deno.serve(async (req: Request) => {
       return r;
     };
     let model = cachedModel || PREFERRED_MODEL;
-    let response = await tentarModelo(model);
+    let response: Response | null = null;
+    // Tabela simples de variações: modelo "lite" é bem mais rápido; se falhar, segue o caminho normal
+    if (variacoes) {
+      try {
+        const lite = await chamar("gemini-2.5-flash-lite", payload);
+        if (lite.ok) { response = lite; model = "gemini-2.5-flash-lite"; }
+      } catch (_) { /* segue para o modelo normal */ }
+    }
+    if (!response) response = await tentarModelo(model);
     if (!response.ok && [404, 429, 500, 503].includes(response.status)) {
       const original = response.status;
       const outros = (await listarModelosFlash()).filter((n) => n !== model).slice(0, 3);
