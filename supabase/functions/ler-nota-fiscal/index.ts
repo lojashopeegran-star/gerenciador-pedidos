@@ -27,9 +27,9 @@ async function callGemini(model: string, payload: unknown) {
   });
 }
 
-async function descobrirModeloFlash(): Promise<string | null> {
+async function listarModelosFlash(): Promise<string[]> {
   const r = await fetch(`${API_BASE}/models?pageSize=200&key=${GEMINI_API_KEY}`);
-  if (!r.ok) return null;
+  if (!r.ok) return [];
   const j = await r.json();
   const nomes: string[] = (j.models || [])
     .filter((m: any) => (m.supportedGenerationMethods || []).includes("generateContent"))
@@ -37,7 +37,7 @@ async function descobrirModeloFlash(): Promise<string | null> {
     .filter((n: string) => /^gemini-[\d.]+-flash$/.test(n));
   const versao = (n: string) => parseFloat(n.match(/^gemini-([\d.]+)-flash$/)![1]);
   nomes.sort((a, b) => versao(b) - versao(a));
-  return nomes[0] || null;
+  return nomes;
 }
 
 // Tenta com "pensamento" desligado (bem mais rápido); se o modelo não aceitar, repete sem a opção.
@@ -69,17 +69,31 @@ Deno.serve(async (req: Request) => {
       generationConfig: { maxOutputTokens: 4096, temperature: 0, responseMimeType: "application/json" },
     };
 
+    // Modelo sobrecarregado (503/429/500): tenta de novo e, se continuar, usa outro modelo flash
+    const tentarModelo = async (m: string) => {
+      let r = await chamar(m, payload);
+      for (const espera of [1500, 3500]) {
+        if (![429, 500, 503].includes(r.status)) break;
+        await new Promise((res) => setTimeout(res, espera));
+        r = await chamar(m, payload);
+      }
+      return r;
+    };
     let model = cachedModel || PREFERRED_MODEL;
-    let response = await chamar(model, payload);
-    if (response.status === 404) {
-      const alt = await descobrirModeloFlash();
-      if (alt && alt !== model) { model = alt; response = await chamar(model, payload); }
+    let response = await tentarModelo(model);
+    if (!response.ok && [404, 429, 500, 503].includes(response.status)) {
+      const original = response.status;
+      const outros = (await listarModelosFlash()).filter((n) => n !== model).slice(0, 3);
+      for (const alt of outros) {
+        const r2 = await tentarModelo(alt);
+        if (r2.ok) { response = r2; if (original === 404) cachedModel = alt; model = alt; break; }
+      }
     }
     if (!response.ok) {
       const errText = await response.text();
+      if ([429, 503].includes(response.status)) throw new Error("A leitura por IA está sobrecarregada agora. Aguarde um minuto e tente de novo.");
       throw new Error(`Gemini API error ${response.status} (modelo ${model}): ${errText}`);
     }
-    cachedModel = model;
 
     const j = await response.json();
     const parts = j.candidates?.[0]?.content?.parts || [];
