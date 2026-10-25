@@ -389,6 +389,8 @@ export default function App({user,onLogout}) {
   const [consumo30, setConsumo30] = useState({});
   const [showVinc, setShowVinc] = useState(false);
   const [vincLista, setVincLista] = useState([]);
+  const [vincEst, setVincEst] = useState(null); // {it, estId, qtd} puxar material do estoque direto para uma parte do UpSeller
+  const [vincEstBusy, setVincEstBusy] = useState(false);
   const [vincCarregando, setVincCarregando] = useState(false);
   const [vincBusca, setVincBusca] = useState("");
   const [vincSo, setVincSo] = useState("pendentes");
@@ -3451,6 +3453,7 @@ export default function App({user,onLogout}) {
                             <option value="__ignorar">🚫 Sem material (não dá baixa)</option>
                             {opcoesVar.map(o=><option key={o.id} value={o.id}>{o.nome}</option>)}
                           </select>
+                          <button onClick={()=>setVincEst({it,estId:"",qtd:"1"})} style={{background:"#f0fdfa",color:"#0d9488",border:"1px solid #99f6e4",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📦 Puxar do estoque</button>
                           {sug&&<button onClick={()=>escolherVinculo(it,sug.id)} style={{background:"#f5f3ff",color:"#6d28d9",border:"1px solid #ddd6fe",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>💡 {sug.nome}</button>}
                         </div>
                       </div>
@@ -3462,6 +3465,55 @@ export default function App({user,onLogout}) {
           </div>
           );
         })();
+
+        const confirmarVincEst = async () => {
+          const ep = estoqueProdutos.find(x=>x.id===vincEst.estId);
+          const q = Number(String(vincEst.qtd).replace(",","."));
+          if (!ep) { showToast("❌ Escolha o material do estoque.","#991b1b"); return; }
+          if (!(q>0)) { showToast("❌ Informe quanto sai do estoque por unidade vendida.","#991b1b"); return; }
+          setVincEstBusy(true);
+          // reaproveita matéria-prima já ligada a este material; senão cria
+          let mp = materiasPrimas.find(m=>m.estoque_produto_id===ep.id && !m.rendimento_estoque);
+          let mpId = mp?.id;
+          if (!mpId) {
+            const rm = await salvarMateriaPrimaLib(user.id, orgId, {nome:ep.nome, custo_unidade_compra:Number(ep.preco_unitario)||0, qtd_por_unidade_compra:1, unidade:ep.unidade||"un", estoque_produto_id:ep.id, rendimento_estoque:null});
+            if (rm.error) { setVincEstBusy(false); showToast("❌ "+rm.error,"#991b1b"); return; }
+            mpId = rm.id;
+            fetchMateriasPrimas(user.id, orgId).then(setMateriasPrimas);
+          }
+          const nomeProd = "Estoque: "+ep.nome;
+          const existente = produtosCalc.find(pr=>pr.nome===nomeProd);
+          const rp = await salvarProdutoCompleto(user.id, orgId, {id:existente?.id, nome:nomeProd, descricao:"Criado ao puxar do estoque (vínculo UpSeller)"}, [{nome:"Padrão", preco_venda:0, mps:[{materia_prima_id:mpId, nome:ep.nome, qtd_usada:q}]}]);
+          if (rp.error) { setVincEstBusy(false); showToast("❌ "+rp.error,"#991b1b"); return; }
+          const todos = await reloadProdutos();
+          const prNovo = todos.find(pr=>pr.id===rp.id);
+          const varId = prNovo?.produto_variacoes?.[0]?.id;
+          if (!varId) { setVincEstBusy(false); showToast("❌ Não consegui localizar a variação criada.","#991b1b"); return; }
+          await escolherVinculo(vincEst.it, varId);
+          logOp({tipo:"produtos",acao:"criar",descricao:"Vínculo direto com estoque: "+ep.nome,tabela:"produtos",registro_id:rp.id});
+          setVincEstBusy(false); setVincEst(null);
+          showToast(`✅ "${vincEst.it.variacao}" vinculado a ${ep.nome} (${q} ${ep.unidade} por unidade).`,"#059669",6000);
+        };
+        const vincEstModal = vincEst&&(
+          <div onClick={()=>setVincEst(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10100,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:400,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+              <h3 style={{margin:"0 0 4px",fontSize:15,fontWeight:700}}>📦 Puxar do estoque</h3>
+              <p style={{margin:"0 0 12px",fontSize:12,color:"#64748b",wordBreak:"break-word"}}>Parte do pedido: <strong>{vincEst.it.variacao}</strong>. Cada unidade vendida vai descontar este material do estoque.</p>
+              <label style={lbl}>Material do estoque</label>
+              <select value={vincEst.estId} onChange={e=>setVincEst(v=>({...v,estId:e.target.value}))} style={{...inp,marginBottom:10,background:"#fff"}}>
+                <option value="">Escolher…</option>
+                {estoqueProdutos.map(x=><option key={x.id} value={x.id}>{x.nome} ({x.unidade})</option>)}
+              </select>
+              <label style={lbl}>Quanto sai por unidade vendida{vincEst.estId?` (${estoqueProdutos.find(x=>x.id===vincEst.estId)?.unidade})`:""}</label>
+              <input type="number" min="0" step="any" value={vincEst.qtd} onChange={e=>setVincEst(v=>({...v,qtd:e.target.value}))} style={inp} />
+              <div style={{fontSize:10,color:"#94a3b8",marginTop:6}}>Cria sozinho um produto “Estoque: nome” só para o vínculo. Não precisa cadastrar nada antes.</div>
+              <div style={{display:"flex",gap:10,marginTop:16}}>
+                <button onClick={()=>setVincEst(null)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                <button onClick={confirmarVincEst} disabled={vincEstBusy} style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:"#0d9488",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>{vincEstBusy?"Vinculando…":"Vincular"}</button>
+              </div>
+            </div>
+          </div>
+        );
 
         const kitFormModal = showKitForm&&(
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10002,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto"}}>
@@ -3552,7 +3604,7 @@ export default function App({user,onLogout}) {
             </div>
           </div>
         );
-        const modais = <>{mpLibModal}{produtoFormModal}{mpFormModal}{kitFormModal}{vincModal}{importVarModal}</>;
+        const modais = <>{mpLibModal}{produtoFormModal}{mpFormModal}{kitFormModal}{vincModal}{vincEstModal}{importVarModal}</>;
 
         // ── Detalhe do produto ──────────────────────────────────────────────
         if (produtoAtivo) {
