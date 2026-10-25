@@ -324,6 +324,8 @@ export default function App({user,onLogout}) {
   const [plusMin, setPlusMin] = useState("");
   const [plusFornContato, setPlusFornContato] = useState("");
   const [plusFornSite, setPlusFornSite] = useState("");
+  const [plusAplicar, setPlusAplicar] = useState([]); // outros materiais que recebem os mesmos dados (preço, fornecedor...) ao salvar
+  const [plusAplicarAberto, setPlusAplicarAberto] = useState(false);
   const [kits, setKits] = useState([]);
   const [showKitForm, setShowKitForm] = useState(false);
   const [editandoKit, setEditandoKit] = useState(null);
@@ -3819,7 +3821,19 @@ export default function App({user,onLogout}) {
           setPlusMin(p.quantidade_minima!=null?String(p.quantidade_minima):"");
           const fo = fornecedores.find(f=>f.id===p.fornecedor_id);
           setPlusFornContato(fo?.contato||""); setPlusFornSite(fo?.site_link||"");
+          setPlusAplicar([]); setPlusAplicarAberto(false);
           setShowEstoqueProdPlus(true);
+        };
+        const copiarDe = (id) => {
+          const o = estoqueProdutos.find(x=>x.id===id); if (!o) return;
+          setEstoqueProdFornId(o.fornecedor_id||"");
+          setEstoqueProdPreco(o.preco_unitario?String(o.preco_unitario):"");
+          setEstoqueProdLink(o.link_produto||"");
+          setEstoqueProdObs(o.observacoes||"");
+          setEstoqueProdCat(o.categoria||"");
+          const fo = fornecedores.find(f=>f.id===o.fornecedor_id);
+          setPlusFornContato(fo?.contato||""); setPlusFornSite(fo?.site_link||"");
+          showToast("📋 Dados copiados de "+o.nome+". Confira e clique em Salvar.","#7c3aed");
         };
         const salvarProdPlus = async () => {
           if (!estoqueProdPlusId) return;
@@ -3844,12 +3858,25 @@ export default function App({user,onLogout}) {
               reloadForn();
             }
           }
+          // aplica os mesmos dados (preço, fornecedor, categoria, link, observações) aos materiais marcados
+          let aplicados = 0;
+          if (!res.error && plusAplicar.length) {
+            const { quantidade_minima: _qm, ...comuns } = camposPlus; // eslint-disable-line no-unused-vars
+            for (const oid of plusAplicar) {
+              const antes = estoqueProdutos.find(x=>x.id===oid);
+              const r2 = await atualizarEstoqueProdutoPlus(oid, comuns);
+              if (!r2.error) {
+                aplicados++;
+                logOp({tipo:"estoque",acao:"editar",descricao:"Preço/fornecedor copiado para: "+(antes?.nome||"material"),tabela:"estoque_produtos",registro_id:oid,antes:pick(antes,["preco_unitario","fornecedor_id","link_produto","observacoes","categoria"]),depois:comuns});
+              }
+            }
+          }
           setSalvandoProdPlus(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
           setShowEstoqueProdPlus(false);
           logOp({tipo:"estoque",acao:"editar",descricao:"Preço/fornecedor atualizado: "+(prodPlusAntes?.nome||"material"),tabela:"estoque_produtos",registro_id:estoqueProdPlusId,antes:pick(prodPlusAntes,["preco_unitario","fornecedor_id","link_produto","observacoes","categoria","quantidade_minima"]),depois:camposPlus});
           fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
-          showToast("✅ Informações salvas!","#059669");
+          showToast(aplicados?`✅ Salvo e copiado para mais ${aplicados} material(is)!`:"✅ Informações salvas!","#059669");
         };
 
         // totais do mês
@@ -4093,9 +4120,13 @@ export default function App({user,onLogout}) {
               const filtForn = fornecedores.filter(f=>f.nome.toLowerCase().includes(fornNome.toLowerCase()));
               return (
                 <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-                  <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+                  <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:440,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
                     <h3 style={{margin:"0 0 4px",fontSize:15,fontWeight:700}}>✏️ Info financeiras</h3>
-                    <p style={{margin:"0 0 14px",fontSize:12,color:"#64748b"}}>{prod?.nome}</p>
+                    <p style={{margin:"0 0 10px",fontSize:12,color:"#64748b"}}>{prod?.nome}</p>
+                    <select value="" onChange={e=>{if(e.target.value)copiarDe(e.target.value);}} style={{width:"100%",padding:"7px 10px",border:"1.5px dashed #c4b5fd",borderRadius:10,fontSize:12,color:"#6d28d9",background:"#faf5ff",marginBottom:12,boxSizing:"border-box"}}>
+                      <option value="">📋 Copiar preço e fornecedor de outro material…</option>
+                      {estoqueProdutos.filter(x=>x.ativo!==false&&x.id!==estoqueProdPlusId).map(x=><option key={x.id} value={x.id}>{x.nome}{x.preco_unitario?` — R$ ${Number(x.preco_unitario).toFixed(2).replace(".",",")}`:""}</option>)}
+                    </select>
                     <div style={{display:"flex",flexDirection:"column",gap:11}}>
                       <div>
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Preço de compra por {prod?.unidade||"un"} (R$)</label>
@@ -4147,6 +4178,22 @@ export default function App({user,onLogout}) {
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Observações</label>
                         <input value={estoqueProdObs} onChange={e=>setEstoqueProdObs(e.target.value)} placeholder="Ex: comprar só quando em promoção..."
                           style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                      <div style={{border:"1px dashed #c4b5fd",borderRadius:10,padding:"8px 10px",background:"#faf5ff"}}>
+                        <button type="button" onClick={()=>setPlusAplicarAberto(v=>!v)} style={{background:"none",border:"none",color:"#6d28d9",fontSize:12,fontWeight:700,cursor:"pointer",padding:0}}>
+                          {plusAplicarAberto?"▼":"▶"} Aplicar estes dados também a outros materiais{plusAplicar.length?` (${plusAplicar.length} marcado${plusAplicar.length>1?"s":""})`:""}
+                        </button>
+                        {plusAplicarAberto&&(<>
+                          <div style={{fontSize:10,color:"#7c3aed",margin:"4px 0 6px"}}>Ao salvar, preço, fornecedor, categoria, link e observações serão copiados para os materiais marcados (a quantidade mínima não muda). Ex.: todas as cores de tinta.</div>
+                          <div style={{maxHeight:140,overflowY:"auto",background:"#fff",border:"1px solid #e9d5ff",borderRadius:8,padding:"4px 8px"}}>
+                            {estoqueProdutos.filter(x=>x.ativo!==false&&x.id!==estoqueProdPlusId).map(x=>(
+                              <label key={x.id} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,padding:"3px 0",cursor:"pointer",color:"#334155"}}>
+                                <input type="checkbox" checked={plusAplicar.includes(x.id)} onChange={e=>setPlusAplicar(l=>e.target.checked?[...l,x.id]:l.filter(i=>i!==x.id))}/>
+                                {x.nome}
+                              </label>
+                            ))}
+                          </div>
+                        </>)}
                       </div>
                     </div>
                     <div style={{display:"flex",gap:10,marginTop:18}}>
