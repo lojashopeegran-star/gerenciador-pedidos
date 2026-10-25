@@ -2692,17 +2692,38 @@ export default function App({user,onLogout}) {
           setKits(await fetchKits(orgId));
         };
 
+        // Avisos de uma variação: material sem quantidade (seria perdido ao salvar) e material repetido (consumiria em dobro)
+        const avisosVar = (v) => {
+          const av = [];
+          v.mps.forEach(m=>{
+            const escolhido = m.kitId!==undefined ? !!m.kitId : !!m.mpId;
+            if (escolhido && !(Number(m.qtd)>0)) {
+              const nome = m.kitId!==undefined ? (kits.find(k=>k.id===m.kitId)?.nome||"kit") : (materiasPrimas.find(x=>x.id===m.mpId)?.nome||"material");
+              av.push(`"${nome}" está sem quantidade e não será salvo.`);
+            }
+          });
+          const cont = {};
+          expandirMps(v.mps).filter(m=>m.mpId&&Number(m.qtd)>0).forEach(m=>{ cont[m.mpId]=(cont[m.mpId]||0)+1; });
+          Object.entries(cont).filter(([,n])=>n>1).forEach(([id])=>av.push(`"${materiasPrimas.find(x=>x.id===id)?.nome||"material"}" aparece mais de uma vez (talvez já esteja dentro de um kit).`));
+          return av;
+        };
         const salvarProdutoCalc = async () => {
           if (!prodNome.trim()) return;
           const unica = prodVars.length===1;
           if (prodVars.some(v=>!v.nome.trim()&&!unica)) { showToast("❌ Dê um nome a cada variação.","#991b1b"); return; }
+          // não perde material em silêncio: linha escolhida sem quantidade bloqueia o salvamento
+          const semQtd = prodVars.flatMap(v=>avisosVar(v).filter(a=>a.includes("sem quantidade")).map(a=>`${v.nome||"variação"}: ${a}`));
+          if (semQtd.length) { showToast("❌ Falta a quantidade. "+semQtd.slice(0,2).join(" "),"#991b1b",7000); return; }
+          const repetidos = prodVars.flatMap(v=>avisosVar(v).filter(a=>a.includes("mais de uma vez")).map(a=>`${v.nome||"variação"}: ${a}`));
+          if (repetidos.length && !window.confirm("Atenção, há material repetido:\n\n"+repetidos.slice(0,5).join("\n")+"\n\nOK = somar as quantidades repetidas em uma linha só.\nCancelar = voltar e corrigir.")) return;
           setSalvandoProdutoCalc(true);
           const antesSnap = editandoProdutoCalc ? snapProduto(editandoProdutoCalc) : null;
+          const juntar = (lista) => { const mapa = new Map(); lista.forEach(m=>{ const c=mapa.get(m.mpId); if (c) c.qtd=(Number(c.qtd)||0)+(Number(m.qtd)||0); else mapa.set(m.mpId,{...m}); }); return [...mapa.values()]; };
           const variacoes = prodVars.map(v=>({
             id: v.id,
             nome: v.nome.trim()||"Padrão",
             preco_venda: Number(v.preco)||0,
-            mps: expandirMps(v.mps).filter(m=>m.mpId&&Number(m.qtd)>0).map(m=>({
+            mps: juntar(expandirMps(v.mps).filter(m=>m.mpId&&Number(m.qtd)>0)).map(m=>({
               materia_prima_id: m.mpId,
               nome: materiasPrimas.find(x=>x.id===m.mpId)?.nome||"",
               qtd_usada: Number(m.qtd),
@@ -3004,6 +3025,7 @@ export default function App({user,onLogout}) {
                           );
                         })}
                       </div>
+                      {avisosVar(v).map((a,ai)=><div key={ai} style={{marginTop:6,fontSize:11,fontWeight:600,color:"#b45309",background:"#fffbeb",border:"1px solid #fcd34d",borderRadius:8,padding:"4px 8px"}}>⚠️ {a}</div>)}
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:10,flexWrap:"wrap",gap:8}}>
                         <div style={{display:"flex",gap:6}}>
                           <button onClick={()=>addVarMp(v.key)} style={{background:"#fff",color:"#7c3aed",border:"1.5px solid #ddd6fe",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Matéria-prima</button>
