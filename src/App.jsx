@@ -154,6 +154,10 @@ export default function App({user,onLogout}) {
   // Histórico para desfazer alterações no formulário de produto (cada "rajada" de edição vira um passo)
   const prodHist = useRef([]); const prodPrev = useRef(null); const prodUltimoPush = useRef(0); const prodRestaurando = useRef(false);
   const [prodHistN, setProdHistN] = useState(0);
+  const [plusMov, setPlusMov] = useState(null); // {id, tipo} lançamento rápido de entrada/saída dentro do Estoque+
+  const [plusMovQtd, setPlusMovQtd] = useState("");
+  const [plusMovMotivo, setPlusMovMotivo] = useState("");
+  const [plusMovBusy, setPlusMovBusy] = useState(false);
   const [plusNome, setPlusNome] = useState(null); // nome editado na janela "Info financeiras" (null = não mexeu)
   useEffect(() => { setPlusNome(null); }, [estoqueProdPlusId, showEstoqueProdPlus]);
   const [massaAberto, setMassaAberto] = useState(false); // painel para remover/adicionar materiais em todas as variações
@@ -4237,6 +4241,13 @@ export default function App({user,onLogout}) {
                   return (
                     <div key={p.id} style={{border:"1.5px solid #e2e8f0",borderRadius:10,padding:"12px 14px"}}>
                       <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:6}}>{p.nome}</div>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:Number(p.quantidade_atual)<=Number(p.quantidade_minima)?"#fef2f2":"#f0fdf4",border:"1px solid "+(Number(p.quantidade_atual)<=Number(p.quantidade_minima)?"#fecaca":"#bbf7d0"),borderRadius:8,padding:"6px 10px",marginBottom:8}}>
+                        <div style={{fontSize:12,color:"#374151"}}>📦 Em estoque: <strong style={{fontSize:15,color:Number(p.quantidade_atual)<=Number(p.quantidade_minima)?"#b91c1c":"#15803d"}}>{String(Number(Number(p.quantidade_atual).toFixed(3))).replace(".",",")} {p.unidade}</strong></div>
+                        <div style={{display:"flex",gap:4}}>
+                          <button onClick={()=>{setPlusMov({id:p.id,tipo:"entrada"});setPlusMovQtd("");setPlusMovMotivo("");}} title="Adicionar quantidade (entrada)" style={{background:"#059669",color:"#fff",border:"none",borderRadius:6,padding:"4px 9px",fontSize:12,fontWeight:700,cursor:"pointer"}}>＋</button>
+                          <button onClick={()=>{setPlusMov({id:p.id,tipo:"saida"});setPlusMovQtd("");setPlusMovMotivo("");}} title="Registrar saída" style={{background:"#f59e0b",color:"#fff",border:"none",borderRadius:6,padding:"4px 9px",fontSize:12,fontWeight:700,cursor:"pointer"}}>－</button>
+                        </div>
+                      </div>
                       {p.categoria&&<div style={{display:"inline-block",background:"#f1f5f9",borderRadius:20,padding:"1px 8px",fontSize:10,color:"#64748b",marginBottom:6}}>{p.categoria}</div>}
                       <div style={{fontSize:12,color:"#374151",marginBottom:2}}>
                         💰 Preço: {p.preco_unitario ? <strong style={{color:"#059669"}}>R$ {Number(p.preco_unitario).toFixed(2).replace(".",",")} / {p.unidade}</strong> : <span style={{color:"#94a3b8"}}>não informado</span>}
@@ -4386,6 +4397,45 @@ export default function App({user,onLogout}) {
                 </div>
               </div>
             )}
+
+            {/* Modal: lançamento rápido de entrada/saída */}
+            {plusMov&&(()=>{
+              const pm = estoqueProdutos.find(x=>x.id===plusMov.id);
+              const ent = plusMov.tipo==="entrada";
+              const salvarPlusMov = async () => {
+                const q = Number(String(plusMovQtd).replace(",","."));
+                if (!(q>0)) { showToast("❌ Informe a quantidade.","#991b1b"); return; }
+                const saldo = Number(pm?.quantidade_atual)||0;
+                if (!ent && q>saldo) { showToast(`❌ Saída maior que o saldo (${saldo} ${pm?.unidade}).`,"#991b1b"); return; }
+                if (q>=10 && !window.confirm(`${ent?"Entrada":"Saída"} de ${q} ${pm?.unidade} em "${pm?.nome}" (saldo atual: ${saldo}). Confirma?`)) return;
+                setPlusMovBusy(true);
+                const res = await registrarMovimentoEstoque(user.id, orgId, meuNome, {produto_id:plusMov.id, tipo:plusMov.tipo, quantidade:q, motivo:plusMovMotivo});
+                setPlusMovBusy(false);
+                if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
+                if (res.movimento) logOp({tipo:"estoque",acao:"criar",descricao:`${ent?"Entrada":"Saída"}: ${q} ${pm?.unidade||""} de ${pm?.nome||"material"}`,tabela:"estoque_movimentos",registro_id:res.movimento.id,depois:{...pick(res.movimento,COLS_MOV)}});
+                setPlusMov(null);
+                fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
+                fetchMovimentosEstoque(user.id, orgId, null, 100).then(setEstoqueMovimentos);
+                showToast(ent?"📥 Entrada registrada!":"📤 Saída registrada!",ent?"#059669":"#f59e0b");
+              };
+              return (
+                <div onClick={()=>setPlusMov(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+                  <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:380,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+                    <h3 style={{margin:"0 0 4px",fontSize:15,fontWeight:700}}>{ent?"📥 Adicionar ao estoque":"📤 Registrar saída"}</h3>
+                    <p style={{margin:"0 0 12px",fontSize:12,color:"#64748b"}}>{pm?.nome} · saldo atual: <strong>{String(Number(Number(pm?.quantidade_atual).toFixed(3))).replace(".",",")} {pm?.unidade}</strong></p>
+                    <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Quantidade ({pm?.unidade}) *</label>
+                    <input autoFocus type="number" min="0" step="any" value={plusMovQtd} onChange={e=>setPlusMovQtd(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")salvarPlusMov();}} placeholder="Ex: 5" style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:14,outline:"none",boxSizing:"border-box",marginBottom:10}} />
+                    <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Motivo (opcional)</label>
+                    <input value={plusMovMotivo} onChange={e=>setPlusMovMotivo(e.target.value)} placeholder={ent?"Ex: compra, reposição":"Ex: uso, perda"} style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                    {ent&&<div style={{fontSize:10,color:"#94a3b8",marginTop:6}}>A compra entra no gasto do mês com o preço e fornecedor cadastrados no material.</div>}
+                    <div style={{display:"flex",gap:10,marginTop:16}}>
+                      <button onClick={()=>setPlusMov(null)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                      <button onClick={salvarPlusMov} disabled={plusMovBusy} style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:ent?"#059669":"#f59e0b",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>{plusMovBusy?"Salvando...":"Confirmar"}</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Modal: editar info plus de um produto */}
             {showEstoqueProdPlus&&(()=>{
