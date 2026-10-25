@@ -162,6 +162,11 @@ export default function App({user,onLogout}) {
   const [plusMovQtd, setPlusMovQtd] = useState("");
   const [plusMovMotivo, setPlusMovMotivo] = useState("");
   const [plusMovBusy, setPlusMovBusy] = useState(false);
+  const [plusFFor, setPlusFFor] = useState(""); // filtro fornecedor ("" = todos, "__sem" = sem fornecedor)
+  const [plusFCat, setPlusFCat] = useState("");
+  const [plusFBaixo, setPlusFBaixo] = useState(false);
+  const [plusFBusca, setPlusFBusca] = useState("");
+  const [plusSel, setPlusSel] = useState([]); // ids selecionados para pedir no WhatsApp
   const [plusNome, setPlusNome] = useState(null); // nome editado na janela "Info financeiras" (null = não mexeu)
   useEffect(() => { setPlusNome(null); }, [estoqueProdPlusId, showEstoqueProdPlus]);
   const [massaAberto, setMassaAberto] = useState(false); // painel para remover/adicionar materiais em todas as variações
@@ -4359,12 +4364,75 @@ export default function App({user,onLogout}) {
             {/* Materiais com info de preço/fornecedor */}
             <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
               <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:12}}>🏷️ Preço e fornecedor por material</div>
+              {(()=>{
+                const cats = [...new Set(estoqueProdutos.map(x=>x.categoria).filter(Boolean))].sort();
+                const baixo = (x)=>Number(x.quantidade_atual)<=Number(x.quantidade_minima)&&Number(x.quantidade_minima)>0;
+                const nBaixo = estoqueProdutos.filter(baixo).length;
+                const sel = estoqueProdutos.filter(x=>plusSel.includes(x.id));
+                const grupos = {};
+                sel.forEach(x=>{ const k=x.fornecedor_id||"__sem"; (grupos[k]=grupos[k]||[]).push(x); });
+                const msgPara = (itens) => {
+                  const linhas = itens.map(x=>{ const faltam=Math.max(0,(Number(x.quantidade_minima)||0)-(Number(x.quantidade_atual)||0)); const un=x.unidade||"un"; return faltam>0?`• ${Number(faltam.toFixed(3))} ${un} de *${x.nome}*`:`• *${x.nome}*`; }).join("\n");
+                  return `Oi, tudo bem?\n\nPreciso repor o seguinte:\n${linhas}\n\nPode me passar disponibilidade, preço e prazo para entrega? Obrigado!`;
+                };
+                const chip = (on)=>({padding:"6px 10px",border:"1.5px solid "+(on?"#7c3aed":"#e2e8f0"),borderRadius:20,background:on?"#ede9fe":"#fff",color:on?"#6d28d9":"#475569",fontSize:12,fontWeight:600,cursor:"pointer"});
+                return (
+                  <div style={{marginBottom:12}}>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                      <input value={plusFBusca} onChange={e=>setPlusFBusca(e.target.value)} placeholder="🔎 Buscar material…" style={{flex:"1 1 140px",minWidth:120,padding:"7px 10px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:12,outline:"none"}} />
+                      <select value={plusFFor} onChange={e=>setPlusFFor(e.target.value)} style={{padding:"7px 8px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:12,background:"#fff"}}>
+                        <option value="">🏭 Todos os fornecedores</option>
+                        <option value="__sem">Sem fornecedor</option>
+                        {fornecedores.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
+                      </select>
+                      <select value={plusFCat} onChange={e=>setPlusFCat(e.target.value)} style={{padding:"7px 8px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:12,background:"#fff"}}>
+                        <option value="">🏷️ Todas as categorias</option>
+                        {cats.map(c=><option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <button onClick={()=>setPlusFBaixo(v=>!v)} style={chip(plusFBaixo)}>⚠️ Estoque baixo ({nBaixo})</button>
+                      {(plusFFor||plusFCat||plusFBaixo||plusFBusca)&&<button onClick={()=>{setPlusFFor("");setPlusFCat("");setPlusFBaixo(false);setPlusFBusca("");}} style={{...chip(false),color:"#dc2626"}}>✕ Limpar</button>}
+                    </div>
+                    {sel.length>0&&(
+                      <div style={{marginTop:10,background:"#f0fdf4",border:"1.5px solid #bbf7d0",borderRadius:12,padding:"10px 12px"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:6}}>
+                          <strong style={{fontSize:12,color:"#166534"}}>{sel.length} selecionado(s) · pedido por fornecedor</strong>
+                          <button onClick={()=>setPlusSel([])} style={{background:"none",border:"none",color:"#64748b",fontSize:11,cursor:"pointer"}}>Desmarcar tudo</button>
+                        </div>
+                        {Object.entries(grupos).map(([fid,itens])=>{
+                          const fo = fornecedores.find(f=>f.id===fid);
+                          const url = fo ? waUrl(fo.contato, msgPara(itens)) : null;
+                          return (
+                            <div key={fid} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap",padding:"6px 0",borderTop:"1px solid #dcfce7"}}>
+                              <div style={{fontSize:12,color:"#1e293b",minWidth:0}}>
+                                <strong>{fo?fo.nome:"Sem fornecedor"}</strong> · {itens.length} item(ns)
+                                <div style={{fontSize:10,color:"#64748b"}}>{itens.map(x=>x.nome).join(", ")}</div>
+                              </div>
+                              {url
+                                ? <a href={url} target="_blank" rel="noreferrer" style={{background:"#25d366",color:"#fff",borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap"}}>📲 Pedir tudo no WhatsApp</a>
+                                : <span style={{fontSize:11,color:"#b45309"}}>{fo?"Fornecedor sem telefone cadastrado":"Defina um fornecedor para pedir"}</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:10}}>
-                {estoqueProdutos.map(p=>{
+                {estoqueProdutos.filter(x=>{
+                  if (plusFFor==="__sem" ? x.fornecedor_id : (plusFFor && x.fornecedor_id!==plusFFor)) return false;
+                  if (plusFCat && x.categoria!==plusFCat) return false;
+                  if (plusFBaixo && !(Number(x.quantidade_atual)<=Number(x.quantidade_minima)&&Number(x.quantidade_minima)>0)) return false;
+                  if (plusFBusca && !norm(x.nome).includes(norm(plusFBusca))) return false;
+                  return true;
+                }).map(p=>{
                   const forn = fornecedores.find(f=>f.id===p.fornecedor_id);
                   return (
                     <div key={p.id} style={{border:"1.5px solid #e2e8f0",borderRadius:10,padding:"12px 14px"}}>
-                      <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:6}}>{p.nome}</div>
+                      <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:6,cursor:"pointer"}}>
+                        <input type="checkbox" checked={plusSel.includes(p.id)} onChange={()=>setPlusSel(l=>l.includes(p.id)?l.filter(x=>x!==p.id):[...l,p.id])} style={{width:16,height:16,accentColor:"#25d366"}} title="Selecionar para pedir no WhatsApp" />
+                        {p.nome}
+                      </label>
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,background:Number(p.quantidade_atual)<=Number(p.quantidade_minima)?"#fef2f2":"#f0fdf4",border:"1px solid "+(Number(p.quantidade_atual)<=Number(p.quantidade_minima)?"#fecaca":"#bbf7d0"),borderRadius:8,padding:"6px 10px",marginBottom:8}}>
                         <div style={{fontSize:12,color:"#374151"}}>📦 Em estoque: <strong style={{fontSize:15,color:Number(p.quantidade_atual)<=Number(p.quantidade_minima)?"#b91c1c":"#15803d"}}>{String(Number(Number(p.quantidade_atual).toFixed(3))).replace(".",",")} {p.unidade}</strong></div>
                         <div style={{display:"flex",gap:4}}>
