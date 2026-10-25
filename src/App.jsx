@@ -2637,7 +2637,15 @@ export default function App({user,onLogout}) {
         const setVar = (key,patch) => setProdVars(vs=>vs.map(v=>v.key===key?{...v,...patch}:v));
         const setVarMp = (key,idx,patch) => setProdVars(vs=>vs.map(v=>v.key===key?{...v,mps:v.mps.map((m,i)=>i===idx?{...m,...patch}:m)}:v));
         const addVarMp = (key) => setProdVars(vs=>vs.map(v=>v.key===key?{...v,mps:[...v.mps,{mpId:"",qtd:""}]}:v));
-        const delVarMp = (key,idx) => setProdVars(vs=>vs.map(v=>v.key===key?{...v,mps:v.mps.length>1?v.mps.filter((_,i)=>i!==idx):[{mpId:"",qtd:""}]}:v));
+        const delVarMp = (key,idx) => {
+          const lin = prodVars.find(v=>v.key===key)?.mps[idx];
+          if (lin && (lin.kitId!==undefined ? lin.kitId : lin.mpId)) {
+            const nome = lin.kitId!==undefined ? "o kit "+(kits.find(k=>k.id===lin.kitId)?.nome||"") : (materiasPrimas.find(x=>x.id===lin.mpId)?.nome||"esta matéria-prima");
+            if (!window.confirm("Tem certeza que deseja remover "+nome+" desta variação?")) return;
+          }
+          removerLinhaMp(key,idx);
+        };
+        const removerLinhaMp = (key,idx) => setProdVars(vs=>vs.map(v=>v.key===key?{...v,mps:v.mps.length>1?v.mps.filter((_,i)=>i!==idx):[{mpId:"",qtd:""}]}:v));
         const addVar = () => setProdVars(vs=>[...vs, novaVar("")]);
         const dupVar = (key) => setProdVars(vs=>{
           const i = vs.findIndex(v=>v.key===key); if (i<0) return vs;
@@ -2645,7 +2653,11 @@ export default function App({user,onLogout}) {
           const copia = {key:Math.random().toString(36).slice(2), nome:(o.nome?o.nome+" (cópia)":""), preco:o.preco, mps:o.mps.map(m=>({...m}))};
           return [...vs.slice(0,i+1), copia, ...vs.slice(i+1)];
         });
-        const delVar = (key) => setProdVars(vs=>vs.length>1?vs.filter(v=>v.key!==key):vs);
+        const delVar = (key) => {
+          const nome = prodVars.find(v=>v.key===key)?.nome?.trim();
+          if (!window.confirm("Tem certeza que deseja remover a variação"+(nome?` "${nome}"`:"")+"? Os materiais dela também serão removidos ao salvar.")) return;
+          setProdVars(vs=>vs.length>1?vs.filter(v=>v.key!==key):vs);
+        };
 
         const pEdit = {taxa_plataforma_pct:num(prodTaxaPlat,20), taxa_imposto_pct:num(prodTaxaImp,4), taxa_adiantamento_pct:num(prodTaxaAdiant,3.5), taxa_fixa:num(prodTaxaFixa,4)};
         // Kit: expande em linhas normais de matéria-prima (qtd do kit × fator de cada item)
