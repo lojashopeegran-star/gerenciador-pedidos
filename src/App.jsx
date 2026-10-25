@@ -166,6 +166,9 @@ export default function App({user,onLogout}) {
   const [plusFCat, setPlusFCat] = useState("");
   const [plusFBaixo, setPlusFBaixo] = useState(false);
   const [plusFBusca, setPlusFBusca] = useState("");
+  const [plusDel, setPlusDel] = useState(null); // material a apagar (pede o PIN do Estoque+)
+  const [plusDelPin, setPlusDelPin] = useState("");
+  const [plusDelErro, setPlusDelErro] = useState("");
   const [plusSel, setPlusSel] = useState([]); // ids selecionados para pedir no WhatsApp
   const [plusNome, setPlusNome] = useState(null); // nome editado na janela "Info financeiras" (null = não mexeu)
   useEffect(() => { setPlusNome(null); }, [estoqueProdPlusId, showEstoqueProdPlus]);
@@ -4191,6 +4194,23 @@ export default function App({user,onLogout}) {
           });
           return out;
         };
+        const apagarMaterialPlus = (p) => { setPlusDelPin(""); setPlusDelErro(""); setPlusDel(p); };
+        const confirmarApagarPlus = async () => {
+          const p = plusDel; if (!p) return;
+          const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(plusDelPin)).then(b=>Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,"0")).join(""));
+          if (hash!==estoquePlusConfig?.pin_hash) { setPlusDelErro("Senha incorreta."); setPlusDelPin(""); return; }
+          setPlusDel(null);
+          const usos = materiasPrimas.filter(m=>m.estoque_produto_id===p.id);
+          const aviso = usos.length ? `\n\n⚠️ Está ligado a ${usos.length} matéria-prima(s) (${usos.slice(0,3).map(m=>m.nome).join(", ")}${usos.length>3?"…":""}). A baixa automática deixa de descontar esse material.` : "";
+          if (!window.confirm(`Apagar "${p.nome}" do estoque?\n\nSaldo atual: ${Number(Number(p.quantidade_atual).toFixed(3))} ${p.unidade}. O histórico de movimentos é mantido e dá para desfazer em Histórico.${aviso}`)) return;
+          const r = await excluirEstoqueProduto(p.id);
+          if (r?.error) { showToast("❌ "+r.error,"#991b1b"); return; }
+          logOp({tipo:"estoque",acao:"excluir",descricao:"Material removido: "+p.nome,tabela:"estoque_produtos",registro_id:p.id,antes:pick(p,COLS_ESTOQUE_PROD)});
+          setPlusSel(l=>l.filter(x=>x!==p.id));
+          setShowEstoqueProdPlus(false);
+          fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
+          showToast("🗑️ Material apagado. Dá para desfazer em Histórico.","#64748b");
+        };
         const abrirProdPlus = (p) => {
           setEstoqueProdPlusId(p.id);
           setEstoqueProdFornId(p.fornecedor_id||"");
@@ -4462,6 +4482,7 @@ export default function App({user,onLogout}) {
                       </div>}
                       {p.observacoes&&<div style={{fontSize:11,color:"#64748b",fontStyle:"italic",marginBottom:4}}>"{p.observacoes}"</div>}
                       <button onClick={()=>abrirProdPlus(p)} style={{marginTop:6,width:"100%",padding:"5px 0",background:"#ede9fe",color:"#7c3aed",border:"none",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer"}}>✏️ Editar info</button>
+                      <button onClick={()=>apagarMaterialPlus(p)} style={{marginTop:4,width:"100%",padding:"5px 0",background:"#fff",color:"#dc2626",border:"1px solid #fecaca",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer"}}>🗑️ Apagar material</button>
                     </div>
                   );
                 })}
@@ -4595,6 +4616,24 @@ export default function App({user,onLogout}) {
                       style={{flex:1,padding:"10px 0",border:"none",borderRadius:10,background:estoqueProdNome.trim()?"#7c3aed":"#e2e8f0",color:estoqueProdNome.trim()?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
                       {salvandoProduto?"Salvando...":"Salvar"}
                     </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal: senha para apagar material */}
+            {plusDel&&(
+              <div onClick={()=>setPlusDel(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:10100,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+                <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:340,textAlign:"center",boxShadow:"0 20px 60px rgba(0,0,0,0.25)"}}>
+                  <div style={{fontSize:38,marginBottom:6}}>🗑️🔒</div>
+                  <h3 style={{margin:"0 0 4px",fontSize:16,fontWeight:800,color:"#1e293b"}}>Apagar “{plusDel.nome}”</h3>
+                  <p style={{margin:"0 0 14px",fontSize:12,color:"#64748b"}}>Digite a senha (PIN) do Estoque+ para confirmar.</p>
+                  <input autoFocus type="password" inputMode="numeric" maxLength={8} value={plusDelPin} onChange={e=>{setPlusDelPin(e.target.value);setPlusDelErro("");}} onKeyDown={e=>{if(e.key==="Enter")confirmarApagarPlus();}} placeholder="••••"
+                    style={{width:"100%",padding:"12px 16px",border:`2px solid ${plusDelErro?"#ef4444":"#e2e8f0"}`,borderRadius:12,fontSize:22,outline:"none",textAlign:"center",letterSpacing:8,boxSizing:"border-box",marginBottom:8}} />
+                  {plusDelErro&&<div style={{fontSize:12,color:"#ef4444",marginBottom:8}}>{plusDelErro}</div>}
+                  <div style={{display:"flex",gap:10,marginTop:6}}>
+                    <button onClick={()=>setPlusDel(null)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                    <button onClick={confirmarApagarPlus} style={{flex:1,padding:"10px 0",border:"none",borderRadius:10,background:"#dc2626",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>Continuar</button>
                   </div>
                 </div>
               </div>
