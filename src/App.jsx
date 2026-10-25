@@ -391,6 +391,7 @@ export default function App({user,onLogout}) {
   const [vincLista, setVincLista] = useState([]);
   const [vincEst, setVincEst] = useState(null); // {it, estId, qtd} puxar material do estoque direto para uma parte do UpSeller
   const [vincEstBusy, setVincEstBusy] = useState(false);
+  const [vincPend, setVincPend] = useState(null); // parte do UpSeller a vincular quando o produto novo for salvo
   const [vincCarregando, setVincCarregando] = useState(false);
   const [vincBusca, setVincBusca] = useState("");
   const [vincSo, setVincSo] = useState("pendentes");
@@ -2867,6 +2868,14 @@ export default function App({user,onLogout}) {
             const novo = todos.find(p=>p.id===res.id);
             if (novo) setProdutoAtivo(novo);
           }
+          if (vincPend) {
+            const novo = todos.find(p=>p.id===res.id);
+            const vs = novo?.produto_variacoes||[];
+            const alvo = vs.length>1 ? (melhorMatch(vincPend.it.variacao, vs.map(v=>({id:v.id,nome:v.nome})), 0.3)||vs[0]) : vs[0];
+            if (alvo) { await escolherVinculo(vincPend.it, alvo.id); showToast(`✅ Produto salvo e "${vincPend.it.variacao}" vinculado a ele.`,"#059669",6000); }
+            setVincPend(null); setShowVinc(true);
+            return;
+          }
           showToast(editandoProdutoCalc?"✅ Produto atualizado!":"✅ Produto criado!","#059669");
         };
 
@@ -3231,7 +3240,7 @@ export default function App({user,onLogout}) {
                 })}
               </div>
               <div style={{display:"flex",gap:10,marginTop:18}}>
-                <button onClick={()=>setShowProdutoForm(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                <button onClick={()=>{setShowProdutoForm(false);if(vincPend){setVincPend(null);setShowVinc(true);}}} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
                 <button onClick={salvarProdutoCalc} disabled={!prodNome.trim()||salvandoProdutoCalc}
                   style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:prodNome.trim()?"#7c3aed":"#e2e8f0",color:prodNome.trim()?"#fff":"#94a3b8",fontSize:13,fontWeight:700,cursor:"pointer"}}>
                   {salvandoProdutoCalc?"Salvando...":editandoProdutoCalc?"Salvar alterações":"Criar produto"}
@@ -3480,6 +3489,16 @@ export default function App({user,onLogout}) {
             if (rm.error) { setVincEstBusy(false); showToast("❌ "+rm.error,"#991b1b"); return; }
             mpId = rm.id;
             fetchMateriasPrimas(user.id, orgId).then(setMateriasPrimas);
+          }
+          if (window.confirm(`Deseja criar um NOVO produto vinculado a "${ep.nome}"?\n\nOK = abre o cadastro de produto já com este material como matéria-prima (você completa nome, preço, rendimento…) e, ao salvar, a parte "${vincEst.it.variacao}" é vinculada a ele.\n\nCancelar = só vincular direto ao material, sem criar produto de venda.`)) {
+            setVincPend({it:vincEst.it});
+            setVincEstBusy(false); setVincEst(null); setShowVinc(false);
+            setEditandoProdutoCalc(null);
+            setProdNome("Impressão em "+ep.nome); setProdTaxaPlat("20"); setProdTaxaImp("4"); setProdTaxaAdiant("3.5"); setProdTaxaFixa("4");
+            setProdVars([{key:Math.random().toString(36).slice(2), nome:"", preco:"", mps:[{mpId, qtd:String(q)}]}]);
+            setShowProdutoForm(true);
+            showToast("Complete o produto (nome, preço, rendimento do material) e salve para vincular.","#7c3aed",7000);
+            return;
           }
           const nomeProd = "Estoque: "+ep.nome;
           const existente = produtosCalc.find(pr=>pr.nome===nomeProd);
