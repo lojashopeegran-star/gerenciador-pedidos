@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, lazy, Suspense } from "react";
 const Ferramentas = lazy(() => import("./Ferramentas.jsx"));
 import { getXLSX, PEDIDO_COLS, DEVOLUCAO_COLS, norm, parseSheet, normStatus, mesReferencia, mesLabel, corRecorrencia, formatMotivoCancelamento, isEnviado, isCancelado, isAberto, isHistorico, deadlineInfo, fmtBRL, currentMes, StatusBadge, StyledCheckbox, FeitoButton, RevisaoButton, VazioButton, ExpandCell, DropZone, Toast, RevisaoModal, FinanceGate, TabBar, TH, TD, _n, _norm, _tokens, similaridade, melhorMatch, mapUnidade, arquivoParaBase64, prepararImagemNota, fmtBRLn, quandoFmt, liquidoDe, custoMpDe } from "./helpers.jsx";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, lerVariacoesPrint, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, lerVariacoesPrint, baixaRetroativa, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 export default function App({user,onLogout}) {
   const [allPedidos,    setAllPedidos]    = useState([]);
@@ -560,6 +560,20 @@ export default function App({user,onLogout}) {
     if (!r?.ativo) { showToast("A baixa automática está pausada.","#64748b"); return; }
     if (!r.pedidos) showToast("Nenhum pedido novo para baixar.","#64748b");
     else { showToast(`✅ ${r.pedidos} pedido(s) baixado(s) · ${r.materiais} material(is) atualizados.`,"#059669"); await recarregarTudo(); }
+    carregarBaixaInfo();
+  };
+  const rodarBaixaRetroativa = async () => {
+    const inicioMes = new Date().getFullYear()+"-"+String(new Date().getMonth()+1).padStart(2,"0")+"-01";
+    const d = window.prompt("Baixar o material dos pedidos já enviados desde que dia? (formato AAAA-MM-DD)\n\nSó entram pedidos em que todas as partes já foram vinculadas. Isso desconta do estoque; depois você pode ajustar com a Contagem em 🧰 Ferramentas, e dá para desfazer pelo 🕘 Histórico.", inicioMes);
+    if (!d) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d.trim())) { showToast("❌ Use o formato AAAA-MM-DD, ex.: "+inicioMes,"#991b1b"); return; }
+    if (!window.confirm("Confirmar baixa retroativa dos pedidos desde "+d.trim().split("-").reverse().join("/")+"?")) return;
+    setBaixaBusy(true);
+    const r = await baixaRetroativa(orgId, d.trim()+"T00:00:00-03:00");
+    setBaixaBusy(false);
+    if (r?.error) { showToast("❌ "+(/baixa_retroativa/.test(r.error)?"A função de baixa retroativa ainda não foi criada no banco (falta rodar o SQL).":r.error),"#991b1b",7000); return; }
+    showToast(r.pedidos ? `✅ ${r.pedidos} pedido(s) baixado(s) · ${r.materiais} lançamento(s) de material. ${r.sem_vinculo?r.sem_vinculo+" pedido(s) ficaram de fora por falta de vínculo.":""}` : `Nenhum pedido elegível. ${r.sem_vinculo||0} pedido(s) ainda precisam de vínculo.`, r.pedidos?"#059669":"#b45309", 9000);
+    if (r.pedidos) await recarregarTudo();
     carregarBaixaInfo();
   };
   const abrirHistorico = async () => {
@@ -3382,6 +3396,7 @@ export default function App({user,onLogout}) {
                   <div style={{fontSize:13,fontWeight:700,color:baixaInfo?.ativo?"#065f46":"#92400e"}}>{baixaInfo?.ativo?"🟢 Baixa automática ATIVA":"⏸️ Baixa automática desativada"}</div>
                   <div style={{display:"flex",gap:8}}>
                     {baixaInfo?.ativo&&<button disabled={baixaBusy} onClick={rodarBaixa} style={{background:"#0d9488",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{baixaBusy?"...":"▶ Processar agora"}</button>}
+                    <button disabled={baixaBusy} onClick={rodarBaixaRetroativa} title="Desconta o material dos pedidos já enviados desde uma data" style={{background:"#eef2ff",color:"#4338ca",border:"1.5px solid #c7d2fe",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>⏪ Baixa retroativa</button>
                     <button disabled={baixaBusy} onClick={alternarBaixa} style={{background:"#fff",color:"#374151",border:"1.5px solid #e2e8f0",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>{baixaInfo?.ativo?"Pausar":"Ativar"}</button>
                   </div>
                 </div>

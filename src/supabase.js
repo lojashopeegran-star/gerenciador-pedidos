@@ -1195,6 +1195,12 @@ export async function processarBaixa(orgId) {
   return error ? { error: error.message } : data
 }
 
+// Baixa retroativa: pedidos já enviados desde uma data (exige a função baixa_retroativa no banco)
+export async function baixaRetroativa(orgId, desdeISO) {
+  const { data, error } = await supabase.rpc('baixa_retroativa', { p_org: orgId, p_desde: desdeISO })
+  return error ? { error: error.message } : data
+}
+
 // Saídas dos últimos N dias (para estimar quantos dias o estoque dura)
 export async function fetchConsumoRecente(userId, orgId, dias = 30) {
   const desde = new Date(Date.now() - dias * 86400000).toISOString()
