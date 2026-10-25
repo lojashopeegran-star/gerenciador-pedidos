@@ -151,6 +151,7 @@ export default function App({user,onLogout}) {
   const [materiasPrimas, setMateriasPrimas] = useState([]);
   const [showMpLib, setShowMpLib] = useState(false);
   const [prodVars, setProdVars] = useState([]);
+  const [mpParaKit, setMpParaKit] = useState(false); // matéria-prima criada de dentro do formulário de kit entra no kit sozinha
   const [impVar, setImpVar] = useState(null); // importar variações de um print: {fase:'lendo'|'revisar', itens:[{k,nome,preco,ok}], erro}
   const lerPrintVariacoes = async (file) => {
     if (!file) return;
@@ -2719,6 +2720,7 @@ export default function App({user,onLogout}) {
           setEditandoMp(mp);
           setMpNome(mp?.nome||""); setMpCustoCompra(mp?String(mp.custo_unidade_compra):""); setMpQtdPorCompra(mp?String(mp.qtd_por_unidade_compra):""); setMpUnidade(mp?.unidade||"folha");
           setMpEstoqueId(mp?.estoque_produto_id||""); setMpRendimento(mp?.rendimento_estoque?String(mp.rendimento_estoque):"");
+          setMpParaKit(false);
           setMpModoDimensao(false); setMpRoloLargura(""); setMpRoloComprimento(""); setMpCorteL(""); setMpCorteC(""); setMpUnidadeCorte("folha");
           setShowMpForm(true);
         };
@@ -2793,6 +2795,10 @@ export default function App({user,onLogout}) {
           setSalvandoMp(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
           setShowMpForm(false);
+          if (mpParaKit && res.id) {
+            setKitItens(l=>{ const vazio=l.findIndex(x=>!x.mpId); const novo={mpId:res.id,fator:"1"}; return vazio>=0 ? l.map((x,j)=>j===vazio?novo:x) : [...l,novo]; });
+            setMpParaKit(false);
+          }
           logOp({tipo:"produtos",acao:editandoMp?"editar":"criar",descricao:(editandoMp?"Matéria-prima editada: ":"Matéria-prima criada: ")+mpNome.trim(),tabela:"materias_primas",registro_id:res.id,antes:editandoMp?pick(editandoMp,COLS_MP):null});
           await reloadMps();
           const todos = await reloadProdutos();
@@ -2985,7 +2991,7 @@ export default function App({user,onLogout}) {
         );
 
         const mpFormModal = showMpForm&&(
-          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto"}}>
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10003,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto"}}>
             <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:500,boxShadow:"0 20px 60px rgba(0,0,0,0.2)",margin:"auto"}}>
               <h3 style={{margin:"0 0 14px",fontSize:15,fontWeight:700}}>{editandoMp?"✏️ Editar matéria-prima":"+ Nova matéria-prima"}</h3>
               <div style={{display:"flex",flexDirection:"column",gap:11}}>
@@ -3189,6 +3195,7 @@ export default function App({user,onLogout}) {
                   </div>
                 ))}
               </div>
+              <button onClick={()=>{abrirMpForm();setMpParaKit(true);}} style={{marginTop:8,marginRight:8,background:"#f0fdfa",color:"#0d9488",border:"1.5px solid #99f6e4",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📦 Puxar do estoque / nova matéria-prima</button>
               <button onClick={()=>setKitItens(l=>[...l,{mpId:"",fator:"1"}])} style={{marginTop:8,background:"#fff",color:"#0d9488",border:"1.5px solid #99f6e4",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Adicionar matéria-prima</button>
               <div style={{display:"flex",gap:10,marginTop:18}}>
                 <button onClick={()=>setShowKitForm(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
