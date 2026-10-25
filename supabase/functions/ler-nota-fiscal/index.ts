@@ -1,8 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY"); // opcional: segunda IA (Claude) quando o Gemini está sobrecarregado
+const CLAUDE_MODEL = Deno.env.get("ANTHROPIC_MODEL") || "claude-haiku-5-5";
 const API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const PREFERRED_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-3.8-flash";
+const FAST_MODEL = Deno.env.get("GEMINI_FAST_MODEL") || "gemini-2.5-flash-lite";
 let cachedModel: string | null = null;
 
 const CORS = {
@@ -42,7 +45,6 @@ async function listarModelosFlash(): Promise<string[]> {
 }
 
 // Tenta com "pensamento" desligado (bem mais rápido); se o modelo não aceitar, repete sem a opção.
-// O JSON (com a imagem em base64) é montado uma vez só por variante, para poupar memória.
 async function chamar(model: string, base: any) {
   const corpo = (gc: any) => JSON.stringify({ ...base, generationConfig: { ...base.generationConfig, ...gc } });
   let r: Response;
@@ -60,63 +62,107 @@ async function chamar(model: string, base: any) {
   return r;
 }
 
+// Extrai o JSON de um texto; devolve null se vier algo ilegível
+function jsonDeTexto(texto: string): any | null {
+  texto = texto.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+  const ini = texto.indexOf("{"), fim = texto.lastIndexOf("}");
+  if (ini < 0 || fim < 0) return null;
+  try { return JSON.parse(texto.slice(ini, fim + 1)); } catch (_) { return null; }
+}
+
+function extrairJson(j: any): any | null {
+  const parts = j?.candidates?.[0]?.content?.parts || [];
+  const texto = parts.filter((p: any) => typeof p.text === "string" && !p.thought).map((p: any) => p.text).join("").trim();
+  return jsonDeTexto(texto);
+}
+
+// Segunda IA: Claude (só roda se o secret ANTHROPIC_API_KEY existir)
+async function lerComClaude(mime_type: string, data: string, prompt: string): Promise<any | null> {
+  if (!ANTHROPIC_API_KEY) return null;
+  const bloco = mime_type === "application/pdf"
+    ? { type: "document", source: { type: "base64", media_type: mime_type, data } }
+    : { type: "image", source: { type: "base64", media_type: mime_type, data } };
+  const r = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+    body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: 4096, temperature: 0, messages: [{ role: "user", content: [bloco, { type: "text", text: prompt }] }] }),
+    signal: AbortSignal.timeout(45000),
+  });
+  if (!r.ok) throw new Error(`Claude API error ${r.status}: ${(await r.text()).slice(0, 300)}`);
+  const j = await r.json();
+  const texto = (j.content || []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("").trim();
+  return jsonDeTexto(texto);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   try {
-    if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY não configurada");
+    if (!GEMINI_API_KEY && !ANTHROPIC_API_KEY) throw new Error("Nenhuma chave de IA configurada");
     const { mime_type, data, modo } = await req.json();
     if (!mime_type || !data) throw new Error("Arquivo não enviado");
     if (!/^(image\/(jpeg|png|webp|heic|heif)|application\/pdf)$/.test(mime_type)) throw new Error("Formato não suportado. Envie foto (JPG/PNG) ou PDF.");
     const variacoes = modo === "variacoes";
+    const msgIlegivel = variacoes ? "Não consegui ler o print. Tente um print mais nítido." : "Não consegui ler a nota. Tente uma foto mais nítida ou o PDF.";
+    const ok = (dados: any) => new Response(JSON.stringify({ dados }), { headers: { "Content-Type": "application/json", ...CORS } });
+    const vazio = (d: any) => !d || (variacoes ? !(d.variacoes || []).length : !(d.itens || []).length);
 
     const payload = {
       contents: [{ role: "user", parts: [{ inline_data: { mime_type, data } }, { text: variacoes ? PROMPT_VARIACOES : PROMPT }] }],
       generationConfig: { maxOutputTokens: 4096, temperature: 0, responseMimeType: "application/json" },
     };
 
-    // Modelo sobrecarregado (503/429/500): tenta de novo e, se continuar, usa outro modelo flash
-    const tentarModelo = async (m: string) => {
-      let r = await chamar(m, payload);
-      for (const espera of [1500]) {
-        if (![429, 500, 503].includes(r.status)) break;
-        await new Promise((res) => setTimeout(res, espera));
-        r = await chamar(m, payload);
-      }
-      return r;
-    };
-    let model = cachedModel || PREFERRED_MODEL;
-    let response: Response | null = null;
-    // Tabela simples de variações: modelo "lite" é bem mais rápido; se falhar, segue o caminho normal
-    if (variacoes) {
+    let erroGemini = "";
+    if (GEMINI_API_KEY) {
+      // 1) modelo rápido (lite); se falhar ou vier ilegível, 2) modelo principal; 3) outro modelo flash
       try {
-        const lite = await chamar("gemini-2.5-flash-lite", payload);
-        if (lite.ok) { response = lite; model = "gemini-2.5-flash-lite"; }
-      } catch (_) { /* segue para o modelo normal */ }
-    }
-    if (!response) response = await tentarModelo(model);
-    if (!response.ok && [404, 429, 500, 503].includes(response.status)) {
-      const original = response.status;
-      const outros = (await listarModelosFlash()).filter((n) => n !== model).slice(0, 1);
-      for (const alt of outros) {
-        const r2 = await tentarModelo(alt);
-        if (r2.ok) { response = r2; if (original === 404) cachedModel = alt; model = alt; break; }
+        const rapido = await chamar(FAST_MODEL, payload);
+        if (rapido.ok) {
+          const d = extrairJson(await rapido.json());
+          if (!vazio(d)) return ok(d);
+        }
+      } catch (_) { /* segue para o modelo principal */ }
+
+      const tentarModelo = async (m: string) => {
+        let r = await chamar(m, payload);
+        if ([429, 500, 503].includes(r.status)) {
+          await new Promise((res) => setTimeout(res, 1500));
+          r = await chamar(m, payload);
+        }
+        return r;
+      };
+      let model = cachedModel || PREFERRED_MODEL;
+      let response = await tentarModelo(model);
+      if (!response.ok && [404, 429, 500, 503].includes(response.status)) {
+        const original = response.status;
+        const outros = (await listarModelosFlash()).filter((n) => n !== model && n !== FAST_MODEL).slice(0, 1);
+        for (const alt of outros) {
+          const r2 = await tentarModelo(alt);
+          if (r2.ok) { response = r2; if (original === 404) cachedModel = alt; model = alt; break; }
+        }
+      }
+      if (response.ok) {
+        const dados = extrairJson(await response.json());
+        if (dados) return ok(dados);
+        erroGemini = msgIlegivel;
+      } else {
+        const errText = await response.text();
+        erroGemini = [429, 503].includes(response.status)
+          ? "A leitura por IA está sobrecarregada agora. Aguarde um minuto e tente de novo."
+          : `Gemini API error ${response.status} (modelo ${model}): ${errText}`;
       }
     }
-    if (!response.ok) {
-      const errText = await response.text();
-      if ([429, 503].includes(response.status)) throw new Error("A leitura por IA está sobrecarregada agora. Aguarde um minuto e tente de novo.");
-      throw new Error(`Gemini API error ${response.status} (modelo ${model}): ${errText}`);
+
+    // 4) Gemini falhou/sobrecarregado: tenta o Claude (se a chave estiver configurada)
+    if (ANTHROPIC_API_KEY) {
+      try {
+        const d = await lerComClaude(mime_type, data, variacoes ? PROMPT_VARIACOES : PROMPT);
+        if (!vazio(d)) return ok(d);
+        erroGemini = erroGemini || msgIlegivel;
+      } catch (e: any) {
+        erroGemini = (erroGemini ? erroGemini + " | " : "") + e.message;
+      }
     }
-
-    const j = await response.json();
-    const parts = j.candidates?.[0]?.content?.parts || [];
-    let texto = parts.filter((p: any) => typeof p.text === "string" && !p.thought).map((p: any) => p.text).join("").trim();
-    texto = texto.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
-    const ini = texto.indexOf("{"), fim = texto.lastIndexOf("}");
-    if (ini < 0 || fim < 0) throw new Error(variacoes ? "Não consegui ler o print. Tente um print mais nítido." : "Não consegui ler a nota. Tente uma foto mais nítida ou o PDF.");
-    const dados = JSON.parse(texto.slice(ini, fim + 1));
-
-    return new Response(JSON.stringify({ dados }), { headers: { "Content-Type": "application/json", ...CORS } });
+    throw new Error(erroGemini || msgIlegivel);
   } catch (err: any) {
     return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { "Content-Type": "application/json", ...CORS } });
   }
