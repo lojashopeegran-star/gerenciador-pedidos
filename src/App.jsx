@@ -151,6 +151,10 @@ export default function App({user,onLogout}) {
   const [materiasPrimas, setMateriasPrimas] = useState([]);
   const [showMpLib, setShowMpLib] = useState(false);
   const [prodVars, setProdVars] = useState([]);
+  // Histórico para desfazer alterações no formulário de produto (cada "rajada" de edição vira um passo)
+  const prodHist = useRef([]); const prodPrev = useRef(null); const prodUltimoPush = useRef(0); const prodRestaurando = useRef(false);
+  const [prodHistN, setProdHistN] = useState(0);
+  const [copiarSel, setCopiarSel] = useState(null); // {key, idx:[linhas marcadas]} ao copiar materiais de uma variação para as outras
   const [mpNovoEst, setMpNovoEst] = useState(null); // dados do item de estoque criado junto com a matéria-prima
   const [mpParaKit, setMpParaKit] = useState(false); // matéria-prima criada de dentro do formulário de kit entra no kit sozinha
   const [impVar, setImpVar] = useState(null); // importar variações de um print: {fase:'lendo'|'revisar', itens:[{k,nome,preco,ok}], erro}
@@ -193,6 +197,25 @@ export default function App({user,onLogout}) {
   }, [impVar?.fase]); // eslint-disable-line react-hooks/exhaustive-deps
   const [produtoAtivo,          setProdutoAtivo]          = useState(null); // produto selecionado para ver detalhes
   const [showProdutoForm,       setShowProdutoForm]       = useState(false);
+  useEffect(() => {
+    if (!showProdutoForm) { prodHist.current=[]; prodPrev.current=null; prodUltimoPush.current=0; setProdHistN(0); return; }
+    if (prodRestaurando.current) { prodRestaurando.current=false; prodPrev.current=prodVars; return; }
+    const prev = prodPrev.current; prodPrev.current = prodVars;
+    if (prev && JSON.stringify(prev)!==JSON.stringify(prodVars)) {
+      const agora = Date.now();
+      if (agora - prodUltimoPush.current > 1200) {
+        prodHist.current.push(prev);
+        if (prodHist.current.length>40) prodHist.current.shift();
+        setProdHistN(prodHist.current.length);
+      }
+      prodUltimoPush.current = agora;
+    }
+  }, [prodVars, showProdutoForm]);
+  const desfazerProd = () => {
+    const h = prodHist.current; if (!h.length) return;
+    const ant = h.pop(); prodRestaurando.current = true; prodUltimoPush.current = 0;
+    setProdVars(ant); setCopiarSel(null); setProdHistN(h.length);
+  };
   const [editandoProdutoCalc,   setEditandoProdutoCalc]   = useState(null);
   const [prodNome,              setProdNome]              = useState("");
   const [prodPreco,             setProdPreco]             = useState("");
@@ -2672,14 +2695,22 @@ export default function App({user,onLogout}) {
         const linhaValida = (m) => m.kitId!==undefined ? !!m.kitId : !!m.mpId;
         const copiarParaTodas = (key) => {
           const origem = prodVars.find(v=>v.key===key);
-          const linhas = (origem?.mps||[]).filter(linhaValida);
-          if (!linhas.length) { showToast("Escolha ao menos uma matéria-prima ou kit nesta variação primeiro.","#b45309"); return; }
+          const idx = (origem?.mps||[]).map((m,i)=>linhaValida(m)?i:-1).filter(i=>i>=0);
+          if (!idx.length) { showToast("Escolha ao menos uma matéria-prima ou kit nesta variação primeiro.","#b45309"); return; }
+          setCopiarSel({key, idx}); // abre a seleção: todas marcadas, o usuário desmarca as que não quer
+        };
+        const confirmarCopia = () => {
+          const { key, idx } = copiarSel;
+          const origem = prodVars.find(v=>v.key===key);
+          const linhas = (origem?.mps||[]).filter((m,i)=>idx.includes(i)&&linhaValida(m));
+          if (!linhas.length) { showToast("Marque ao menos um material para copiar.","#b45309"); return; }
           setProdVars(vs=>vs.map(v=>{
             if (v.key===key) return v;
             const base = v.mps.filter(linhaValida);
             const novas = linhas.filter(l=>!base.some(b=>l.kitId!==undefined ? b.kitId===l.kitId : (b.kitId===undefined&&b.mpId===l.mpId))).map(l=>({...l}));
             return {...v, mps:[...base,...novas]};
           }));
+          setCopiarSel(null);
           showToast(`✅ ${linhas.length} item(ns) copiado(s) para as outras ${prodVars.length-1} variações. Confira as quantidades de cada uma.`,"#059669",5000);
         };
         const abrirKitForm = (k=null) => {
@@ -2973,6 +3004,7 @@ export default function App({user,onLogout}) {
                   <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>🎛️ Variações</div>
                   <div style={{display:"flex",gap:8}}>
                     <button onClick={()=>abrirMpForm()} style={{background:"#f0fdfa",color:"#0d9488",border:"1px solid #99f6e4",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>🧱 + Nova matéria-prima</button>
+                    <button onClick={desfazerProd} disabled={!prodHistN} title="Desfaz a última alteração nas variações e materiais" style={{background:prodHistN?"#fff7ed":"#f8fafc",color:prodHistN?"#c2410c":"#cbd5e1",border:"1px solid "+(prodHistN?"#fdba74":"#e2e8f0"),borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:prodHistN?"pointer":"default"}}>↩ Desfazer</button>
                     <button onClick={()=>setImpVar({fase:"inicio",itens:[],erro:""})} style={{background:"#eef2ff",color:"#4338ca",border:"1px solid #c7d2fe",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📷 Importar de print</button>
                     <button onClick={addVar} style={{background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Variação</button>
                   </div>
@@ -3000,10 +3032,17 @@ export default function App({user,onLogout}) {
                       {materiasPrimas.length===0&&<div style={{fontSize:11,color:"#f59e0b",marginBottom:6}}>Nenhuma matéria-prima cadastrada. Use o botão "🧱 + Nova matéria-prima" acima.</div>}
                       <div style={{display:"flex",flexDirection:"column",gap:6}}>
                         {v.mps.map((m,mi)=>{
+                          const _sel = copiarSel&&copiarSel.key===v.key&&linhaValida(m);
+                          const _wrap = (node) => _sel ? (
+                            <div key={mi} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+                              <input type="checkbox" checked={copiarSel.idx.includes(mi)} onChange={e=>setCopiarSel(c=>({...c,idx:e.target.checked?[...c.idx,mi]:c.idx.filter(i=>i!==mi)}))} style={{width:20,height:20,marginTop:8,flexShrink:0,accentColor:"#4338ca"}} title="Copiar para as outras variações"/>
+                              <div style={{flex:1,minWidth:0}}>{node}</div>
+                            </div>
+                          ) : node;
                           if (m.kitId!==undefined) {
                             const kit = kits.find(k=>k.id===m.kitId);
                             const custoKit = kit ? expandirMps([m]).reduce((a,x)=>{const mp2=materiasPrimas.find(y=>y.id===x.mpId);return mp2?a+custoUnitMp(mp2)*x.qtd:a;},0) : 0;
-                            return (
+                            return _wrap(
                               <div key={mi} style={{background:"#f0fdfa",border:"1.5px solid #99f6e4",borderRadius:10,padding:"8px 8px"}}>
                                 <div style={{display:"grid",gridTemplateColumns:"1fr 90px 30px",gap:6,alignItems:"center"}}>
                                   <select value={m.kitId} onChange={e=>setVarMp(v.key,mi,{kitId:e.target.value})}
@@ -3020,7 +3059,7 @@ export default function App({user,onLogout}) {
                           }
                           const mp = materiasPrimas.find(x=>x.id===m.mpId);
                           const custoLin = mp ? custoUnitMp(mp)*(Number(m.qtd)||0) : 0;
-                          return (
+                          return _wrap(
                             <div key={mi}>
                               <div style={{display:"grid",gridTemplateColumns:"1fr 90px 30px",gap:6,alignItems:"center"}}>
                                 <select value={m.mpId} onChange={e=>setVarMp(v.key,mi,{mpId:e.target.value})}
@@ -3037,6 +3076,17 @@ export default function App({user,onLogout}) {
                           );
                         })}
                       </div>
+                      {copiarSel&&copiarSel.key===v.key&&(
+                        <div style={{marginTop:8,background:"#eef2ff",border:"1.5px solid #c7d2fe",borderRadius:10,padding:"8px 10px"}}>
+                          <div style={{fontSize:11,fontWeight:700,color:"#4338ca",marginBottom:6}}>Marque os materiais que serão copiados para as outras {prodVars.length-1} variações:</div>
+                          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                            <button onClick={confirmarCopia} style={{background:"#4338ca",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Copiar {copiarSel.idx.length} selecionado{copiarSel.idx.length===1?"":"s"}</button>
+                            <button onClick={()=>setCopiarSel(c=>({...c,idx:v.mps.map((m,i)=>linhaValida(m)?i:-1).filter(i=>i>=0)}))} style={{background:"#fff",color:"#4338ca",border:"1.5px solid #c7d2fe",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>Marcar todos</button>
+                            <button onClick={()=>setCopiarSel(c=>({...c,idx:[]}))} style={{background:"#fff",color:"#64748b",border:"1.5px solid #e2e8f0",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>Desmarcar</button>
+                            <button onClick={()=>setCopiarSel(null)} style={{background:"#fff",color:"#991b1b",border:"1.5px solid #fecaca",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+                          </div>
+                        </div>
+                      )}
                       {avisosVar(v).map((a,ai)=><div key={ai} style={{marginTop:6,fontSize:11,fontWeight:600,color:"#b45309",background:"#fffbeb",border:"1px solid #fcd34d",borderRadius:8,padding:"4px 8px"}}>⚠️ {a}</div>)}
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:10,flexWrap:"wrap",gap:8}}>
                         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
