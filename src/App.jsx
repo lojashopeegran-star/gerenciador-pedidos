@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, lazy, Suspense } from "react";
 const Ferramentas = lazy(() => import("./Ferramentas.jsx"));
-import { getXLSX, PEDIDO_COLS, DEVOLUCAO_COLS, norm, parseSheet, normStatus, mesReferencia, mesLabel, corRecorrencia, formatMotivoCancelamento, isEnviado, isCancelado, isAberto, isHistorico, deadlineInfo, fmtBRL, currentMes, StatusBadge, StyledCheckbox, FeitoButton, RevisaoButton, VazioButton, ExpandCell, DropZone, Toast, RevisaoModal, FinanceGate, TabBar, TH, TD, _n, _norm, _tokens, similaridade, melhorMatch, mapUnidade, arquivoParaBase64, prepararImagemNota, fmtBRLn, quandoFmt, liquidoDe, custoMpDe } from "./helpers.jsx";
+import { waUrl, getXLSX, PEDIDO_COLS, DEVOLUCAO_COLS, norm, parseSheet, normStatus, mesReferencia, mesLabel, corRecorrencia, formatMotivoCancelamento, isEnviado, isCancelado, isAberto, isHistorico, deadlineInfo, fmtBRL, currentMes, StatusBadge, StyledCheckbox, FeitoButton, RevisaoButton, VazioButton, ExpandCell, DropZone, Toast, RevisaoModal, FinanceGate, TabBar, TH, TD, _n, _norm, _tokens, similaridade, melhorMatch, mapUnidade, arquivoParaBase64, prepararImagemNota, fmtBRLn, quandoFmt, liquidoDe, custoMpDe } from "./helpers.jsx";
 import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, lerVariacoesPrint, baixaRetroativa, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 export default function App({user,onLogout}) {
@@ -4174,6 +4174,18 @@ export default function App({user,onLogout}) {
           showToast("🗑️ Fornecedor removido.","#64748b");
         };
 
+        // alternativas (banco) -> lista do formulário: k "f" = fornecedor reserva, k "l" = link reserva
+        const altParaForm = (alts) => {
+          const out = [];
+          (Array.isArray(alts)?alts:[]).forEach(a=>{
+            if (a.fornecedor_id) {
+              const fo = fornecedores.find(f=>f.id===a.fornecedor_id);
+              out.push({k:"f",fornecedor_id:a.fornecedor_id,preco:a.preco!=null?String(a.preco):"",contato:fo?.contato||"",site:fo?.site_link||"",link:""});
+            }
+            if (a.link) out.push({k:"l",fornecedor_id:"",preco:"",contato:"",site:"",link:a.link});
+          });
+          return out;
+        };
         const abrirProdPlus = (p) => {
           setEstoqueProdPlusId(p.id);
           setEstoqueProdFornId(p.fornecedor_id||"");
@@ -4181,7 +4193,7 @@ export default function App({user,onLogout}) {
           setEstoqueProdLink(p.link_produto||"");
           setPlusUnid(p.unidade||"un");
           setPlusRend(p.rendimento?String(p.rendimento):""); setPlusRendUn(p.unidade_uso||"folha");
-          setPlusAlt(Array.isArray(p.alternativas)?p.alternativas.map(a=>({fornecedor_id:a.fornecedor_id||"",link:a.link||"",preco:a.preco!=null?String(a.preco):""})):[]);
+          setPlusAlt(altParaForm(p.alternativas));
           setEstoqueProdObs(p.observacoes||"");
           setEstoqueProdCat(p.categoria||"");
           setPlusMin(p.quantidade_minima!=null?String(p.quantidade_minima):"");
@@ -4196,7 +4208,7 @@ export default function App({user,onLogout}) {
           setEstoqueProdPreco(o.preco_unitario?String(o.preco_unitario):"");
           setEstoqueProdLink(o.link_produto||"");
           setPlusRend(o.rendimento?String(o.rendimento):""); setPlusRendUn(o.unidade_uso||"folha");
-          setPlusAlt(Array.isArray(o.alternativas)?o.alternativas.map(a=>({fornecedor_id:a.fornecedor_id||"",link:a.link||"",preco:a.preco!=null?String(a.preco):""})):[]);
+          setPlusAlt(altParaForm(o.alternativas));
           setEstoqueProdObs(o.observacoes||"");
           setEstoqueProdCat(o.categoria||"");
           const fo = fornecedores.find(f=>f.id===o.fornecedor_id);
@@ -4217,7 +4229,9 @@ export default function App({user,onLogout}) {
             ...(plusUnid && plusUnid!==prodPlusAntes?.unidade ? {unidade: plusUnid} : {}),
             rendimento:     Number(plusRend)>0 ? Number(plusRend) : null,
             unidade_uso:    Number(plusRend)>0 ? plusRendUn : null,
-            alternativas:   plusAlt.filter(a=>a.link.trim()||a.fornecedor_id).map(a=>({fornecedor_id:a.fornecedor_id||null,link:a.link.trim()||null,preco:a.preco!==""&&Number(a.preco)>0?Number(a.preco):null})),
+            alternativas:   plusAlt.filter(a=>a.k==="l"?a.link.trim():a.fornecedor_id).map(a=>a.k==="l"
+              ? {fornecedor_id:null,link:a.link.trim(),preco:null}
+              : {fornecedor_id:a.fornecedor_id,link:null,preco:a.preco!==""&&Number(a.preco)>0?Number(a.preco):null}),
             observacoes:    estoqueProdObs || null,
             categoria:      estoqueProdCat || null,
             quantidade_minima: Number(plusMin)||0,
@@ -4232,6 +4246,18 @@ export default function App({user,onLogout}) {
               logOp({tipo:"fornecedores",acao:"editar",descricao:"Fornecedor editado: "+fornSel.nome,tabela:"fornecedores",registro_id:fornSel.id,antes:pick(fornSel,COLS_FORNECEDOR)});
               reloadForn();
             }
+          }
+          // dados dos fornecedores reserva (telefone/site) editados aqui
+          if (!res.error) {
+            let editouForn = false;
+            for (const a of plusAlt.filter(x=>x.k==="f"&&x.fornecedor_id)) {
+              const fo = fornecedores.find(f=>f.id===a.fornecedor_id);
+              if (fo && ((fo.contato||"")!==a.contato.trim() || (fo.site_link||"")!==a.site.trim())) {
+                const rf = await salvarFornecedor(user.id, orgId, {id:fo.id, nome:fo.nome, observacoes:fo.observacoes, contato:a.contato, site_link:a.site});
+                if (!rf.error) { editouForn = true; logOp({tipo:"fornecedores",acao:"editar",descricao:"Fornecedor editado: "+fo.nome,tabela:"fornecedores",registro_id:fo.id,antes:pick(fo,COLS_FORNECEDOR)}); }
+              }
+            }
+            if (editouForn) reloadForn();
           }
           // aplica os mesmos dados (preço, fornecedor, categoria, link, observações) aos materiais marcados
           let aplicados = 0;
@@ -4353,7 +4379,7 @@ export default function App({user,onLogout}) {
                       <div style={{fontSize:12,color:"#374151",marginBottom:2}}>
                         🏭 Fornecedor: {forn ? <strong>{forn.nome}</strong> : <span style={{color:"#94a3b8"}}>não informado</span>}
                       </div>
-                      {(forn?.contato||forn?.site_link)&&<div style={{fontSize:11,color:"#64748b",marginBottom:2}}>{forn.contato&&<span>📞 {forn.contato}</span>}{forn.contato&&forn.site_link&&" · "}{forn.site_link&&<a href={/^https?:/i.test(forn.site_link)?forn.site_link:"https://"+forn.site_link} target="_blank" rel="noreferrer" style={{color:"#6d28d9"}}>🌐 site</a>}</div>}
+                      {(forn?.contato||forn?.site_link)&&<div style={{fontSize:11,color:"#64748b",marginBottom:2}}>{forn.contato&&<span>📞 {forn.contato}</span>}{waUrl(forn.contato)&&<> · <a href={waUrl(forn.contato,"Oi, tudo bem? Gostaria de saber preço e disponibilidade de: "+p.nome)} target="_blank" rel="noreferrer" style={{color:"#16a34a",fontWeight:700}}>📲 WhatsApp</a></>}{forn.contato&&forn.site_link&&" · "}{forn.site_link&&<a href={/^https?:/i.test(forn.site_link)?forn.site_link:"https://"+forn.site_link} target="_blank" rel="noreferrer" style={{color:"#6d28d9"}}>🌐 site</a>}</div>}
                       <div style={{fontSize:12,color:"#374151",marginBottom:2}}>📉 Mínimo: {Number(p.quantidade_minima)>0?<strong>{p.quantidade_minima} {p.unidade}</strong>:<span style={{color:"#94a3b8"}}>não definido</span>}</div>
                       {p.link_produto&&<div style={{fontSize:11,marginBottom:2}}><a href={p.link_produto} target="_blank" rel="noreferrer" style={{color:"#6d28d9"}}>🔗 Ver produto</a></div>}
                       {Array.isArray(p.alternativas)&&p.alternativas.length>0&&<div style={{borderTop:"1px dashed #e2e8f0",marginTop:4,paddingTop:4,marginBottom:4}}>
@@ -4362,6 +4388,7 @@ export default function App({user,onLogout}) {
                           <div key={i} style={{fontSize:11,color:"#374151",marginBottom:1}}>
                             {fa?<strong>{fa.nome}</strong>:<span style={{color:"#94a3b8"}}>Opção {i+2}</span>}{a.preco!=null&&<span style={{color:"#059669"}}> · R$ {Number(a.preco).toFixed(2).replace(".",",")}</span>}
                             {fa?.contato&&<span style={{color:"#64748b"}}> · 📞 {fa.contato}</span>}
+                            {waUrl(fa?.contato)&&<> · <a href={waUrl(fa.contato,"Oi, tudo bem? Gostaria de saber preço e disponibilidade de: "+p.nome)} target="_blank" rel="noreferrer" style={{color:"#16a34a",fontWeight:700}}>📲 WhatsApp</a></>}
                             {a.link&&<> · <a href={/^https?:/i.test(a.link)?a.link:"https://"+a.link} target="_blank" rel="noreferrer" style={{color:"#6d28d9"}}>🔗 link</a></>}
                           </div>);})}
                       </div>}
@@ -4587,8 +4614,34 @@ export default function App({user,onLogout}) {
                               style={{width:"100%",padding:"8px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"}} />
                             <input value={plusFornSite} onChange={e=>setPlusFornSite(e.target.value)} placeholder="Site ou link da loja"
                               style={{width:"100%",padding:"8px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                            {waUrl(plusFornContato)&&<a href={waUrl(plusFornContato,"Oi, tudo bem? Gostaria de saber preço e disponibilidade de: "+(estoqueProdutos.find(x=>x.id===estoqueProdPlusId)?.nome||"material"))} target="_blank" rel="noreferrer" style={{display:"block",textAlign:"center",background:"#25d366",color:"#fff",borderRadius:8,padding:"7px 0",fontSize:12,fontWeight:700,textDecoration:"none"}}>📲 Chamar no WhatsApp</a>}
                           </div>
                         )}
+                      </div>
+                      <div>
+                        <div style={{fontSize:11,fontWeight:700,color:"#475569",marginBottom:4}}>🏭 Fornecedores reserva</div>
+                        {plusAlt.map((a,i)=>a.k!=="f"?null:(
+                          <div key={i} style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:10,padding:8,marginBottom:8}}>
+                            <div style={{display:"flex",gap:4,marginBottom:6}}>
+                              <select value={a.fornecedor_id} onChange={e=>{const fo=fornecedores.find(f=>f.id===e.target.value);setPlusAlt(l=>l.map((x,j)=>j===i?{...x,fornecedor_id:e.target.value,contato:fo?.contato||"",site:fo?.site_link||""}:x));}}
+                                style={{flex:1,minWidth:0,padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",background:"#fff"}}>
+                                <option value="">— Selecionar fornecedor reserva —</option>
+                                {fornecedores.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
+                              </select>
+                              <button onClick={()=>{ if(window.confirm("Remover este fornecedor reserva?")) setPlusAlt(l=>l.filter((_,j)=>j!==i)); }} style={{background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:8,padding:"0 10px",cursor:"pointer",fontWeight:700}}>✕</button>
+                            </div>
+                            {a.fornecedor_id&&(
+                              <div style={{background:"#faf5ff",border:"1px solid #e9d5ff",borderRadius:10,padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
+                                <div style={{fontSize:10,fontWeight:700,color:"#7c3aed"}}>DADOS DO FORNECEDOR (valem para todos os materiais dele)</div>
+                                <input value={a.contato} onChange={e=>setPlusAlt(l=>l.map((x,j)=>j===i?{...x,contato:e.target.value}:x))} placeholder="Telefone / WhatsApp / contato" style={{width:"100%",padding:"8px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                                <input value={a.site} onChange={e=>setPlusAlt(l=>l.map((x,j)=>j===i?{...x,site:e.target.value}:x))} placeholder="Site ou link da loja" style={{width:"100%",padding:"8px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                                <input type="number" min="0" step="any" value={a.preco} onChange={e=>setPlusAlt(l=>l.map((x,j)=>j===i?{...x,preco:e.target.value}:x))} placeholder="Preço neste fornecedor (R$, opcional)" style={{width:"100%",padding:"8px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                                {waUrl(a.contato)&&<a href={waUrl(a.contato,"Oi, tudo bem? Gostaria de saber preço e disponibilidade de: "+(estoqueProdutos.find(x=>x.id===estoqueProdPlusId)?.nome||"material"))} target="_blank" rel="noreferrer" style={{display:"block",textAlign:"center",background:"#25d366",color:"#fff",borderRadius:8,padding:"7px 0",fontSize:12,fontWeight:700,textDecoration:"none"}}>📲 Chamar no WhatsApp</a>}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        <button onClick={()=>setPlusAlt(l=>[...l,{k:"f",fornecedor_id:"",preco:"",contato:"",site:"",link:""}])} style={{width:"100%",padding:"7px 0",border:"1.5px dashed #94a3b8",borderRadius:8,background:"transparent",color:"#475569",fontSize:12,fontWeight:600,cursor:"pointer"}}>＋ Adicionar fornecedor reserva</button>
                       </div>
                       <div>
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Quantidade mínima ({prod?.unidade||"un"}) — avisa quando precisar repor</label>
@@ -4604,6 +4657,16 @@ export default function App({user,onLogout}) {
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Link do produto</label>
                         <input value={estoqueProdLink} onChange={e=>setEstoqueProdLink(e.target.value)} placeholder="https://shopee.com.br/..."
                           style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                      <div>
+                        <div style={{fontSize:11,fontWeight:700,color:"#475569",marginBottom:4}}>🔗 Links reserva</div>
+                        {plusAlt.map((a,i)=>a.k!=="l"?null:(
+                          <div key={i} style={{display:"flex",gap:4,marginBottom:6}}>
+                            <input value={a.link} onChange={e=>setPlusAlt(l=>l.map((x,j)=>j===i?{...x,link:e.target.value}:x))} placeholder="https://aliexpress.com/..." style={{flex:1,minWidth:0,padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                            <button onClick={()=>{ if(window.confirm("Remover este link reserva?")) setPlusAlt(l=>l.filter((_,j)=>j!==i)); }} style={{background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:8,padding:"0 10px",cursor:"pointer",fontWeight:700}}>✕</button>
+                          </div>
+                        ))}
+                        <button onClick={()=>setPlusAlt(l=>[...l,{k:"l",fornecedor_id:"",preco:"",contato:"",site:"",link:""}])} style={{width:"100%",padding:"7px 0",border:"1.5px dashed #94a3b8",borderRadius:8,background:"transparent",color:"#475569",fontSize:12,fontWeight:600,cursor:"pointer"}}>＋ Adicionar link reserva</button>
                       </div>
                       <div>
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Unidade do material</label>
@@ -4623,24 +4686,6 @@ export default function App({user,onLogout}) {
                           </select>
                         </div>
                         {Number(plusRend)>0&&Number(estoqueProdPreco)>0&&<div style={{fontSize:11,color:"#166534",marginTop:6}}>Custo por {plusRendUn}: <strong>R$ {(Number(estoqueProdPreco)/Number(plusRend)).toFixed(4).replace(".",",")}</strong></div>}
-                      </div>
-                      <div style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"8px 10px",background:"#f8fafc"}}>
-                        <div style={{fontSize:11,fontWeight:700,color:"#475569",marginBottom:2}}>➕ Outras opções de compra (reserva)</div>
-                        <div style={{fontSize:10,color:"#94a3b8",marginBottom:6}}>Outro link (Shopee, AliExpress...) e/ou outro fornecedor, caso o principal saia do ar ou fique sem estoque.</div>
-                        {plusAlt.map((a,i)=>(
-                          <div key={i} style={{display:"flex",flexDirection:"column",gap:4,background:"#fff",border:"1px solid #e2e8f0",borderRadius:8,padding:6,marginBottom:6}}>
-                            <div style={{display:"flex",gap:4}}>
-                              <select value={a.fornecedor_id} onChange={e=>setPlusAlt(l=>l.map((x,j)=>j===i?{...x,fornecedor_id:e.target.value}:x))} style={{flex:1,minWidth:0,padding:"7px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,background:"#fff"}}>
-                                <option value="">— Fornecedor (opcional) —</option>
-                                {fornecedores.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
-                              </select>
-                              <input type="number" min="0" step="any" value={a.preco} onChange={e=>setPlusAlt(l=>l.map((x,j)=>j===i?{...x,preco:e.target.value}:x))} placeholder="R$ preço" style={{width:84,padding:"7px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12}} />
-                              <button onClick={()=>{ if(window.confirm("Remover esta opção de compra?")) setPlusAlt(l=>l.filter((_,j)=>j!==i)); }} style={{background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:8,padding:"0 10px",cursor:"pointer",fontWeight:700}}>✕</button>
-                            </div>
-                            <input value={a.link} onChange={e=>setPlusAlt(l=>l.map((x,j)=>j===i?{...x,link:e.target.value}:x))} placeholder="https://... (link)" style={{width:"100%",padding:"7px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,boxSizing:"border-box"}} />
-                          </div>
-                        ))}
-                        <button onClick={()=>setPlusAlt(l=>[...l,{fornecedor_id:"",link:"",preco:""}])} style={{width:"100%",padding:"7px 0",border:"1.5px dashed #94a3b8",borderRadius:8,background:"transparent",color:"#475569",fontSize:12,fontWeight:600,cursor:"pointer"}}>＋ Adicionar link / fornecedor</button>
                       </div>
                       <div>
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Observações</label>

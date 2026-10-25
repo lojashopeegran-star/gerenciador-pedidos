@@ -363,3 +363,11 @@ export const custoMpDe = (v) => (v.produto_materias_primas||[]).reduce((a,l)=>{
 },0);
 
 // ── MAIN APP ──────────────────────────────────────────────────────────────────
+
+// Link do WhatsApp a partir de um telefone/contato (assume Brasil quando vier sem DDI)
+export const waUrl = (contato, msg = "") => {
+  let d = String(contato || "").replace(/\D/g, "");
+  if (d.length < 10) return null;
+  if (d.length <= 11) d = "55" + d;
+  return `https://wa.me/${d}${msg ? "?text=" + encodeURIComponent(msg) : ""}`;
+};
