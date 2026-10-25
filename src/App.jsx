@@ -2999,7 +2999,7 @@ export default function App({user,onLogout}) {
                                     <option value="">🧰 Escolher kit…</option>
                                     {kits.map(k=><option key={k.id} value={k.id}>{k.nome}</option>)}
                                   </select>
-                                  <input type="number" min="0" step="any" value={m.qtd} onChange={e=>setVarMp(v.key,mi,{qtd:e.target.value})} placeholder="qtd" style={{width:"100%",padding:"8px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",boxSizing:"border-box"}} />
+                                  <input type="number" min="0" step="any" value={m.qtd} onChange={e=>setVarMp(v.key,mi,{qtd:e.target.value})} placeholder="qtd" style={{width:"100%",padding:"8px 8px",border:(m.kitId&&!(Number(m.qtd)>0))?"2px solid #ef4444":"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",boxSizing:"border-box"}} />
                                   <button onClick={()=>delVarMp(v.key,mi)} title="Remover" style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:6,height:30,cursor:"pointer",fontSize:12}}>✕</button>
                                 </div>
                                 {kit&&<div style={{fontSize:10,color:"#0d9488",marginTop:4}}>Entra: {(kit.itens||[]).map(i=>materiasPrimas.find(x=>x.id===i.mpId)?.nome||"?").join(" + ")}{Number(m.qtd)>0?` · → R$ ${custoKit.toFixed(2)}`:""}</div>}
@@ -3017,7 +3017,7 @@ export default function App({user,onLogout}) {
                                   {materiasPrimas.map(x=><option key={x.id} value={x.id}>{x.nome} (R$ {custoUnitMp(x).toFixed(2)}/{x.unidade})</option>)}
                                 </select>
                                 <input type="number" min="0" step="any" value={m.qtd} onChange={e=>setVarMp(v.key,mi,{qtd:e.target.value})} placeholder={mp?`qtd (${mp.unidade})`:"qtd"}
-                                  style={{width:"100%",padding:"8px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",boxSizing:"border-box"}} />
+                                  style={{width:"100%",padding:"8px 8px",border:(m.mpId&&!(Number(m.qtd)>0))?"2px solid #ef4444":"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",boxSizing:"border-box"}} />
                                 <button onClick={()=>delVarMp(v.key,mi)} title="Remover" style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:6,height:30,cursor:"pointer",fontSize:12}}>✕</button>
                               </div>
                               {mp&&Number(m.qtd)>0&&<div style={{fontSize:10,color:"#f59e0b",fontWeight:600,margin:"2px 0 0 4px"}}>→ R$ {custoLin.toFixed(2)}</div>}

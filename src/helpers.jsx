@@ -242,7 +242,7 @@ export function DropZone({label,sublabel,onFile,file,color,disabled}) {
 
 export function Toast({msg,color}) {
   if(!msg)return null;
-  return <div style={{position:"fixed",bottom:24,right:24,zIndex:9999,background:color||"#1e293b",color:"#fff",borderRadius:12,padding:"12px 20px",fontSize:13,fontWeight:600,boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}>{msg}</div>;
+  return <div style={{position:"fixed",bottom:24,right:24,zIndex:20000,background:color||"#1e293b",color:"#fff",borderRadius:12,padding:"12px 20px",fontSize:13,fontWeight:600,boxShadow:"0 8px 32px rgba(0,0,0,0.2)"}}>{msg}</div>;
 }
 
 export function RevisaoModal({order,onConfirm,onClose,onDesmarcar}) {
