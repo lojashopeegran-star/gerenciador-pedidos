@@ -2655,6 +2655,20 @@ export default function App({user,onLogout}) {
         });
         const custoEditor = (v) => expandirMps(v.mps).reduce((a,m)=>{ const mp=materiasPrimas.find(x=>x.id===m.mpId); return mp ? a+custoUnitMp(mp)*(Number(m.qtd)||0) : a; },0);
         const addVarKit = (key) => setProdVars(vs=>vs.map(v=>v.key===key?{...v,mps:[...v.mps.filter(m=>m.kitId!==undefined||m.mpId),{kitId:"",mpId:"",qtd:""}]}:v));
+        // Copia os materiais (e kits) desta variação para todas as outras, sem apagar o que elas já têm
+        const linhaValida = (m) => m.kitId!==undefined ? !!m.kitId : !!m.mpId;
+        const copiarParaTodas = (key) => {
+          const origem = prodVars.find(v=>v.key===key);
+          const linhas = (origem?.mps||[]).filter(linhaValida);
+          if (!linhas.length) { showToast("Escolha ao menos uma matéria-prima ou kit nesta variação primeiro.","#b45309"); return; }
+          setProdVars(vs=>vs.map(v=>{
+            if (v.key===key) return v;
+            const base = v.mps.filter(linhaValida);
+            const novas = linhas.filter(l=>!base.some(b=>l.kitId!==undefined ? b.kitId===l.kitId : (b.kitId===undefined&&b.mpId===l.mpId))).map(l=>({...l}));
+            return {...v, mps:[...base,...novas]};
+          }));
+          showToast(`✅ ${linhas.length} item(ns) copiado(s) para as outras ${prodVars.length-1} variações. Confira as quantidades de cada uma.`,"#059669",5000);
+        };
         const abrirKitForm = (k=null) => {
           setEditandoKit(k); setKitNome(k?.nome||"");
           setKitItens(k&&(k.itens||[]).length?k.itens.map(i=>({mpId:i.mpId,fator:String(i.fator)})):[{mpId:"",fator:"1"}]);
@@ -2968,6 +2982,7 @@ export default function App({user,onLogout}) {
                         <div style={{display:"flex",gap:6}}>
                           <button onClick={()=>addVarMp(v.key)} style={{background:"#fff",color:"#7c3aed",border:"1.5px solid #ddd6fe",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Matéria-prima</button>
                           <button onClick={()=>addVarKit(v.key)} style={{background:"#f0fdfa",color:"#0d9488",border:"1.5px solid #99f6e4",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>🧰 + Kit</button>
+                          {prodVars.length>1&&<button onClick={()=>copiarParaTodas(v.key)} title="Adiciona estes materiais e kits a todas as outras variações" style={{background:"#eef2ff",color:"#4338ca",border:"1.5px solid #c7d2fe",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📋 Copiar materiais p/ todas</button>}
                           <button onClick={()=>dupVar(v.key)} style={{background:"#fff",color:"#64748b",border:"1.5px solid #e2e8f0",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>⧉ Duplicar</button>
                           {prodVars.length>1&&<button onClick={()=>delVar(v.key)} style={{background:"#fff",color:"#991b1b",border:"1.5px solid #fecaca",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>🗑️ Remover variação</button>}
                         </div>
