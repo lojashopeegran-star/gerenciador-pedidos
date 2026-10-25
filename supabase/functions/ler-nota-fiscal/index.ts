@@ -19,11 +19,12 @@ const PROMPT_VARIACOES = `Esta imagem é um print de uma tabela de variações d
 {"variacoes":[{"nome":"","preco":0}]}
 Regras: uma entrada por linha da tabela, na mesma ordem em que aparecem; "nome" = texto da PRIMEIRA coluna (esquerda), exatamente como está escrito; "preco" = valor da ÚLTIMA coluna (direita) como número com ponto decimal (12.99), ignorando as colunas do meio; ignore cabeçalhos, título/foto do produto e linhas sem nome; não invente linhas; se o preço da última coluna não estiver legível use 0.`;
 
-async function callGemini(model: string, payload: unknown) {
+async function callGemini(model: string, body: string) {
   return await fetch(`${API_BASE}/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body,
+    signal: AbortSignal.timeout(40000), // não deixa uma chamada lenta travar a função inteira
   });
 }
 
@@ -41,15 +42,19 @@ async function listarModelosFlash(): Promise<string[]> {
 }
 
 // Tenta com "pensamento" desligado (bem mais rápido); se o modelo não aceitar, repete sem a opção.
+// O JSON (com a imagem em base64) é montado uma vez só por variante, para poupar memória.
 async function chamar(model: string, base: any) {
-  const rapido = { ...base, generationConfig: { ...base.generationConfig, thinkingConfig: { thinkingBudget: 0 } } };
-  let r = await callGemini(model, rapido);
+  const corpo = (gc: any) => JSON.stringify({ ...base, generationConfig: { ...base.generationConfig, ...gc } });
+  let r: Response;
+  try { r = await callGemini(model, corpo({ thinkingConfig: { thinkingBudget: 0 } })); }
+  catch (_) { return new Response("timeout", { status: 503 }); }
   if (r.status === 400) {
     const t = await r.clone().text();
     if (/thinking/i.test(t)) {
-      const nivel = { ...base, generationConfig: { ...base.generationConfig, thinkingConfig: { thinkingLevel: "minimal" } } };
-      r = await callGemini(model, nivel);
-      if (r.status === 400) r = await callGemini(model, base);
+      try {
+        r = await callGemini(model, corpo({ thinkingConfig: { thinkingLevel: "minimal" } }));
+        if (r.status === 400) r = await callGemini(model, JSON.stringify(base));
+      } catch (_) { return new Response("timeout", { status: 503 }); }
     }
   }
   return r;
@@ -72,7 +77,7 @@ Deno.serve(async (req: Request) => {
     // Modelo sobrecarregado (503/429/500): tenta de novo e, se continuar, usa outro modelo flash
     const tentarModelo = async (m: string) => {
       let r = await chamar(m, payload);
-      for (const espera of [1500, 3500]) {
+      for (const espera of [1500]) {
         if (![429, 500, 503].includes(r.status)) break;
         await new Promise((res) => setTimeout(res, espera));
         r = await chamar(m, payload);
@@ -91,7 +96,7 @@ Deno.serve(async (req: Request) => {
     if (!response) response = await tentarModelo(model);
     if (!response.ok && [404, 429, 500, 503].includes(response.status)) {
       const original = response.status;
-      const outros = (await listarModelosFlash()).filter((n) => n !== model).slice(0, 3);
+      const outros = (await listarModelosFlash()).filter((n) => n !== model).slice(0, 1);
       for (const alt of outros) {
         const r2 = await tentarModelo(alt);
         if (r2.ok) { response = r2; if (original === 404) cachedModel = alt; model = alt; break; }
