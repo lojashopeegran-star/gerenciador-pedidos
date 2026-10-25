@@ -3688,12 +3688,8 @@ export default function App({user,onLogout}) {
                   <div style={{display:"flex",flexDirection:"column",gap:12}}>
                     <div>
                       <label style={{fontSize:11,fontWeight:600,color:"#64748b",marginBottom:4,display:"block"}}>Nome do material *</label>
-                      {editandoProduto ? (
-                        <div style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,background:"#f8fafc",color:"#64748b",boxSizing:"border-box"}}>{estoqueProdNome}</div>
-                      ) : (
-                        <input value={estoqueProdNome} onChange={e=>setEstoqueProdNome(e.target.value)} placeholder="Ex: Papel Fotográfico 10x15"
-                          style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
-                      )}
+                      <input value={estoqueProdNome} onChange={e=>setEstoqueProdNome(e.target.value)} placeholder="Ex: Papel Fotográfico 10x15"
+                        style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
                       <div>
