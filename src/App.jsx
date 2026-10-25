@@ -3353,7 +3353,6 @@ export default function App({user,onLogout}) {
                                   style={{width:"100%",padding:"8px 8px",border:(m.mpId&&!(Number(m.qtd)>0))?"2px solid #ef4444":"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",boxSizing:"border-box"}} />
                                 <button onClick={()=>delVarMp(v.key,mi)} title="Remover" style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:6,height:30,cursor:"pointer",fontSize:12}}>✕</button>
                               </div>
-                              {pegarQtd}
                               {mp&&Number(m.qtd)>0&&<div style={{fontSize:10,color:"#f59e0b",fontWeight:600,margin:"2px 0 0 4px"}}>→ R$ {custoLin.toFixed(2)}</div>}
                             </div>
                           );
