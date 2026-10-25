@@ -105,6 +105,7 @@ export default function App({user,onLogout}) {
   const [estoqueProdFornId,       setEstoqueProdFornId]       = useState("");
   const [estoqueProdPreco,        setEstoqueProdPreco]        = useState("");
   const [estoqueProdLink,         setEstoqueProdLink]         = useState("");
+  const [plusAlt, setPlusAlt] = useState([]); // outras opções de compra: [{fornecedor_id, link, preco}]
   const [estoqueProdObs,          setEstoqueProdObs]          = useState("");
   const [estoqueProdCat,          setEstoqueProdCat]          = useState("");
   const [salvandoProdPlus,        setSalvandoProdPlus]        = useState(false);
@@ -4090,6 +4091,7 @@ export default function App({user,onLogout}) {
           setEstoqueProdFornId(p.fornecedor_id||"");
           setEstoqueProdPreco(p.preco_unitario?String(p.preco_unitario):"");
           setEstoqueProdLink(p.link_produto||"");
+          setPlusAlt(Array.isArray(p.alternativas)?p.alternativas.map(a=>({fornecedor_id:a.fornecedor_id||"",link:a.link||"",preco:a.preco!=null?String(a.preco):""})):[]);
           setEstoqueProdObs(p.observacoes||"");
           setEstoqueProdCat(p.categoria||"");
           setPlusMin(p.quantidade_minima!=null?String(p.quantidade_minima):"");
@@ -4103,6 +4105,7 @@ export default function App({user,onLogout}) {
           setEstoqueProdFornId(o.fornecedor_id||"");
           setEstoqueProdPreco(o.preco_unitario?String(o.preco_unitario):"");
           setEstoqueProdLink(o.link_produto||"");
+          setPlusAlt(Array.isArray(o.alternativas)?o.alternativas.map(a=>({fornecedor_id:a.fornecedor_id||"",link:a.link||"",preco:a.preco!=null?String(a.preco):""})):[]);
           setEstoqueProdObs(o.observacoes||"");
           setEstoqueProdCat(o.categoria||"");
           const fo = fornecedores.find(f=>f.id===o.fornecedor_id);
@@ -4120,6 +4123,7 @@ export default function App({user,onLogout}) {
             preco_unitario: estoqueProdPreco ? Number(estoqueProdPreco) : null,
             fornecedor_id:  estoqueProdFornId || null,
             link_produto:   estoqueProdLink || null,
+            alternativas:   plusAlt.filter(a=>a.link.trim()||a.fornecedor_id).map(a=>({fornecedor_id:a.fornecedor_id||null,link:a.link.trim()||null,preco:a.preco!==""&&Number(a.preco)>0?Number(a.preco):null})),
             observacoes:    estoqueProdObs || null,
             categoria:      estoqueProdCat || null,
             quantidade_minima: Number(plusMin)||0,
@@ -4144,14 +4148,14 @@ export default function App({user,onLogout}) {
               const r2 = await atualizarEstoqueProdutoPlus(oid, comuns);
               if (!r2.error) {
                 aplicados++;
-                logOp({tipo:"estoque",acao:"editar",descricao:"Preço/fornecedor copiado para: "+(antes?.nome||"material"),tabela:"estoque_produtos",registro_id:oid,antes:pick(antes,["preco_unitario","fornecedor_id","link_produto","observacoes","categoria"]),depois:comuns});
+                logOp({tipo:"estoque",acao:"editar",descricao:"Preço/fornecedor copiado para: "+(antes?.nome||"material"),tabela:"estoque_produtos",registro_id:oid,antes:pick(antes,["preco_unitario","fornecedor_id","link_produto","alternativas","observacoes","categoria"]),depois:comuns});
               }
             }
           }
           setSalvandoProdPlus(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
           setShowEstoqueProdPlus(false);
-          logOp({tipo:"estoque",acao:"editar",descricao:"Preço/fornecedor atualizado: "+(prodPlusAntes?.nome||"material"),tabela:"estoque_produtos",registro_id:estoqueProdPlusId,antes:pick(prodPlusAntes,["preco_unitario","fornecedor_id","link_produto","observacoes","categoria","quantidade_minima"]),depois:camposPlus});
+          logOp({tipo:"estoque",acao:"editar",descricao:"Preço/fornecedor atualizado: "+(prodPlusAntes?.nome||"material"),tabela:"estoque_produtos",registro_id:estoqueProdPlusId,antes:pick(prodPlusAntes,["preco_unitario","fornecedor_id","link_produto","alternativas","observacoes","categoria","quantidade_minima"]),depois:camposPlus});
           fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
           showToast(aplicados?`✅ Salvo e copiado para mais ${aplicados} material(is)!`:"✅ Informações salvas!","#059669");
         };
@@ -4258,6 +4262,15 @@ export default function App({user,onLogout}) {
                       {(forn?.contato||forn?.site_link)&&<div style={{fontSize:11,color:"#64748b",marginBottom:2}}>{forn.contato&&<span>📞 {forn.contato}</span>}{forn.contato&&forn.site_link&&" · "}{forn.site_link&&<a href={/^https?:/i.test(forn.site_link)?forn.site_link:"https://"+forn.site_link} target="_blank" rel="noreferrer" style={{color:"#6d28d9"}}>🌐 site</a>}</div>}
                       <div style={{fontSize:12,color:"#374151",marginBottom:2}}>📉 Mínimo: {Number(p.quantidade_minima)>0?<strong>{p.quantidade_minima} {p.unidade}</strong>:<span style={{color:"#94a3b8"}}>não definido</span>}</div>
                       {p.link_produto&&<div style={{fontSize:11,marginBottom:2}}><a href={p.link_produto} target="_blank" rel="noreferrer" style={{color:"#6d28d9"}}>🔗 Ver produto</a></div>}
+                      {Array.isArray(p.alternativas)&&p.alternativas.length>0&&<div style={{borderTop:"1px dashed #e2e8f0",marginTop:4,paddingTop:4,marginBottom:4}}>
+                        <div style={{fontSize:10,fontWeight:700,color:"#64748b",marginBottom:2}}>Opções reserva</div>
+                        {p.alternativas.map((a,i)=>{const fa=fornecedores.find(f=>f.id===a.fornecedor_id);return(
+                          <div key={i} style={{fontSize:11,color:"#374151",marginBottom:1}}>
+                            {fa?<strong>{fa.nome}</strong>:<span style={{color:"#94a3b8"}}>Opção {i+2}</span>}{a.preco!=null&&<span style={{color:"#059669"}}> · R$ {Number(a.preco).toFixed(2).replace(".",",")}</span>}
+                            {fa?.contato&&<span style={{color:"#64748b"}}> · 📞 {fa.contato}</span>}
+                            {a.link&&<> · <a href={/^https?:/i.test(a.link)?a.link:"https://"+a.link} target="_blank" rel="noreferrer" style={{color:"#6d28d9"}}>🔗 link</a></>}
+                          </div>);})}
+                      </div>}
                       {p.observacoes&&<div style={{fontSize:11,color:"#64748b",fontStyle:"italic",marginBottom:4}}>"{p.observacoes}"</div>}
                       <button onClick={()=>abrirProdPlus(p)} style={{marginTop:6,width:"100%",padding:"5px 0",background:"#ede9fe",color:"#7c3aed",border:"none",borderRadius:7,fontSize:11,fontWeight:700,cursor:"pointer"}}>✏️ Editar info</button>
                     </div>
@@ -4497,6 +4510,24 @@ export default function App({user,onLogout}) {
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Link do produto</label>
                         <input value={estoqueProdLink} onChange={e=>setEstoqueProdLink(e.target.value)} placeholder="https://shopee.com.br/..."
                           style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                      <div style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"8px 10px",background:"#f8fafc"}}>
+                        <div style={{fontSize:11,fontWeight:700,color:"#475569",marginBottom:2}}>➕ Outras opções de compra (reserva)</div>
+                        <div style={{fontSize:10,color:"#94a3b8",marginBottom:6}}>Outro link (Shopee, AliExpress...) e/ou outro fornecedor, caso o principal saia do ar ou fique sem estoque.</div>
+                        {plusAlt.map((a,i)=>(
+                          <div key={i} style={{display:"flex",flexDirection:"column",gap:4,background:"#fff",border:"1px solid #e2e8f0",borderRadius:8,padding:6,marginBottom:6}}>
+                            <div style={{display:"flex",gap:4}}>
+                              <select value={a.fornecedor_id} onChange={e=>setPlusAlt(l=>l.map((x,j)=>j===i?{...x,fornecedor_id:e.target.value}:x))} style={{flex:1,minWidth:0,padding:"7px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,background:"#fff"}}>
+                                <option value="">— Fornecedor (opcional) —</option>
+                                {fornecedores.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
+                              </select>
+                              <input type="number" min="0" step="any" value={a.preco} onChange={e=>setPlusAlt(l=>l.map((x,j)=>j===i?{...x,preco:e.target.value}:x))} placeholder="R$ preço" style={{width:84,padding:"7px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12}} />
+                              <button onClick={()=>{ if(window.confirm("Remover esta opção de compra?")) setPlusAlt(l=>l.filter((_,j)=>j!==i)); }} style={{background:"#fee2e2",color:"#dc2626",border:"none",borderRadius:8,padding:"0 10px",cursor:"pointer",fontWeight:700}}>✕</button>
+                            </div>
+                            <input value={a.link} onChange={e=>setPlusAlt(l=>l.map((x,j)=>j===i?{...x,link:e.target.value}:x))} placeholder="https://... (link)" style={{width:"100%",padding:"7px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,boxSizing:"border-box"}} />
+                          </div>
+                        ))}
+                        <button onClick={()=>setPlusAlt(l=>[...l,{fornecedor_id:"",link:"",preco:""}])} style={{width:"100%",padding:"7px 0",border:"1.5px dashed #94a3b8",borderRadius:8,background:"transparent",color:"#475569",fontSize:12,fontWeight:600,cursor:"pointer"}}>＋ Adicionar link / fornecedor</button>
                       </div>
                       <div>
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Observações</label>
