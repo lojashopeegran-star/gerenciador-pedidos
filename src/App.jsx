@@ -151,6 +151,7 @@ export default function App({user,onLogout}) {
   const [materiasPrimas, setMateriasPrimas] = useState([]);
   const [showMpLib, setShowMpLib] = useState(false);
   const [prodVars, setProdVars] = useState([]);
+  const [mpNovoEst, setMpNovoEst] = useState(null); // dados do item de estoque criado junto com a matéria-prima
   const [mpParaKit, setMpParaKit] = useState(false); // matéria-prima criada de dentro do formulário de kit entra no kit sozinha
   const [impVar, setImpVar] = useState(null); // importar variações de um print: {fase:'lendo'|'revisar', itens:[{k,nome,preco,ok}], erro}
   const lerPrintVariacoes = async (file) => {
@@ -2734,7 +2735,7 @@ export default function App({user,onLogout}) {
           setEditandoMp(mp);
           setMpNome(mp?.nome||""); setMpCustoCompra(mp?String(mp.custo_unidade_compra):""); setMpQtdPorCompra(mp?String(mp.qtd_por_unidade_compra):""); setMpUnidade(mp?.unidade||"folha");
           setMpEstoqueId(mp?.estoque_produto_id||""); setMpRendimento(mp?.rendimento_estoque?String(mp.rendimento_estoque):"");
-          setMpParaKit(false);
+          setMpParaKit(false); setMpNovoEst(null);
           setMpModoDimensao(false); setMpRoloLargura(""); setMpRoloComprimento(""); setMpCorteL(""); setMpCorteC(""); setMpUnidadeCorte("folha");
           setShowMpForm(true);
         };
@@ -2797,14 +2798,39 @@ export default function App({user,onLogout}) {
         const salvarMp = async () => {
           if (!mpNome.trim()) return;
           setSalvandoMp(true);
+          let estIdFinal = mpEstoqueId||null;
+          let rendFinal = mpEstoqueId&&Number(mpRendimento)>0 ? Number(mpRendimento) : null;
+          if (mpEstoqueId==="__novo") {
+            const n = mpNovoEst||{};
+            const mesma = n.unidade===mpUnidade;
+            const rend = mesma ? 1 : Number(n.rend)||0;
+            if (!rend) { setSalvandoMp(false); showToast("❌ Informe o rendimento (quantas "+mpUnidade+" rende 1 "+n.unidade+" do estoque).","#991b1b"); return; }
+            if (n.fornId==="__novo"&&!String(n.fNome||"").trim()) { setSalvandoMp(false); showToast("❌ Informe o nome do novo fornecedor.","#991b1b"); return; }
+            let fornId = n.fornId&&n.fornId!=="__novo" ? n.fornId : null;
+            if (n.fornId==="__novo") {
+              const rf = await salvarFornecedor(user.id, orgId, {nome:n.fNome.trim(), contato:n.fContato, site_link:n.fSite});
+              if (rf.error) { setSalvandoMp(false); showToast("❌ Fornecedor: "+rf.error,"#991b1b"); return; }
+              fornId = rf.data?.id||null;
+              logOp({tipo:"fornecedores",acao:"criar",descricao:"Fornecedor criado: "+n.fNome.trim(),tabela:"fornecedores",registro_id:fornId});
+              fetchFornecedores(user.id, orgId).then(setFornecedores);
+            }
+            const re = await salvarEstoqueProduto(user.id, orgId, {nome:mpNome.trim(), unidade:n.unidade, quantidade_atual:Number(n.qtd)||0, quantidade_minima:Number(n.min)||0});
+            if (re.error||!re.data?.[0]) { setSalvandoMp(false); showToast("❌ Estoque: "+(re.error||"não consegui criar o material"),"#991b1b"); return; }
+            estIdFinal = re.data[0].id;
+            const preco = Number(mpCustoCompra)/(Number(mpQtdPorCompra)/rend);
+            await atualizarEstoqueProdutoPlus(estIdFinal, {preco_unitario: preco>0?preco:null, fornecedor_id: fornId, categoria: n.cat||null});
+            logOp({tipo:"estoque",acao:"criar",descricao:"Material criado: "+mpNome.trim()+" (pela matéria-prima)",tabela:"estoque_produtos",registro_id:estIdFinal});
+            fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
+            rendFinal = rend;
+          }
           const res = await salvarMateriaPrimaLib(user.id, orgId, {
             id: editandoMp?.id,
             nome: mpNome.trim(),
             custo_unidade_compra: Number(mpCustoCompra)||0,
             qtd_por_unidade_compra: Number(mpQtdPorCompra)||1,
             unidade: mpUnidade,
-            estoque_produto_id: mpEstoqueId||null,
-            rendimento_estoque: mpEstoqueId&&Number(mpRendimento)>0 ? Number(mpRendimento) : null,
+            estoque_produto_id: estIdFinal,
+            rendimento_estoque: rendFinal,
           });
           setSalvandoMp(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
@@ -3099,12 +3125,51 @@ export default function App({user,onLogout}) {
                 <div style={{background:"#f0fdfa",border:"1.5px solid #99f6e4",borderRadius:12,padding:"12px 14px"}}>
                   <div style={{fontSize:12,fontWeight:700,color:"#0d9488",marginBottom:6}}>📦 Baixa automática no estoque (opcional)</div>
                   <label style={{fontSize:10,fontWeight:600,color:"#64748b",display:"block",marginBottom:2}}>Item do Estoque que será descontado</label>
-                  <select value={mpEstoqueId} onChange={e=>setMpEstoqueId(e.target.value)}
+                  <select value={mpEstoqueId} onChange={e=>{const v=e.target.value;setMpEstoqueId(v);setMpNovoEst(v==="__novo"?{unidade:mpUnidade||"un",qtd:"",min:"",cat:"",fornId:"",fNome:"",fContato:"",fSite:"",rend:""}:null);}}
                     style={{width:"100%",padding:"8px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",background:"#fff",boxSizing:"border-box"}}>
                     <option value="">Não descontar do estoque</option>
+                    {!editandoMp&&<option value="__novo">➕ Criar este material no estoque agora</option>}
                     {estoqueProdutos.filter(x=>x.ativo!==false).map(x=><option key={x.id} value={x.id}>{x.nome} ({x.unidade})</option>)}
                   </select>
-                  {mpEstoqueId&&(()=>{
+                  {mpEstoqueId==="__novo"&&mpNovoEst&&(()=>{
+                    const n = mpNovoEst; const set = (patch)=>setMpNovoEst(v=>({...v,...patch}));
+                    const mesma = n.unidade===mpUnidade;
+                    const rendNum = mesma ? 1 : Number(n.rend)||0;
+                    const precoEst = rendNum>0&&Number(mpQtdPorCompra)>0&&Number(mpCustoCompra)>0 ? Number(mpCustoCompra)/(Number(mpQtdPorCompra)/rendNum) : null;
+                    const inpE = {width:"100%",padding:"8px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,outline:"none",boxSizing:"border-box",background:"#fff"};
+                    const lblE = {fontSize:10,fontWeight:600,color:"#64748b",display:"block",marginBottom:2};
+                    return (
+                      <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:8}}>
+                        <div style={{fontSize:11,color:"#0d9488"}}>O material <strong>{mpNome||"…"}</strong> será criado no Estoque com o custo da compra e o fornecedor abaixo.</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+                          <div><label style={lblE}>Unidade no estoque</label>
+                            <select value={n.unidade} onChange={e=>set({unidade:e.target.value})} style={inpE}>
+                              {["un","folha","pct","cx","rolo","m","cm","kg","g","l","ml"].map(u=><option key={u} value={u}>{u}</option>)}
+                            </select></div>
+                          <div><label style={lblE}>Qtd em estoque agora</label><input type="number" min="0" step="any" value={n.qtd} onChange={e=>set({qtd:e.target.value})} placeholder="0" style={inpE}/></div>
+                          <div><label style={lblE}>Qtd mínima</label><input type="number" min="0" step="any" value={n.min} onChange={e=>set({min:e.target.value})} placeholder="0" style={inpE}/></div>
+                        </div>
+                        {!mesma&&(<div><label style={lblE}>Rendimento: 1 {n.unidade} do estoque rende quantos(as) {mpUnidade}? *</label>
+                          <input type="number" min="0" step="any" value={n.rend} onChange={e=>set({rend:e.target.value})} placeholder="Ex: 8000" style={inpE}/></div>)}
+                        <div><label style={lblE}>Categoria</label><input value={n.cat} onChange={e=>set({cat:e.target.value})} placeholder="Ex: tinta, embalagem, papel…" style={inpE}/></div>
+                        <div><label style={lblE}>Fornecedor</label>
+                          <select value={n.fornId} onChange={e=>set({fornId:e.target.value})} style={inpE}>
+                            <option value="">— Sem fornecedor —</option>
+                            {fornecedores.map(f=><option key={f.id} value={f.id}>{f.nome}</option>)}
+                            <option value="__novo">➕ Novo fornecedor…</option>
+                          </select></div>
+                        {n.fornId==="__novo"&&(
+                          <div style={{display:"flex",flexDirection:"column",gap:6,background:"#fff",border:"1px solid #99f6e4",borderRadius:8,padding:8}}>
+                            <input value={n.fNome} onChange={e=>set({fNome:e.target.value})} placeholder="Nome do fornecedor *" style={inpE}/>
+                            <input value={n.fContato} onChange={e=>set({fContato:e.target.value})} placeholder="Telefone / WhatsApp" style={inpE}/>
+                            <input value={n.fSite} onChange={e=>set({fSite:e.target.value})} placeholder="Site ou link da loja" style={inpE}/>
+                          </div>
+                        )}
+                        {precoEst!==null&&<div style={{fontSize:10,color:"#059669",fontWeight:600}}>→ Preço no estoque: R$ {precoEst.toFixed(4).replace(/0+$/,"").replace(/\.$/,"")} por {n.unidade}</div>}
+                      </div>
+                    );
+                  })()}
+                  {mpEstoqueId&&mpEstoqueId!=="__novo"&&(()=>{
                     const ep = estoqueProdutos.find(x=>x.id===mpEstoqueId);
                     return (
                       <div style={{marginTop:8}}>
