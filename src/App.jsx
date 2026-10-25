@@ -617,13 +617,20 @@ export default function App({user,onLogout}) {
     carregarBaixaInfo();
   };
   const rodarBaixaRetroativa = async () => {
-    const inicioMes = new Date().getFullYear()+"-"+String(new Date().getMonth()+1).padStart(2,"0")+"-01";
-    const d = window.prompt("Baixar o material dos pedidos já enviados desde que dia? (formato AAAA-MM-DD)\n\nSó entram pedidos em que todas as partes já foram vinculadas. Isso desconta do estoque; depois você pode ajustar com a Contagem em 🧰 Ferramentas, e dá para desfazer pelo 🕘 Histórico.", inicioMes);
+    const hoje = new Date();
+    const inicioMes = "01/"+String(hoje.getMonth()+1).padStart(2,"0")+"/"+hoje.getFullYear();
+    const d = window.prompt("Baixar o material dos pedidos já enviados desde que dia?\n\nDigite no formato DIA/MÊS/ANO, por exemplo 01/10/2026.\n\nSó entram pedidos em que todas as partes já foram vinculadas. Isso desconta do estoque; depois você pode ajustar com a Contagem em 🧰 Ferramentas, e dá para desfazer pelo 🕘 Histórico.", inicioMes);
     if (!d) return;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(d.trim())) { showToast("❌ Use o formato AAAA-MM-DD, ex.: "+inicioMes,"#991b1b"); return; }
-    if (!window.confirm("Confirmar baixa retroativa dos pedidos desde "+d.trim().split("-").reverse().join("/")+"?")) return;
+    // aceita DD/MM/AAAA (padrão) e também AAAA-MM-DD
+    let iso = null;
+    const m1 = d.trim().match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
+    const m2 = d.trim().match(/^(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})$/);
+    if (m1) iso = `${m1[3]}-${m1[2].padStart(2,"0")}-${m1[1].padStart(2,"0")}`;
+    else if (m2) iso = `${m2[1]}-${m2[2].padStart(2,"0")}-${m2[3].padStart(2,"0")}`;
+    if (!iso || isNaN(new Date(iso+"T00:00:00-03:00"))) { showToast("❌ Data inválida. Use DIA/MÊS/ANO, ex.: "+inicioMes,"#991b1b"); return; }
+    if (!window.confirm("Confirmar baixa retroativa dos pedidos desde "+iso.split("-").reverse().join("/")+"?")) return;
     setBaixaBusy(true);
-    const r = await baixaRetroativa(orgId, d.trim()+"T00:00:00-03:00");
+    const r = await baixaRetroativa(orgId, iso+"T00:00:00-03:00");
     setBaixaBusy(false);
     if (r?.error) { showToast("❌ "+(/baixa_retroativa/.test(r.error)?"A função de baixa retroativa ainda não foi criada no banco (falta rodar o SQL).":r.error),"#991b1b",7000); return; }
     showToast(r.pedidos ? `✅ ${r.pedidos} pedido(s) baixado(s) · ${r.materiais} lançamento(s) de material. ${r.sem_vinculo?r.sem_vinculo+" pedido(s) ficaram de fora por falta de vínculo.":""}` : `Nenhum pedido elegível. ${r.sem_vinculo||0} pedido(s) ainda precisam de vínculo.`, r.pedidos?"#059669":"#b45309", 9000);
