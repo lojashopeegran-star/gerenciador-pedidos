@@ -3039,7 +3039,7 @@ export default function App({user,onLogout}) {
                       </div>
                       {avisosVar(v).map((a,ai)=><div key={ai} style={{marginTop:6,fontSize:11,fontWeight:600,color:"#b45309",background:"#fffbeb",border:"1px solid #fcd34d",borderRadius:8,padding:"4px 8px"}}>⚠️ {a}</div>)}
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:10,flexWrap:"wrap",gap:8}}>
-                        <div style={{display:"flex",gap:6}}>
+                        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                           <button onClick={()=>addVarMp(v.key)} style={{background:"#fff",color:"#7c3aed",border:"1.5px solid #ddd6fe",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Matéria-prima</button>
                           <button onClick={()=>addVarKit(v.key)} style={{background:"#f0fdfa",color:"#0d9488",border:"1.5px solid #99f6e4",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>🧰 + Kit</button>
                           {prodVars.length>1&&<button onClick={()=>copiarParaTodas(v.key)} title="Adiciona estes materiais e kits a todas as outras variações" style={{background:"#eef2ff",color:"#4338ca",border:"1.5px solid #c7d2fe",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📋 Copiar materiais p/ todas</button>}
