@@ -641,6 +641,7 @@ export async function salvarMateriaPrimaLib(userId, orgId, mp) {
     unidade: mp.unidade || 'un',
     estoque_produto_id: mp.estoque_produto_id || null,
     rendimento_estoque: mp.rendimento_estoque || null,
+    perda_pct: Number(mp.perda_pct) || 0,
   }
   if (orgId) payload.organizacao_id = orgId; else payload.user_id = userId
   if (mp.id) {
@@ -652,6 +653,11 @@ export async function salvarMateriaPrimaLib(userId, orgId, mp) {
 }
 
 // Exclusão lógica: produtos que já usam a matéria-prima continuam calculando o custo
+export async function atualizarPerdaMp(id, pct) {
+  const { error } = await supabase.from('materias_primas').update({ perda_pct: Number(pct) || 0 }).eq('id', id)
+  return error ? { error: error.message } : { success: true }
+}
+
 export async function excluirMateriaPrimaLib(id) {
   const { error } = await supabase.from('materias_primas').update({ ativo: false }).eq('id', id)
   return error ? { error: error.message } : { success: true }
@@ -874,7 +880,7 @@ export const pick = (o, cols) => Object.fromEntries(cols.filter(c => o && c in o
 export const COLS_ESTOQUE_PROD = ['nome', 'unidade', 'quantidade_atual', 'quantidade_minima', 'preco_unitario', 'fornecedor_id', 'link_produto', 'alternativas', 'rendimento', 'unidade_uso', 'observacoes', 'categoria']
 export const COLS_FORNECEDOR = ['nome', 'contato', 'site_link', 'observacoes']
 export const COLS_CUSTO = ['nome', 'categoria', 'valor', 'recorrente', 'observacoes', 'data_vencimento']
-export const COLS_MP = ['nome', 'custo_unidade_compra', 'qtd_por_unidade_compra', 'unidade', 'estoque_produto_id', 'rendimento_estoque']
+export const COLS_MP = ['nome', 'custo_unidade_compra', 'qtd_por_unidade_compra', 'unidade', 'estoque_produto_id', 'rendimento_estoque', 'perda_pct']
 export const COLS_MOV = ['id', 'produto_id', 'tipo', 'quantidade', 'motivo', 'preco_unitario', 'fornecedor_id', 'nota_fiscal']
 
 // Foto completa de um produto (taxas + variações + matérias-primas) para poder restaurar

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, lazy, Suspense } from "react";
 const Ferramentas = lazy(() => import("./Ferramentas.jsx"));
 import { waUrl, getXLSX, PEDIDO_COLS, DEVOLUCAO_COLS, norm, parseSheet, normStatus, mesReferencia, mesLabel, corRecorrencia, formatMotivoCancelamento, isEnviado, isCancelado, isAberto, isHistorico, deadlineInfo, fmtBRL, currentMes, StatusBadge, StyledCheckbox, FeitoButton, RevisaoButton, VazioButton, ExpandCell, DropZone, Toast, RevisaoModal, FinanceGate, TabBar, TH, TD, _n, _norm, _tokens, similaridade, melhorMatch, mapUnidade, arquivoParaBase64, prepararImagemNota, fmtBRLn, quandoFmt, liquidoDe, custoMpDe } from "./helpers.jsx";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, lerVariacoesPrint, baixaRetroativa, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, atualizarPerdaMp, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, lerVariacoesPrint, baixaRetroativa, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 export default function App({user,onLogout}) {
   const [allPedidos,    setAllPedidos]    = useState([]);
@@ -289,6 +289,11 @@ export default function App({user,onLogout}) {
   const [mpUnidade,             setMpUnidade]             = useState("folha");
   const [mpEstoqueId,           setMpEstoqueId]           = useState("");
   const [mpRendimento,          setMpRendimento]          = useState("");
+  const [mpPerda, setMpPerda] = useState(""); // % de perda/desperdício acrescentada ao consumo
+  const [showPerda, setShowPerda] = useState(false);
+  const [perdaMap, setPerdaMap] = useState({});
+  const [perdaTodas, setPerdaTodas] = useState("");
+  const [perdaBusy, setPerdaBusy] = useState(false);
   const [salvandoMp,            setSalvandoMp]            = useState(false);
   const [mpModoDimensao,        setMpModoDimensao]        = useState(false);
   // campos modo dimensão (rolo/folha)
@@ -2700,7 +2705,7 @@ export default function App({user,onLogout}) {
         // ── Cálculos ────────────────────────────────────────────────────────
         const dadosMp = (l) => l.materias_primas || {nome:l.nome, custo_unidade_compra:l.custo_unidade_compra, qtd_por_unidade_compra:l.qtd_por_unidade_compra, unidade:l.unidade};
         const custoUnitMp = (m) => Number(m.qtd_por_unidade_compra)>0 ? Number(m.custo_unidade_compra)/Number(m.qtd_por_unidade_compra) : 0;
-        const custoLinha = (l) => custoUnitMp(dadosMp(l)) * Number(l.qtd_usada_por_produto||0);
+        const custoLinha = (l) => custoUnitMp(dadosMp(l)) * Number(l.qtd_usada_por_produto||0) * (1 + (Number(dadosMp(l).perda_pct)||0)/100);
         const custoVar = (v) => (v.produto_materias_primas||[]).reduce((a,l)=>a+custoLinha(l),0);
         const pctTaxas = (p) => num(p.taxa_plataforma_pct,0)+num(p.taxa_imposto_pct,0)+num(p.taxa_adiantamento_pct,0);
         const liquidoPreco = (p,preco) => Number(preco||0)*(1-pctTaxas(p)/100) - num(p.taxa_fixa,0);
@@ -2944,7 +2949,7 @@ export default function App({user,onLogout}) {
         const abrirMpForm = (mp = null) => {
           setEditandoMp(mp);
           setMpNome(mp?.nome||""); setMpCustoCompra(mp?String(mp.custo_unidade_compra):""); setMpQtdPorCompra(mp?String(mp.qtd_por_unidade_compra):""); setMpUnidade(mp?.unidade||"folha");
-          setMpEstoqueId(mp?.estoque_produto_id||""); setMpRendimento(mp?.rendimento_estoque?String(mp.rendimento_estoque):"");
+          setMpEstoqueId(mp?.estoque_produto_id||""); setMpRendimento(mp?.rendimento_estoque?String(mp.rendimento_estoque):""); setMpPerda(mp?.perda_pct?String(mp.perda_pct):"");
           setMpParaKit(false); setMpNovoEst(null);
           setMpModoDimensao(false); setMpRoloLargura(""); setMpRoloComprimento(""); setMpCorteL(""); setMpCorteC(""); setMpUnidadeCorte("folha");
           setShowMpForm(true);
@@ -3055,6 +3060,7 @@ export default function App({user,onLogout}) {
             unidade: mpUnidade,
             estoque_produto_id: estIdFinal,
             rendimento_estoque: rendFinal,
+            perda_pct: Number(String(mpPerda).replace(",","."))||0,
           });
           setSalvandoMp(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
@@ -3080,6 +3086,52 @@ export default function App({user,onLogout}) {
         };
 
         // ── Modais compartilhados ───────────────────────────────────────────
+        const abrirPerda = () => {
+          const m = {}; materiasPrimas.forEach(x=>{ m[x.id] = Number(x.perda_pct)>0 ? String(x.perda_pct) : ""; });
+          setPerdaMap(m); setPerdaTodas(""); setShowPerda(true);
+        };
+        const salvarPerdas = async () => {
+          setPerdaBusy(true);
+          let n = 0;
+          for (const x of materiasPrimas) {
+            const novo = Number(String(perdaMap[x.id]||"").replace(",","."))||0;
+            if (novo !== (Number(x.perda_pct)||0)) {
+              const r = await atualizarPerdaMp(x.id, novo);
+              if (r.error) { setPerdaBusy(false); showToast("❌ "+r.error,"#991b1b"); return; }
+              n++;
+            }
+          }
+          setPerdaBusy(false); setShowPerda(false);
+          fetchMateriasPrimas(user.id, orgId).then(setMateriasPrimas);
+          await reloadProdutos();
+          showToast(n?`✅ Perda atualizada em ${n} matéria(s)-prima(s).`:"Nada mudou.","#059669");
+        };
+        const perdaModal = showPerda&&(
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto"}}>
+            <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:520,boxShadow:"0 20px 60px rgba(0,0,0,0.2)",margin:"auto"}}>
+              <h3 style={{margin:"0 0 4px",fontSize:16,fontWeight:700,color:"#1e293b"}}>📉 Perda de material (%)</h3>
+              <p style={{margin:"0 0 12px",fontSize:12,color:"#64748b"}}>Percentual acrescentado ao uso de cada matéria-prima para cobrir erros de impressão e peças com defeito. Entra automaticamente no custo dos produtos, na baixa do estoque e no Financeiro. Ex.: 10% → cada pedido que usa 1 saco desconta 1,1.</p>
+              <div style={{display:"flex",gap:6,marginBottom:12,background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:10,padding:8}}>
+                <input type="number" min="0" step="any" value={perdaTodas} onChange={e=>setPerdaTodas(e.target.value)} placeholder="% para todas" style={{flex:1,minWidth:0,padding:"8px 10px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13}} />
+                <button onClick={()=>{ if(perdaTodas==="") return; const m={}; materiasPrimas.forEach(x=>{m[x.id]=perdaTodas;}); setPerdaMap(m); }} style={{background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,padding:"0 14px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>Aplicar a todas</button>
+              </div>
+              <div style={{maxHeight:"45vh",overflowY:"auto",display:"flex",flexDirection:"column",gap:6}}>
+                {materiasPrimas.map(x=>(
+                  <div key={x.id} style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{flex:1,fontSize:12,color:"#1e293b",minWidth:0,wordBreak:"break-word"}}>{x.nome}</div>
+                    <input type="number" min="0" step="any" value={perdaMap[x.id]??""} onChange={e=>setPerdaMap(m=>({...m,[x.id]:e.target.value}))} placeholder="0" style={{width:80,padding:"7px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,textAlign:"right"}} />
+                    <span style={{fontSize:12,color:"#64748b"}}>%</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{fontSize:10,color:"#94a3b8",marginTop:8}}>A perda vale a partir de agora. Baixas que já foram feitas não mudam. Se ainda não rodou a Baixa retroativa, defina a perda antes.</div>
+              <div style={{display:"flex",gap:10,marginTop:14}}>
+                <button onClick={()=>setShowPerda(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
+                <button onClick={salvarPerdas} disabled={perdaBusy} style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:"#7c3aed",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>{perdaBusy?"Salvando…":"Salvar perdas"}</button>
+              </div>
+            </div>
+          </div>
+        );
         const mpLibModal = showMpLib&&(
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16,overflowY:"auto"}}>
             <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:680,boxShadow:"0 20px 60px rgba(0,0,0,0.2)",margin:"auto"}}>
@@ -3462,6 +3514,11 @@ export default function App({user,onLogout}) {
                   })()}
                 </div>
               </div>
+              <div style={{marginTop:12}}>
+                <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>📉 Perda / desperdício (%)</label>
+                <input type="number" min="0" step="any" value={mpPerda} onChange={e=>setMpPerda(e.target.value)} placeholder="Ex: 10 (impressão errada, peça com defeito…)" style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                <div style={{fontSize:10,color:"#94a3b8",marginTop:3}}>Acrescenta esse % ao uso do material: no custo do produto, na baixa do estoque e no Financeiro.</div>
+              </div>
               <div style={{display:"flex",gap:10,marginTop:18}}>
                 <button onClick={()=>setShowMpForm(false)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
                 <button onClick={salvarMp} disabled={!mpNome.trim()||!mpCustoCompra||!mpQtdPorCompra||salvandoMp}
@@ -3727,7 +3784,7 @@ export default function App({user,onLogout}) {
             </div>
           </div>
         );
-        const modais = <>{mpLibModal}{produtoFormModal}{mpFormModal}{kitFormModal}{vincModal}{vincEstModal}{importVarModal}</>;
+        const modais = <>{mpLibModal}{perdaModal}{produtoFormModal}{mpFormModal}{kitFormModal}{vincModal}{vincEstModal}{importVarModal}</>;
 
         // ── Detalhe do produto ──────────────────────────────────────────────
         if (produtoAtivo) {
@@ -3832,6 +3889,9 @@ export default function App({user,onLogout}) {
               <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
                 <button onClick={()=>setShowMpLib(true)} style={{background:"#f0fdfa",color:"#0d9488",border:"1.5px solid #99f6e4",borderRadius:10,padding:"9px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
                   🧱 Matérias-primas
+                </button>
+                <button onClick={abrirPerda} style={{background:"#fff7ed",color:"#c2410c",border:"1.5px solid #fed7aa",borderRadius:10,padding:"9px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                  📉 Perda %
                 </button>
                 <button onClick={abrirVinc} style={{background:"#eff6ff",color:"#1d4ed8",border:"1.5px solid #bfdbfe",borderRadius:10,padding:"9px 16px",fontSize:13,fontWeight:700,cursor:"pointer"}}>
                   🔗 Vincular UpSeller
