@@ -2736,6 +2736,18 @@ export default function App({user,onLogout}) {
           setProdVars(vs.length?vs:[novaVar("")]);
           setShowProdutoForm(true);
         };
+        // Duplicar produto: abre o formulário como produto NOVO, já com variações, preços e matérias-primas copiados
+        const duplicarProd = (p) => {
+          setEditandoProdutoCalc(null);
+          setProdNome(p.nome+" (cópia)"); setProdTaxaPlat(String(p.taxa_plataforma_pct)); setProdTaxaImp(String(p.taxa_imposto_pct)); setProdTaxaAdiant(String(p.taxa_adiantamento_pct)); setProdTaxaFixa(String(p.taxa_fixa));
+          const vs = (p.produto_variacoes||[]).map(v=>({
+            key:Math.random().toString(36).slice(2), nome:v.nome, preco:String(v.preco_venda),
+            mps:(v.produto_materias_primas||[]).map(l=>({mpId:l.materia_prima_id||"", qtd:String(l.qtd_usada_por_produto)})),
+          }));
+          setProdVars(vs.length?vs:[novaVar("")]);
+          setShowProdutoForm(true);
+          showToast("📄 Cópia aberta. Ajuste o nome e clique em Salvar para criar o produto novo.","#7c3aed",6000);
+        };
         const setVar = (key,patch) => setProdVars(vs=>vs.map(v=>v.key===key?{...v,...patch}:v));
         const setVarMp = (key,idx,patch) => setProdVars(vs=>vs.map(v=>v.key===key?{...v,mps:v.mps.map((m,i)=>i===idx?{...m,...patch}:m)}:v));
         const addVarMp = (key) => setProdVars(vs=>vs.map(v=>v.key===key?{...v,mps:[...v.mps,{mpId:"",qtd:""}]}:v));
@@ -3729,6 +3741,7 @@ export default function App({user,onLogout}) {
                 <button onClick={()=>setShowMpLib(true)} style={{background:"#f0fdfa",border:"1px solid #99f6e4",borderRadius:10,padding:"8px 14px",fontSize:12,cursor:"pointer",color:"#0d9488",fontWeight:700}}>🧱 Matérias-primas</button>
                 <button onClick={abrirVinc} style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:10,padding:"8px 14px",fontSize:12,cursor:"pointer",color:"#1d4ed8",fontWeight:700}}>🔗 Vincular UpSeller</button>
                 <button onClick={()=>abrirFormEditarProd(p)} style={{background:"#f1f5f9",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12,cursor:"pointer",color:"#374151"}}>✏️ Editar produto</button>
+                <button onClick={()=>duplicarProd(p)} style={{background:"#ede9fe",border:"none",borderRadius:10,padding:"8px 14px",fontSize:12,cursor:"pointer",color:"#6d28d9",fontWeight:600}}>📄 Duplicar produto</button>
               </div>
 
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(170px,1fr))",gap:12,marginBottom:16}}>
