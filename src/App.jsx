@@ -3554,7 +3554,7 @@ export default function App({user,onLogout}) {
             setVincPend({it:vincEst.it});
             setVincEstBusy(false); setVincEst(null); setShowVinc(false);
             setEditandoProdutoCalc(null);
-            setProdNome("Impressão em "+ep.nome); setProdTaxaPlat("20"); setProdTaxaImp("4"); setProdTaxaAdiant("3.5"); setProdTaxaFixa("4");
+            setProdNome(String(vincEst.it.variacao||"").trim()||("Impressão em "+ep.nome)); setProdTaxaPlat("20"); setProdTaxaImp("4"); setProdTaxaAdiant("3.5"); setProdTaxaFixa("4");
             setProdVars([{key:Math.random().toString(36).slice(2), nome:"", preco:"", mps:[{mpId, qtd:String(q)}]}]);
             setShowProdutoForm(true);
             showToast("Complete o produto (nome, preço, rendimento do material) e salve para vincular.","#7c3aed",7000);
