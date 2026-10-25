@@ -5148,7 +5148,7 @@ export default function App({user,onLogout}) {
               )}
             </div>
 
-            {/* Material usado no mês (saídas do estoque) */}
+            {/* Material usado no mês (só pedidos do UpSeller vinculados) */}
             {(()=>{
               const fq = (n) => Number(Number(n).toFixed(3)).toString().replace(".",",");
               const fm = (n) => "R$ "+Number(n||0).toFixed(2).replace(".",",");
@@ -5165,9 +5165,9 @@ export default function App({user,onLogout}) {
               return (
                 <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
                   <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:4}}>📤 Material usado em {finMes}</div>
-                  <div style={{fontSize:11,color:"#94a3b8",marginBottom:12}}>Tudo que saiu do estoque no mês, por material.</div>
+                  <div style={{fontSize:11,color:"#94a3b8",marginBottom:12}}>Material consumido pelos pedidos do UpSeller já vinculados (baixa automática e retroativa). Saídas manuais do estoque não entram aqui.</div>
                   {lista.length===0 ? (
-                    <div style={{textAlign:"center",padding:"16px 0",color:"#94a3b8",fontSize:12}}>Nenhuma saída de estoque registrada neste mês.</div>
+                    <div style={{textAlign:"center",padding:"16px 0",color:"#94a3b8",fontSize:12}}>Nenhuma baixa de pedidos do UpSeller neste mês. Ative a baixa e rode a retroativa em Produtos → Vincular.</div>
                   ) : (
                     <>
                       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))",gap:8}}>
@@ -5302,7 +5302,7 @@ export default function App({user,onLogout}) {
                   <div style={{background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:10,padding:"12px 14px",marginBottom:12}}>
                     <div style={{fontSize:11,fontWeight:700,color:"#0369a1",marginBottom:8}}>2) Material realmente usado (saídas do estoque em {finMes})</div>
                     {saidasLista.length===0 ? (
-                      <div style={{fontSize:12,color:"#94a3b8"}}>Nenhuma saída de estoque registrada neste mês.</div>
+                      <div style={{fontSize:12,color:"#94a3b8"}}>Nenhuma baixa de pedidos do UpSeller neste mês. Ative a baixa e rode a retroativa em Produtos → Vincular.</div>
                     ) : (
                       <div style={{overflowX:"auto"}}>
                         <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>

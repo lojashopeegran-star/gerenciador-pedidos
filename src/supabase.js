@@ -862,7 +862,10 @@ export async function fetchSaidasMes(userId, orgId, mes) {
   q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
   const { data, error } = await q.order('criado_em', { ascending: false })
   if (error) { console.error('fetchSaidasMes error:', error.message); return [] }
-  return (data || []).filter(m => !String(m.motivo || '').startsWith('Ajuste de contagem')).map(m => m.tipo === 'entrada' ? { ...m, quantidade: -Number(m.quantidade) } : m)
+  // Material usado = só o que veio dos pedidos do UpSeller vinculados (baixa automática/retroativa e seus estornos).
+  // Saídas manuais do estoque não entram.
+  const dePedido = m => /^(Baixa autom|Baixa retroativa|Estorno)/.test(String(m.motivo || ''))
+  return (data || []).filter(dePedido).map(m => m.tipo === 'entrada' ? { ...m, quantidade: -Number(m.quantidade) } : m)
 }
 
 // ─── Histórico de operações e desfazer ───────────────────────────────────────
