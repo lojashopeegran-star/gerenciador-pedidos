@@ -1210,6 +1210,11 @@ export async function baixaRetroativa(orgId, desdeISO) {
   return error ? { error: error.message } : data
 }
 
+export async function baixaRecalcular(orgId) {
+  const { data, error } = await supabase.rpc('baixa_recalcular', { p_org: orgId })
+  return error ? { error: error.message } : data
+}
+
 // Saídas dos últimos N dias (para estimar quantos dias o estoque dura)
 export async function fetchConsumoRecente(userId, orgId, dias = 30) {
   const desde = new Date(Date.now() - dias * 86400000).toISOString()
