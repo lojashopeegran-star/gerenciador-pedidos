@@ -170,6 +170,7 @@ export default function App({user,onLogout}) {
   const [plusDelPin, setPlusDelPin] = useState("");
   const [plusDelErro, setPlusDelErro] = useState("");
   const [plusCatNovo, setPlusCatNovo] = useState(false);
+  const [prodTabAbertas, setProdTabAbertas] = useState({}); // cards de produto com a tabela de variações expandida
   const [plusSel, setPlusSel] = useState([]);
   // lista suspensa de categorias já usadas (+ nova) e um único × para excluir a categoria escolhida
   const seletorCategoria = (valor, setValor, novo, setNovo, estiloInput) => {
@@ -3861,7 +3862,11 @@ export default function App({user,onLogout}) {
                         <div style={{fontSize:15,fontWeight:700,color:"#1e293b"}}>{p.nome}</div>
                         <span style={{fontSize:10,fontWeight:700,color:"#7c3aed",background:"#f5f3ff",borderRadius:6,padding:"2px 8px",whiteSpace:"nowrap"}}>{vars.length} variaç{vars.length===1?"ão":"ões"}</span>
                       </div>
-                      <div style={{overflowX:"auto",marginBottom:10}}>
+                      <button onClick={e=>{e.stopPropagation();setProdTabAbertas(o=>({...o,[p.id]:!o[p.id]}));}} style={{width:"100%",textAlign:"left",background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:8,padding:"7px 10px",marginBottom:10,fontSize:12,fontWeight:600,color:"#475569",cursor:"pointer",display:"flex",justifyContent:"space-between"}}>
+                        <span>{prodTabAbertas[p.id]?"▾ Ocultar variações":"▸ Ver variações e preços"}</span>
+                        <span style={{color:"#94a3b8",fontWeight:500}}>{vars.length}</span>
+                      </button>
+                      {prodTabAbertas[p.id]&&<div onClick={e=>e.stopPropagation()} style={{overflowX:"auto",marginBottom:10,cursor:"default"}}>
                         <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
                           <thead><tr>{["Variação","Preço","Custo","Recebe","Retorno","Margem s/ preço"].map(h=><th key={h} style={{...TH,padding:"5px 6px"}}>{h}</th>)}</tr></thead>
                           <tbody>
@@ -3880,7 +3885,7 @@ export default function App({user,onLogout}) {
                             })}
                           </tbody>
                         </table>
-                      </div>
+                      </div>}
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:bgMargem(mm),borderRadius:8,padding:"8px 10px",marginBottom:8}}>
                         <span style={{fontSize:10,fontWeight:700,color:"#64748b",letterSpacing:0.5}}>MARGEM MÉDIA DO PRODUTO</span>
                         <span style={{fontSize:15,fontWeight:800,color:corMargem(mm)}}>{fmtM(mm)}</span>
