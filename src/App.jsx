@@ -3503,7 +3503,7 @@ export default function App({user,onLogout}) {
                             <option value="__ignorar">🚫 Sem material (não dá baixa)</option>
                             {opcoesVar.map(o=><option key={o.id} value={o.id}>{o.nome}</option>)}
                           </select>
-                          <button onClick={()=>setVincEst({it,estId:"",qtd:"1"})} style={{background:"#f0fdfa",color:"#0d9488",border:"1px solid #99f6e4",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📦 Puxar do estoque</button>
+                          <button onClick={()=>setVincEst({it,estId:"",qtd:"1",rend:"",rendUn:"folha",qtdUn:"est"})} style={{background:"#f0fdfa",color:"#0d9488",border:"1px solid #99f6e4",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📦 Puxar do estoque</button>
                           {sug&&<button onClick={()=>escolherVinculo(it,sug.id)} style={{background:"#f5f3ff",color:"#6d28d9",border:"1px solid #ddd6fe",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>💡 {sug.nome}</button>}
                         </div>
                       </div>
@@ -3518,15 +3518,27 @@ export default function App({user,onLogout}) {
 
         const confirmarVincEst = async () => {
           const ep = estoqueProdutos.find(x=>x.id===vincEst.estId);
-          const q = Number(String(vincEst.qtd).replace(",","."));
+          const qDig = Number(String(vincEst.qtd).replace(",","."));
           if (!ep) { showToast("❌ Escolha o material do estoque.","#991b1b"); return; }
-          if (!(q>0)) { showToast("❌ Informe quanto sai do estoque por unidade vendida.","#991b1b"); return; }
+          if (!(qDig>0)) { showToast("❌ Informe quanto sai do estoque por unidade vendida.","#991b1b"); return; }
+          const rend = Number(String(vincEst.rend).replace(",","."))||0;
+          const temRend = rend>0;
+          const unUso = temRend ? vincEst.rendUn : ep.unidade;
+          // quantidade final na unidade de USO (ex: folhas). Se digitou em cx e há rendimento, converte.
+          const q = temRend && vincEst.qtdUn==="est" ? qDig*rend : qDig;
           setVincEstBusy(true);
-          // reaproveita matéria-prima já ligada a este material; senão cria
-          let mp = materiasPrimas.find(m=>m.estoque_produto_id===ep.id && !m.rendimento_estoque);
+          // grava o rendimento no material do estoque (fica para os próximos produtos)
+          if (temRend && (Number(ep.rendimento)!==rend || ep.unidade_uso!==unUso)) {
+            await atualizarEstoqueProdutoPlus(ep.id, {rendimento: rend, unidade_uso: unUso});
+            fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
+          }
+          // reaproveita matéria-prima já ligada a este material com o mesmo rendimento; senão cria
+          let mp = materiasPrimas.find(m=>m.estoque_produto_id===ep.id && (temRend ? Number(m.rendimento_estoque)===rend && m.unidade===unUso : !m.rendimento_estoque));
           let mpId = mp?.id;
           if (!mpId) {
-            const rm = await salvarMateriaPrimaLib(user.id, orgId, {nome:ep.nome, custo_unidade_compra:Number(ep.preco_unitario)||0, qtd_por_unidade_compra:1, unidade:ep.unidade||"un", estoque_produto_id:ep.id, rendimento_estoque:null});
+            const rm = await salvarMateriaPrimaLib(user.id, orgId, temRend
+              ? {nome:ep.nome, custo_unidade_compra:Number(ep.preco_unitario)||0, qtd_por_unidade_compra:rend, unidade:unUso, estoque_produto_id:ep.id, rendimento_estoque:rend}
+              : {nome:ep.nome, custo_unidade_compra:Number(ep.preco_unitario)||0, qtd_por_unidade_compra:1, unidade:ep.unidade||"un", estoque_produto_id:ep.id, rendimento_estoque:null});
             if (rm.error) { setVincEstBusy(false); showToast("❌ "+rm.error,"#991b1b"); return; }
             mpId = rm.id;
             fetchMateriasPrimas(user.id, orgId).then(setMateriasPrimas);
@@ -3552,7 +3564,7 @@ export default function App({user,onLogout}) {
           await escolherVinculo(vincEst.it, varId);
           logOp({tipo:"produtos",acao:"criar",descricao:"Vínculo direto com estoque: "+ep.nome,tabela:"produtos",registro_id:rp.id});
           setVincEstBusy(false); setVincEst(null);
-          showToast(`✅ "${vincEst.it.variacao}" vinculado a ${ep.nome} (${q} ${ep.unidade} por unidade).`,"#059669",6000);
+          showToast(`✅ "${vincEst.it.variacao}" vinculado a ${ep.nome} (${Number(q.toFixed(4))} ${unUso} por unidade${temRend?` = ${Number((q/rend).toFixed(4))} ${ep.unidade}`:""}).`,"#059669",6000);
         };
         const vincEstModal = vincEst&&(
           <div onClick={()=>setVincEst(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10100,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
@@ -3560,12 +3572,43 @@ export default function App({user,onLogout}) {
               <h3 style={{margin:"0 0 4px",fontSize:15,fontWeight:700}}>📦 Puxar do estoque</h3>
               <p style={{margin:"0 0 12px",fontSize:12,color:"#64748b",wordBreak:"break-word"}}>Parte do pedido: <strong>{vincEst.it.variacao}</strong>. Cada unidade vendida vai descontar este material do estoque.</p>
               <label style={lbl}>Material do estoque</label>
-              <select value={vincEst.estId} onChange={e=>setVincEst(v=>({...v,estId:e.target.value}))} style={{...inp,marginBottom:10,background:"#fff"}}>
+              <select value={vincEst.estId} onChange={e=>{const ep=estoqueProdutos.find(x=>x.id===e.target.value);setVincEst(v=>({...v,estId:e.target.value,rend:ep?.rendimento?String(ep.rendimento):"",rendUn:ep?.unidade_uso||"folha",qtdUn:ep?.rendimento?"uso":"est"}));}} style={{...inp,marginBottom:10,background:"#fff"}}>
                 <option value="">Escolher…</option>
                 {estoqueProdutos.map(x=><option key={x.id} value={x.id}>{x.nome} ({x.unidade})</option>)}
               </select>
-              <label style={lbl}>Quanto sai por unidade vendida{vincEst.estId?` (${estoqueProdutos.find(x=>x.id===vincEst.estId)?.unidade})`:""}</label>
-              <input type="number" min="0" step="any" value={vincEst.qtd} onChange={e=>setVincEst(v=>({...v,qtd:e.target.value}))} style={inp} />
+              {(()=>{
+                const ep = estoqueProdutos.find(x=>x.id===vincEst.estId);
+                if (!ep) return null;
+                const rend = Number(String(vincEst.rend).replace(",","."))||0;
+                const qd = Number(String(vincEst.qtd).replace(",","."))||0;
+                const unU = rend>0 ? vincEst.rendUn : ep.unidade;
+                const emUso = rend>0 ? (vincEst.qtdUn==="est" ? qd*rend : qd) : qd;
+                const emEst = rend>0 ? emUso/rend : qd;
+                return (<>
+                  <div style={{border:"1px solid #bbf7d0",background:"#f0fdf4",borderRadius:10,padding:"8px 10px",marginBottom:10}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#166534",marginBottom:4}}>🧮 Rendimento</div>
+                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                      <span style={{fontSize:12,color:"#374151",whiteSpace:"nowrap"}}>1 {ep.unidade} rende</span>
+                      <input type="number" min="0" step="any" value={vincEst.rend} onChange={e=>setVincEst(v=>({...v,rend:e.target.value}))} placeholder="Ex: 500" style={{...inp,flex:1,minWidth:0}} />
+                      <select value={vincEst.rendUn} onChange={e=>setVincEst(v=>({...v,rendUn:e.target.value}))} style={{padding:"7px 6px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,background:"#fff"}}>
+                        {["folha","pedaço","un","cx","pct","rolo","m","cm","kg","g","l","ml"].map(u=><option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
+                    <div style={{fontSize:10,color:"#64748b",marginTop:4}}>Deixe vazio se o material é descontado direto em {ep.unidade}. O rendimento fica salvo no material para os próximos produtos.</div>
+                  </div>
+                  <label style={lbl}>Quanto sai por unidade vendida</label>
+                  <div style={{display:"flex",gap:6}}>
+                    <input type="number" min="0" step="any" value={vincEst.qtd} onChange={e=>setVincEst(v=>({...v,qtd:e.target.value}))} style={{...inp,flex:1,minWidth:0}} />
+                    {rend>0
+                      ? <select value={vincEst.qtdUn} onChange={e=>setVincEst(v=>({...v,qtdUn:e.target.value}))} style={{padding:"7px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13,background:"#fff"}}><option value="uso">{vincEst.rendUn}</option><option value="est">{ep.unidade}</option></select>
+                      : <span style={{alignSelf:"center",fontSize:13,color:"#374151"}}>{ep.unidade}</span>}
+                  </div>
+                  {qd>0&&<div style={{fontSize:11,color:"#0f766e",background:"#f0fdfa",border:"1px solid #99f6e4",borderRadius:8,padding:"6px 10px",marginTop:8}}>
+                    Cada unidade vendida desconta <strong>{Number(emUso.toFixed(4))} {unU}</strong>{rend>0&&<> = <strong>{Number(emEst.toFixed(4))} {ep.unidade}</strong> do estoque</>}.
+                    {Number(ep.preco_unitario)>0&&<> Custo: <strong>R$ {(emEst*Number(ep.preco_unitario)).toFixed(4).replace(".",",")}</strong>.</>}
+                  </div>}
+                </>);
+              })()}
               <div style={{fontSize:10,color:"#94a3b8",marginTop:6}}>Cria sozinho um produto “Estoque: nome” só para o vínculo. Não precisa cadastrar nada antes.</div>
               <div style={{display:"flex",gap:10,marginTop:16}}>
                 <button onClick={()=>setVincEst(null)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
@@ -5045,7 +5088,7 @@ export default function App({user,onLogout}) {
                     <option value="__ignorar">🚫 Sem material (não dá baixa, ex: brinde)</option>
                     {opcoesVarTop.map(o=><option key={o.id} value={o.id}>{o.nome}</option>)}
                   </select>
-                  <button onClick={()=>{ setVincEst({it:{chave:upsVincular.chave,variacao:upsVincular.variacao},estId:"",qtd:"1"}); setUpsVincular(null); setUpsEscolha(""); setActiveTab("produtos"); }} style={{marginTop:8,marginRight:8,background:"#f0fdfa",color:"#0d9488",border:"1px solid #99f6e4",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📦 Puxar do estoque / criar produto</button>
+                  <button onClick={()=>{ setVincEst({it:{chave:upsVincular.chave,variacao:upsVincular.variacao},estId:"",qtd:"1",rend:"",rendUn:"folha",qtdUn:"est"}); setUpsVincular(null); setUpsEscolha(""); setActiveTab("produtos"); }} style={{marginTop:8,marginRight:8,background:"#f0fdfa",color:"#0d9488",border:"1px solid #99f6e4",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📦 Puxar do estoque / criar produto</button>
                   {sugestao&&upsEscolha!==sugestao.id&&<button onClick={()=>setUpsEscolha(sugestao.id)} style={{marginTop:8,background:"#f5f3ff",color:"#6d28d9",border:"1px solid #ddd6fe",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>💡 Sugestão: {sugestao.nome}</button>}
                   {upsEscolha!=="__ignorar"&&escolhida&&!escolhida.temEstoque&&<div style={{marginTop:8,fontSize:11,color:"#92400e",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,padding:"6px 10px"}}>⚠️ {escolhida.qtdMp===0?"Essa variação não tem matérias-primas.":"Nenhuma matéria-prima dessa variação está ligada a um item do Estoque."} Sem isso, a baixa não desconta nada. Ajuste em Produtos › 🧱 Matérias-primas.</div>}
                   <div style={{fontSize:11,color:"#64748b",marginTop:10}}>Pedidos com mais de um produto ("A + B") são separados em partes e cada parte tem seu vínculo. Todos os pedidos com essa parte, atuais e futuros, ficam vinculados. A baixa só roda quando todas as partes do pedido estiverem vinculadas (ou marcadas como sem material).</div>
