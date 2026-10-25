@@ -3572,7 +3572,9 @@ export default function App({user,onLogout}) {
         produtosCalc.forEach(pr=>(pr.produto_variacoes||[]).forEach(v=>opcoesVar.push({id:v.id,nome:`${pr.nome}${v.nome?" — "+v.nome:""}`})));
         const vincModal = showVinc&&(()=>{
           const q = _norm(vincBusca);
-          const lista = vincLista.filter(x=>(vincSo==="todas"||(!x.variacao_id&&!x.ignorar))&&(!q||_norm(x.variacao).includes(q)));
+          const nomeVinc = (x)=> x.ignorar ? "sem material" : (opcoesVar.find(o=>o.id===x.variacao_id)?.nome||"");
+          // com texto na busca, procura em TODAS (pela variação do UpSeller ou pelo produto/variação vinculado)
+          const lista = vincLista.filter(x=>q ? (_norm(x.variacao).includes(q)||_norm(nomeVinc(x)).includes(q)) : (vincSo==="todas"||(!x.variacao_id&&!x.ignorar)));
           const pend = vincLista.filter(x=>!x.variacao_id&&!x.ignorar).length;
           return (
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:16,overflowY:"auto"}}>
@@ -3596,7 +3598,7 @@ export default function App({user,onLogout}) {
                 <div style={{fontSize:10,color:"#94a3b8",marginTop:4}}>A baixa só acontece para produtos cuja matéria-prima está ligada a um item do Estoque (em 🧱 Matérias-primas). Se um pedido já baixado for cancelado, o material volta sozinho para o estoque. Cada baixa pode ser desfeita no 🕘 Histórico.</div>
               </div>
               <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
-                <input value={vincBusca} onChange={e=>setVincBusca(e.target.value)} placeholder="Buscar variação…" style={{...inp,flex:1,minWidth:160}} />
+                <input value={vincBusca} onChange={e=>setVincBusca(e.target.value)} placeholder="Buscar variação do UpSeller ou produto vinculado…" style={{...inp,flex:1,minWidth:160}} />
                 <select value={vincSo} onChange={e=>setVincSo(e.target.value)} style={{padding:"8px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:12,background:"#fff"}}>
                   <option value="pendentes">Sem vínculo ({pend})</option>
                   <option value="todas">Todas ({vincLista.length})</option>
@@ -3611,6 +3613,7 @@ export default function App({user,onLogout}) {
                     return (
                       <div key={it.chave} style={{border:"1px solid #e2e8f0",borderRadius:12,padding:"10px 12px",background:(it.variacao_id||it.ignorar)?"#f0fdf4":"#fff"}}>
                         <div style={{fontSize:12,fontWeight:600,color:"#1e293b",wordBreak:"break-word"}}>{it.variacao}</div>
+                        {(it.variacao_id||it.ignorar)&&<div style={{fontSize:11,color:"#047857",fontWeight:600,margin:"2px 0 0"}}>🔗 Vinculado a: {nomeVinc(it)||"(produto removido)"}</div>}
                         <div style={{fontSize:10,color:"#94a3b8",margin:"2px 0 6px"}}>{it.pedidos} pedido(s) · {it.unidades} un · último {new Date(it.ultimo).toLocaleDateString("pt-BR")}</div>
                         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                           <select value={it.ignorar?"__ignorar":(it.variacao_id||"")} onChange={e=>escolherVinculo(it,e.target.value)}
