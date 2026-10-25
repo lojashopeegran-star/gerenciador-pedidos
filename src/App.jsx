@@ -3378,7 +3378,7 @@ export default function App({user,onLogout}) {
                         </div>
                         {!mesma&&(<div><label style={lblE}>Rendimento: 1 {n.unidade} do estoque rende quantos(as) {mpUnidade}? *</label>
                           <input type="number" min="0" step="any" value={n.rend} onChange={e=>set({rend:e.target.value})} placeholder="Ex: 8000" style={inpE}/></div>)}
-                        <div><label style={lblE}>Categoria</label><input value={n.cat} onChange={e=>set({cat:e.target.value})} placeholder="Ex: tinta, embalagem, papel…" style={inpE}/></div>
+                        <div><label style={lblE}>Categoria</label><input value={n.cat} onChange={e=>set({cat:e.target.value})} placeholder="Ex: tinta, embalagem, papel…" style={inpE}/>{(()=>{const cs=[...new Set(estoqueProdutos.map(x=>x.categoria).filter(Boolean))].sort();return cs.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>{cs.map(c=>{const ativo=n.cat===c;return <button type="button" key={c} onClick={()=>set({cat:c})} style={{padding:"4px 10px",border:"1.5px solid "+(ativo?"#7c3aed":"#e2e8f0"),borderRadius:20,background:ativo?"#ede9fe":"#fff",color:ativo?"#6d28d9":"#475569",fontSize:11,fontWeight:600,cursor:"pointer"}}>{c}</button>;})}</div>;})()}</div>
                         <div><label style={lblE}>Fornecedor</label>
                           <select value={n.fornId} onChange={e=>set({fornId:e.target.value})} style={inpE}>
                             <option value="">— Sem fornecedor —</option>
@@ -4759,6 +4759,7 @@ export default function App({user,onLogout}) {
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Categoria</label>
                         <input value={estoqueProdCat} onChange={e=>setEstoqueProdCat(e.target.value)} placeholder="Ex: papel, embalagem, tinta, imã..."
                           style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                        {(()=>{const cs=[...new Set(estoqueProdutos.map(x=>x.categoria).filter(Boolean))].sort();return cs.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>{cs.map(c=>{const ativo=estoqueProdCat===c;return <button type="button" key={c} onClick={()=>setEstoqueProdCat(c)} style={{padding:"4px 10px",border:"1.5px solid "+(ativo?"#7c3aed":"#e2e8f0"),borderRadius:20,background:ativo?"#ede9fe":"#fff",color:ativo?"#6d28d9":"#475569",fontSize:11,fontWeight:600,cursor:"pointer"}}>{c}</button>;})}</div>;})()}
                       </div>
                       <div>
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Link do produto</label>
