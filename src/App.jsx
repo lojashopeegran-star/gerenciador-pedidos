@@ -3794,6 +3794,8 @@ export default function App({user,onLogout}) {
           setSalvandoForn(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
           setShowFornecedorForm(false);
+          // se foi cadastrado de dentro da edição do material, já seleciona o novo fornecedor e mantém o que foi digitado
+          if (!editandoFornecedor && showEstoqueProdPlus && res.data?.id) setEstoqueProdFornId(res.data.id);
           logOp({tipo:"fornecedores",acao:editandoFornecedor?"editar":"criar",descricao:(editandoFornecedor?"Fornecedor editado: ":"Fornecedor criado: ")+fornNome.trim(),tabela:"fornecedores",registro_id:editandoFornecedor?.id||res.data?.id,antes:editandoFornecedor?pick(editandoFornecedor,COLS_FORNECEDOR):null});
           reloadForn();
           showToast(editandoFornecedor?"✅ Fornecedor atualizado!":"✅ Fornecedor cadastrado!","#059669");
@@ -3983,7 +3985,7 @@ export default function App({user,onLogout}) {
 
             {/* Modal: fornecedor form */}
             {showFornecedorForm&&(
-              <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+              <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10200,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
                 <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:440,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
                   <h3 style={{margin:"0 0 16px",fontSize:15,fontWeight:700}}>{editandoFornecedor?"✏️ Editar Fornecedor":"+ Novo Fornecedor"}</h3>
                   <div style={{display:"flex",flexDirection:"column",gap:11}}>
@@ -4103,7 +4105,7 @@ export default function App({user,onLogout}) {
                       <div>
                         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
                           <label style={{fontSize:11,fontWeight:600,color:"#64748b"}}>Fornecedor</label>
-                          <button type="button" onClick={()=>{setShowEstoqueProdPlus(false);abrirFornForm();}} style={{background:"none",border:"none",color:"#7c3aed",fontSize:11,fontWeight:700,cursor:"pointer",padding:0}}>+ Cadastrar fornecedor</button>
+                          <button type="button" onClick={()=>abrirFornForm()} style={{background:"none",border:"none",color:"#7c3aed",fontSize:11,fontWeight:700,cursor:"pointer",padding:0}}>+ Cadastrar fornecedor</button>
                         </div>
                         {fornecedores.length===0 ? (
                           <div style={{padding:"9px 12px",border:"1.5px dashed #e2e8f0",borderRadius:10,fontSize:12,color:"#94a3b8",textAlign:"center"}}>
