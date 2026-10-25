@@ -105,6 +105,9 @@ export default function App({user,onLogout}) {
   const [estoqueProdFornId,       setEstoqueProdFornId]       = useState("");
   const [estoqueProdPreco,        setEstoqueProdPreco]        = useState("");
   const [estoqueProdLink,         setEstoqueProdLink]         = useState("");
+  const [plusUnid, setPlusUnid] = useState(""); // unidade do material (cx, un, folha...)
+  const [plusRend, setPlusRend] = useState(""); // rendimento: 1 unidade do estoque rende N unidades de uso
+  const [plusRendUn, setPlusRendUn] = useState("folha");
   const [plusAlt, setPlusAlt] = useState([]); // outras opções de compra: [{fornecedor_id, link, preco}]
   const [estoqueProdObs,          setEstoqueProdObs]          = useState("");
   const [estoqueProdCat,          setEstoqueProdCat]          = useState("");
@@ -2881,9 +2884,16 @@ export default function App({user,onLogout}) {
           const unidades = ["folha","pedaço","un","cx","pct","rolo","m","cm","kg","g","l","ml"];
           setMpNome(ep.nome);
           setMpCustoCompra(ep.preco_unitario?Number(ep.preco_unitario).toFixed(2):"");
-          setMpQtdPorCompra("1");
-          setMpUnidade(unidades.includes(ep.unidade)?ep.unidade:"un");
-          setMpRendimento("");
+          if (Number(ep.rendimento)>0 && ep.unidade_uso) {
+            // já calculado a partir do rendimento cadastrado no estoque
+            setMpQtdPorCompra(String(ep.rendimento));
+            setMpUnidade(unidades.includes(ep.unidade_uso)?ep.unidade_uso:"un");
+            setMpRendimento(String(ep.rendimento));
+          } else {
+            setMpQtdPorCompra("1");
+            setMpUnidade(unidades.includes(ep.unidade)?ep.unidade:"un");
+            setMpRendimento("");
+          }
         };
         const calcDimensao = () => {
           const rl = Number(mpRoloLargura); const rc = Number(mpRoloComprimento)*100;
@@ -2957,6 +2967,13 @@ export default function App({user,onLogout}) {
             logOp({tipo:"estoque",acao:"criar",descricao:"Material criado: "+mpNome.trim()+" (pela matéria-prima)",tabela:"estoque_produtos",registro_id:estIdFinal});
             fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
             rendFinal = rend;
+          }
+          if (estIdFinal && estIdFinal!=="__novo" && rendFinal>0) {
+            const epx = estoqueProdutos.find(x=>x.id===estIdFinal);
+            if (epx && mpUnidade!==epx.unidade && !(Number(epx.rendimento)>0)) {
+              await atualizarEstoqueProdutoPlus(estIdFinal, {rendimento: rendFinal, unidade_uso: mpUnidade});
+              fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
+            }
           }
           const res = await salvarMateriaPrimaLib(user.id, orgId, {
             id: editandoMp?.id,
@@ -4091,6 +4108,8 @@ export default function App({user,onLogout}) {
           setEstoqueProdFornId(p.fornecedor_id||"");
           setEstoqueProdPreco(p.preco_unitario?String(p.preco_unitario):"");
           setEstoqueProdLink(p.link_produto||"");
+          setPlusUnid(p.unidade||"un");
+          setPlusRend(p.rendimento?String(p.rendimento):""); setPlusRendUn(p.unidade_uso||"folha");
           setPlusAlt(Array.isArray(p.alternativas)?p.alternativas.map(a=>({fornecedor_id:a.fornecedor_id||"",link:a.link||"",preco:a.preco!=null?String(a.preco):""})):[]);
           setEstoqueProdObs(p.observacoes||"");
           setEstoqueProdCat(p.categoria||"");
@@ -4105,6 +4124,7 @@ export default function App({user,onLogout}) {
           setEstoqueProdFornId(o.fornecedor_id||"");
           setEstoqueProdPreco(o.preco_unitario?String(o.preco_unitario):"");
           setEstoqueProdLink(o.link_produto||"");
+          setPlusRend(o.rendimento?String(o.rendimento):""); setPlusRendUn(o.unidade_uso||"folha");
           setPlusAlt(Array.isArray(o.alternativas)?o.alternativas.map(a=>({fornecedor_id:a.fornecedor_id||"",link:a.link||"",preco:a.preco!=null?String(a.preco):""})):[]);
           setEstoqueProdObs(o.observacoes||"");
           setEstoqueProdCat(o.categoria||"");
@@ -4123,6 +4143,9 @@ export default function App({user,onLogout}) {
             preco_unitario: estoqueProdPreco ? Number(estoqueProdPreco) : null,
             fornecedor_id:  estoqueProdFornId || null,
             link_produto:   estoqueProdLink || null,
+            ...(plusUnid && plusUnid!==prodPlusAntes?.unidade ? {unidade: plusUnid} : {}),
+            rendimento:     Number(plusRend)>0 ? Number(plusRend) : null,
+            unidade_uso:    Number(plusRend)>0 ? plusRendUn : null,
             alternativas:   plusAlt.filter(a=>a.link.trim()||a.fornecedor_id).map(a=>({fornecedor_id:a.fornecedor_id||null,link:a.link.trim()||null,preco:a.preco!==""&&Number(a.preco)>0?Number(a.preco):null})),
             observacoes:    estoqueProdObs || null,
             categoria:      estoqueProdCat || null,
@@ -4148,14 +4171,14 @@ export default function App({user,onLogout}) {
               const r2 = await atualizarEstoqueProdutoPlus(oid, comuns);
               if (!r2.error) {
                 aplicados++;
-                logOp({tipo:"estoque",acao:"editar",descricao:"Preço/fornecedor copiado para: "+(antes?.nome||"material"),tabela:"estoque_produtos",registro_id:oid,antes:pick(antes,["preco_unitario","fornecedor_id","link_produto","alternativas","observacoes","categoria"]),depois:comuns});
+                logOp({tipo:"estoque",acao:"editar",descricao:"Preço/fornecedor copiado para: "+(antes?.nome||"material"),tabela:"estoque_produtos",registro_id:oid,antes:pick(antes,["preco_unitario","fornecedor_id","unidade","link_produto","alternativas","rendimento","unidade_uso","observacoes","categoria"]),depois:comuns});
               }
             }
           }
           setSalvandoProdPlus(false);
           if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
           setShowEstoqueProdPlus(false);
-          logOp({tipo:"estoque",acao:"editar",descricao:"Preço/fornecedor atualizado: "+(prodPlusAntes?.nome||"material"),tabela:"estoque_produtos",registro_id:estoqueProdPlusId,antes:pick(prodPlusAntes,["preco_unitario","fornecedor_id","link_produto","alternativas","observacoes","categoria","quantidade_minima"]),depois:camposPlus});
+          logOp({tipo:"estoque",acao:"editar",descricao:"Preço/fornecedor atualizado: "+(prodPlusAntes?.nome||"material"),tabela:"estoque_produtos",registro_id:estoqueProdPlusId,antes:pick(prodPlusAntes,["preco_unitario","fornecedor_id","unidade","link_produto","alternativas","rendimento","unidade_uso","observacoes","categoria","quantidade_minima"]),depois:camposPlus});
           fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
           showToast(aplicados?`✅ Salvo e copiado para mais ${aplicados} material(is)!`:"✅ Informações salvas!","#059669");
         };
@@ -4510,6 +4533,25 @@ export default function App({user,onLogout}) {
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Link do produto</label>
                         <input value={estoqueProdLink} onChange={e=>setEstoqueProdLink(e.target.value)} placeholder="https://shopee.com.br/..."
                           style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                      </div>
+                      <div>
+                        <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Unidade do material</label>
+                        <select value={plusUnid} onChange={e=>setPlusUnid(e.target.value)} style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,background:"#fff"}}>
+                          {[...new Set([plusUnid,"un","cx","pct","folha","pedaço","rolo","l","ml","kg","g","m","cm"].filter(Boolean))].map(u=><option key={u} value={u}>{u}</option>)}
+                        </select>
+                        {plusUnid!==(estoqueProdutos.find(x=>x.id===estoqueProdPlusId)?.unidade)&&<div style={{fontSize:10,color:"#b45309",marginTop:3}}>⚠️ Trocar a unidade não converte o saldo atual: a quantidade em estoque continua o mesmo número. Ajuste depois com ＋/－ se precisar.</div>}
+                      </div>
+                      <div style={{border:"1px solid #bbf7d0",borderRadius:10,padding:"8px 10px",background:"#f0fdf4"}}>
+                        <div style={{fontSize:11,fontWeight:700,color:"#166534",marginBottom:2}}>🧮 Rendimento (para o cálculo nos produtos)</div>
+                        <div style={{fontSize:10,color:"#64748b",marginBottom:6}}>Quanto rende 1 {estoqueProdutos.find(x=>x.id===estoqueProdPlusId)?.unidade||"unidade"} deste material. Ao adicionar como matéria-prima num produto, já vem preenchido e calculado.</div>
+                        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                          <span style={{fontSize:12,color:"#374151"}}>1 {estoqueProdutos.find(x=>x.id===estoqueProdPlusId)?.unidade||"un"} rende</span>
+                          <input type="number" min="0" step="any" value={plusRend} onChange={e=>setPlusRend(e.target.value)} placeholder="Ex: 8000" style={{flex:1,minWidth:0,padding:"7px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:13}} />
+                          <select value={plusRendUn} onChange={e=>setPlusRendUn(e.target.value)} style={{padding:"7px 6px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,background:"#fff"}}>
+                            {["folha","pedaço","un","cx","pct","rolo","m","cm","kg","g","l","ml"].map(u=><option key={u} value={u}>{u}</option>)}
+                          </select>
+                        </div>
+                        {Number(plusRend)>0&&Number(estoqueProdPreco)>0&&<div style={{fontSize:11,color:"#166534",marginTop:6}}>Custo por {plusRendUn}: <strong>R$ {(Number(estoqueProdPreco)/Number(plusRend)).toFixed(4).replace(".",",")}</strong></div>}
                       </div>
                       <div style={{border:"1px solid #e2e8f0",borderRadius:10,padding:"8px 10px",background:"#f8fafc"}}>
                         <div style={{fontSize:11,fontWeight:700,color:"#475569",marginBottom:2}}>➕ Outras opções de compra (reserva)</div>

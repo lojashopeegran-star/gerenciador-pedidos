@@ -868,7 +868,7 @@ export async function fetchSaidasMes(userId, orgId, mes) {
 // ─── Histórico de operações e desfazer ───────────────────────────────────────
 
 export const pick = (o, cols) => Object.fromEntries(cols.filter(c => o && c in o).map(c => [c, o[c]]))
-export const COLS_ESTOQUE_PROD = ['nome', 'unidade', 'quantidade_atual', 'quantidade_minima', 'preco_unitario', 'fornecedor_id', 'link_produto', 'alternativas', 'observacoes', 'categoria']
+export const COLS_ESTOQUE_PROD = ['nome', 'unidade', 'quantidade_atual', 'quantidade_minima', 'preco_unitario', 'fornecedor_id', 'link_produto', 'alternativas', 'rendimento', 'unidade_uso', 'observacoes', 'categoria']
 export const COLS_FORNECEDOR = ['nome', 'contato', 'site_link', 'observacoes']
 export const COLS_CUSTO = ['nome', 'categoria', 'valor', 'recorrente', 'observacoes', 'data_vencimento']
 export const COLS_MP = ['nome', 'custo_unidade_compra', 'qtd_por_unidade_compra', 'unidade', 'estoque_produto_id', 'rendimento_estoque']
