@@ -154,6 +154,8 @@ export default function App({user,onLogout}) {
   // Histórico para desfazer alterações no formulário de produto (cada "rajada" de edição vira um passo)
   const prodHist = useRef([]); const prodPrev = useRef(null); const prodUltimoPush = useRef(0); const prodRestaurando = useRef(false);
   const [prodHistN, setProdHistN] = useState(0);
+  const [plusNome, setPlusNome] = useState(null); // nome editado na janela "Info financeiras" (null = não mexeu)
+  useEffect(() => { setPlusNome(null); }, [estoqueProdPlusId, showEstoqueProdPlus]);
   const [massaAberto, setMassaAberto] = useState(false); // painel para remover/adicionar materiais em todas as variações
   const [massaSel, setMassaSel] = useState([]);
   const [massaAdd, setMassaAdd] = useState("");
@@ -4107,7 +4109,10 @@ export default function App({user,onLogout}) {
           if (!estoqueProdPlusId) return;
           setSalvandoProdPlus(true);
           const prodPlusAntes = estoqueProdutos.find(x=>x.id===estoqueProdPlusId);
+          const nomeNovo = plusNome!==null ? plusNome.trim() : "";
+          if (plusNome!==null && !nomeNovo) { setSalvandoProdPlus(false); showToast("❌ O nome do material não pode ficar vazio.","#991b1b"); return; }
           const camposPlus = {
+            ...(nomeNovo && nomeNovo!==prodPlusAntes?.nome ? {nome: nomeNovo} : {}),
             preco_unitario: estoqueProdPreco ? Number(estoqueProdPreco) : null,
             fornecedor_id:  estoqueProdFornId || null,
             link_produto:   estoqueProdLink || null,
@@ -4129,7 +4134,7 @@ export default function App({user,onLogout}) {
           // aplica os mesmos dados (preço, fornecedor, categoria, link, observações) aos materiais marcados
           let aplicados = 0;
           if (!res.error && plusAplicar.length) {
-            const { quantidade_minima: _qm, ...comuns } = camposPlus; // eslint-disable-line no-unused-vars
+            const { quantidade_minima: _qm, nome: _nm, ...comuns } = camposPlus; // eslint-disable-line no-unused-vars
             for (const oid of plusAplicar) {
               const antes = estoqueProdutos.find(x=>x.id===oid);
               const r2 = await atualizarEstoqueProdutoPlus(oid, comuns);
@@ -4390,7 +4395,8 @@ export default function App({user,onLogout}) {
                 <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
                   <div style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:440,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
                     <h3 style={{margin:"0 0 4px",fontSize:15,fontWeight:700}}>✏️ Info financeiras</h3>
-                    <p style={{margin:"0 0 10px",fontSize:12,color:"#64748b"}}>{prod?.nome}</p>
+                    <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Nome do material</label>
+                    <input value={plusNome===null?(prod?.nome||""):plusNome} onChange={e=>setPlusNome(e.target.value)} style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:10}} />
                     <select value="" onChange={e=>{if(e.target.value)copiarDe(e.target.value);}} style={{width:"100%",padding:"7px 10px",border:"1.5px dashed #c4b5fd",borderRadius:10,fontSize:12,color:"#6d28d9",background:"#faf5ff",marginBottom:12,boxSizing:"border-box"}}>
                       <option value="">📋 Copiar preço e fornecedor de outro material…</option>
                       {estoqueProdutos.filter(x=>x.ativo!==false&&x.id!==estoqueProdPlusId).map(x=><option key={x.id} value={x.id}>{x.nome}{x.preco_unitario?` — R$ ${Number(x.preco_unitario).toFixed(2).replace(".",",")}`:""}</option>)}
