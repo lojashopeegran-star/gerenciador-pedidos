@@ -2697,21 +2697,37 @@ export default function App({user,onLogout}) {
           const origem = prodVars.find(v=>v.key===key);
           const idx = (origem?.mps||[]).map((m,i)=>linhaValida(m)?i:-1).filter(i=>i>=0);
           if (!idx.length) { showToast("Escolha ao menos uma matéria-prima ou kit nesta variação primeiro.","#b45309"); return; }
-          setCopiarSel({key, idx}); // abre a seleção: todas marcadas, o usuário desmarca as que não quer
+          setCopiarSel({key, idx, modo:"atualizar"}); // abre a seleção: todas marcadas, o usuário desmarca as que não quer
         };
         const confirmarCopia = () => {
-          const { key, idx } = copiarSel;
+          const { key, idx, modo } = copiarSel;
           const origem = prodVars.find(v=>v.key===key);
           const linhas = (origem?.mps||[]).filter((m,i)=>idx.includes(i)&&linhaValida(m));
           if (!linhas.length) { showToast("Marque ao menos um material para copiar.","#b45309"); return; }
+          if (modo==="substituir" && !window.confirm("Substituir TODOS os materiais das outras "+(prodVars.length-1)+" variações pelos "+linhas.length+" marcados? O que elas tinham será removido.")) return;
+          const mesmo = (a,b) => a.kitId!==undefined ? b.kitId===a.kitId : (b.kitId===undefined&&b.mpId===a.mpId);
           setProdVars(vs=>vs.map(v=>{
             if (v.key===key) return v;
-            const base = v.mps.filter(linhaValida);
-            const novas = linhas.filter(l=>!base.some(b=>l.kitId!==undefined ? b.kitId===l.kitId : (b.kitId===undefined&&b.mpId===l.mpId))).map(l=>({...l}));
+            if (modo==="substituir") return {...v, mps: linhas.map(l=>({...l}))};
+            // atualizar: o mesmo material passa a ter a quantidade copiada; o que não existia é adicionado
+            const base = v.mps.filter(linhaValida).map(b=>{ const l=linhas.find(x=>mesmo(x,b)); return l?{...l}:b; });
+            const novas = linhas.filter(l=>!base.some(b=>mesmo(l,b))).map(l=>({...l}));
             return {...v, mps:[...base,...novas]};
           }));
           setCopiarSel(null);
-          showToast(`✅ ${linhas.length} item(ns) copiado(s) para as outras ${prodVars.length-1} variações. Confira as quantidades de cada uma.`,"#059669",5000);
+          showToast(modo==="substituir" ? `✅ Materiais das outras ${prodVars.length-1} variações substituídos.` : `✅ ${linhas.length} item(ns) copiado(s) para as outras ${prodVars.length-1} variações (o que já existia foi atualizado).`,"#059669",5000);
+        };
+        // Troca de material em uma linha: oferece trocar o mesmo material nas outras variações
+        const trocarMp = (key,idx,novoId) => {
+          const antigo = prodVars.find(v=>v.key===key)?.mps[idx]?.mpId;
+          setVarMp(key,idx,{mpId:novoId});
+          if (!antigo || !novoId || antigo===novoId) return;
+          const outras = prodVars.filter(v=>v.key!==key && v.mps.some(m=>m.kitId===undefined&&m.mpId===antigo));
+          if (!outras.length) return;
+          const nomeA = materiasPrimas.find(x=>x.id===antigo)?.nome||"material antigo", nomeB = materiasPrimas.find(x=>x.id===novoId)?.nome||"novo material";
+          if (!window.confirm(`Trocar também "${nomeA}" por "${nomeB}" nas outras ${outras.length} variações que usam "${nomeA}"? (as quantidades de cada uma são mantidas)`)) return;
+          setProdVars(vs=>vs.map(v=>v.key===key?v:{...v,mps:v.mps.map(m=>(m.kitId===undefined&&m.mpId===antigo)?{...m,mpId:novoId}:m)}));
+          showToast(`🔁 Trocado em ${outras.length} variações.`,"#059669");
         };
         const abrirKitForm = (k=null) => {
           setEditandoKit(k); setKitNome(k?.nome||"");
@@ -3062,7 +3078,7 @@ export default function App({user,onLogout}) {
                           return _wrap(
                             <div key={mi}>
                               <div style={{display:"grid",gridTemplateColumns:"1fr 90px 30px",gap:6,alignItems:"center"}}>
-                                <select value={m.mpId} onChange={e=>setVarMp(v.key,mi,{mpId:e.target.value})}
+                                <select value={m.mpId} onChange={e=>trocarMp(v.key,mi,e.target.value)}
                                   style={{width:"100%",padding:"8px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",background:"#fff",boxSizing:"border-box"}}>
                                   <option value="">Escolher matéria-prima…</option>
                                   {materiasPrimas.map(x=><option key={x.id} value={x.id}>{x.nome} (R$ {custoUnitMp(x).toFixed(2)}/{x.unidade})</option>)}
@@ -3079,6 +3095,10 @@ export default function App({user,onLogout}) {
                       {copiarSel&&copiarSel.key===v.key&&(
                         <div style={{marginTop:8,background:"#eef2ff",border:"1.5px solid #c7d2fe",borderRadius:10,padding:"8px 10px"}}>
                           <div style={{fontSize:11,fontWeight:700,color:"#4338ca",marginBottom:6}}>Marque os materiais que serão copiados para as outras {prodVars.length-1} variações:</div>
+                          <div style={{display:"flex",flexDirection:"column",gap:3,marginBottom:8,fontSize:11,color:"#334155"}}>
+                            <label style={{cursor:"pointer"}}><input type="radio" name="modoCopia" checked={copiarSel.modo!=="substituir"} onChange={()=>setCopiarSel(c=>({...c,modo:"atualizar"}))}/> <b>Atualizar:</b> o mesmo material fica com a quantidade copiada; o que não existia é adicionado</label>
+                            <label style={{cursor:"pointer"}}><input type="radio" name="modoCopia" checked={copiarSel.modo==="substituir"} onChange={()=>setCopiarSel(c=>({...c,modo:"substituir"}))}/> <b>Substituir tudo:</b> as outras variações ficam só com os materiais marcados</label>
+                          </div>
                           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                             <button onClick={confirmarCopia} style={{background:"#4338ca",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Copiar {copiarSel.idx.length} selecionado{copiarSel.idx.length===1?"":"s"}</button>
                             <button onClick={()=>setCopiarSel(c=>({...c,idx:v.mps.map((m,i)=>linhaValida(m)?i:-1).filter(i=>i>=0)}))} style={{background:"#fff",color:"#4338ca",border:"1.5px solid #c7d2fe",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>Marcar todos</button>
