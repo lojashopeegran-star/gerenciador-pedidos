@@ -3304,6 +3304,15 @@ export default function App({user,onLogout}) {
                       {materiasPrimas.length===0&&<div style={{fontSize:11,color:"#f59e0b",marginBottom:6}}>Nenhuma matéria-prima cadastrada. Use o botão "🧱 + Nova matéria-prima" acima.</div>}
                       <div style={{display:"flex",flexDirection:"column",gap:6}}>
                         {v.mps.map((m,mi)=>{
+                          // atalho: pegar a quantidade de outra linha desta variação (ex.: folhas de papel = nº de kits de tinta)
+                          const nomeLinha = (x) => x.kitId!==undefined ? "🧰 "+(kits.find(k=>k.id===x.kitId)?.nome||"kit") : (materiasPrimas.find(y=>y.id===x.mpId)?.nome||"material");
+                          const outras = v.mps.map((x,i)=>({x,i})).filter(o=>o.i!==mi&&linhaValida(o.x)&&Number(o.x.qtd)>0);
+                          const pegarQtd = outras.length>0&&(linhaValida(m)||m.mpId||m.kitId)&&(
+                            <select value="" onChange={e=>{ if(e.target.value!=="") setVarMp(v.key,mi,{qtd:e.target.value}); }} title="Usar a mesma quantidade de outra linha" style={{marginTop:4,width:"100%",padding:"5px 6px",border:"1px dashed #a78bfa",borderRadius:7,fontSize:11,color:"#6d28d9",background:"#faf5ff",boxSizing:"border-box"}}>
+                              <option value="">📋 Usar a mesma quantidade de…</option>
+                              {outras.map(o=><option key={o.i} value={String(o.x.qtd)}>{nomeLinha(o.x)} — {o.x.qtd}</option>)}
+                            </select>
+                          );
                           const _sel = copiarSel&&copiarSel.key===v.key&&linhaValida(m);
                           const _wrap = (node) => _sel ? (
                             <div key={mi} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
@@ -3325,6 +3334,7 @@ export default function App({user,onLogout}) {
                                   <input type="number" min="0" step="any" value={m.qtd} onChange={e=>setVarMp(v.key,mi,{qtd:e.target.value})} placeholder="qtd" style={{width:"100%",padding:"8px 8px",border:(m.kitId&&!(Number(m.qtd)>0))?"2px solid #ef4444":"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",boxSizing:"border-box"}} />
                                   <button onClick={()=>delVarMp(v.key,mi)} title="Remover" style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:6,height:30,cursor:"pointer",fontSize:12}}>✕</button>
                                 </div>
+                                {pegarQtd}
                                 {kit&&<div style={{fontSize:10,color:"#0d9488",marginTop:4}}>Entra: {(kit.itens||[]).map(i=>materiasPrimas.find(x=>x.id===i.mpId)?.nome||"?").join(" + ")}{Number(m.qtd)>0?` · → R$ ${custoKit.toFixed(2)}`:""}</div>}
                               </div>
                             );
@@ -3343,6 +3353,7 @@ export default function App({user,onLogout}) {
                                   style={{width:"100%",padding:"8px 8px",border:(m.mpId&&!(Number(m.qtd)>0))?"2px solid #ef4444":"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",boxSizing:"border-box"}} />
                                 <button onClick={()=>delVarMp(v.key,mi)} title="Remover" style={{background:"#fde8e8",color:"#991b1b",border:"none",borderRadius:6,height:30,cursor:"pointer",fontSize:12}}>✕</button>
                               </div>
+                              {pegarQtd}
                               {mp&&Number(m.qtd)>0&&<div style={{fontSize:10,color:"#f59e0b",fontWeight:600,margin:"2px 0 0 4px"}}>→ R$ {custoLin.toFixed(2)}</div>}
                             </div>
                           );
