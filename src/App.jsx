@@ -594,6 +594,7 @@ export default function App({user,onLogout}) {
     if (r.error) { showToast("❌ "+r.error,"#991b1b"); return; }
     setVincLista(l=>l.map(x=>x.chave===it.chave?{...x,variacao_id:variacaoId||null,ignorar:ign}:x));
     carregarBaixaInfo();
+    carregarUps();
   };
   const alternarBaixa = async () => {
     const novo = !baixaInfo?.ativo;
@@ -5044,6 +5045,7 @@ export default function App({user,onLogout}) {
                     <option value="__ignorar">🚫 Sem material (não dá baixa, ex: brinde)</option>
                     {opcoesVarTop.map(o=><option key={o.id} value={o.id}>{o.nome}</option>)}
                   </select>
+                  <button onClick={()=>{ setVincEst({it:{chave:upsVincular.chave,variacao:upsVincular.variacao},estId:"",qtd:"1"}); setUpsVincular(null); setUpsEscolha(""); setActiveTab("produtos"); }} style={{marginTop:8,marginRight:8,background:"#f0fdfa",color:"#0d9488",border:"1px solid #99f6e4",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📦 Puxar do estoque / criar produto</button>
                   {sugestao&&upsEscolha!==sugestao.id&&<button onClick={()=>setUpsEscolha(sugestao.id)} style={{marginTop:8,background:"#f5f3ff",color:"#6d28d9",border:"1px solid #ddd6fe",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>💡 Sugestão: {sugestao.nome}</button>}
                   {upsEscolha!=="__ignorar"&&escolhida&&!escolhida.temEstoque&&<div style={{marginTop:8,fontSize:11,color:"#92400e",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:8,padding:"6px 10px"}}>⚠️ {escolhida.qtdMp===0?"Essa variação não tem matérias-primas.":"Nenhuma matéria-prima dessa variação está ligada a um item do Estoque."} Sem isso, a baixa não desconta nada. Ajuste em Produtos › 🧱 Matérias-primas.</div>}
                   <div style={{fontSize:11,color:"#64748b",marginTop:10}}>Pedidos com mais de um produto ("A + B") são separados em partes e cada parte tem seu vínculo. Todos os pedidos com essa parte, atuais e futuros, ficam vinculados. A baixa só roda quando todas as partes do pedido estiverem vinculadas (ou marcadas como sem material).</div>
