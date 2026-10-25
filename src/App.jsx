@@ -169,7 +169,17 @@ export default function App({user,onLogout}) {
   const [plusDel, setPlusDel] = useState(null); // material a apagar (pede o PIN do Estoque+)
   const [plusDelPin, setPlusDelPin] = useState("");
   const [plusDelErro, setPlusDelErro] = useState("");
-  const [plusSel, setPlusSel] = useState([]); // ids selecionados para pedir no WhatsApp
+  const [plusSel, setPlusSel] = useState([]);
+  const excluirCategoria = async (c) => {
+    const afetados = estoqueProdutos.filter(x=>x.categoria===c);
+    if (!window.confirm(`Excluir a categoria "${c}"?\n\n${afetados.length} material(is) ficam sem categoria (os materiais NÃO são apagados).`)) return;
+    for (const x of afetados) await atualizarEstoqueProdutoPlus(x.id, {categoria: null});
+    if (estoqueProdCat===c) setEstoqueProdCat("");
+    if (plusFCat===c) setPlusFCat("");
+    setMpNovoEst(v=>v&&v.cat===c?{...v,cat:""}:v);
+    fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
+    showToast(`🗑️ Categoria "${c}" excluída.`,"#64748b");
+  }; // ids selecionados para pedir no WhatsApp
   const [plusNome, setPlusNome] = useState(null); // nome editado na janela "Info financeiras" (null = não mexeu)
   useEffect(() => { setPlusNome(null); }, [estoqueProdPlusId, showEstoqueProdPlus]);
   const [massaAberto, setMassaAberto] = useState(false); // painel para remover/adicionar materiais em todas as variações
@@ -3378,7 +3388,7 @@ export default function App({user,onLogout}) {
                         </div>
                         {!mesma&&(<div><label style={lblE}>Rendimento: 1 {n.unidade} do estoque rende quantos(as) {mpUnidade}? *</label>
                           <input type="number" min="0" step="any" value={n.rend} onChange={e=>set({rend:e.target.value})} placeholder="Ex: 8000" style={inpE}/></div>)}
-                        <div><label style={lblE}>Categoria</label><input value={n.cat} onChange={e=>set({cat:e.target.value})} placeholder="Ex: tinta, embalagem, papel…" style={inpE}/>{(()=>{const cs=[...new Set(estoqueProdutos.map(x=>x.categoria).filter(Boolean))].sort();return cs.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>{cs.map(c=>{const ativo=n.cat===c;return <button type="button" key={c} onClick={()=>set({cat:c})} style={{padding:"4px 10px",border:"1.5px solid "+(ativo?"#7c3aed":"#e2e8f0"),borderRadius:20,background:ativo?"#ede9fe":"#fff",color:ativo?"#6d28d9":"#475569",fontSize:11,fontWeight:600,cursor:"pointer"}}>{c}</button>;})}</div>;})()}</div>
+                        <div><label style={lblE}>Categoria</label><input value={n.cat} onChange={e=>set({cat:e.target.value})} placeholder="Ex: tinta, embalagem, papel…" style={inpE}/>{(()=>{const cs=[...new Set(estoqueProdutos.map(x=>x.categoria).filter(Boolean))].sort();return cs.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>{cs.map(c=>{const ativo=n.cat===c;return <button type="button" key={c} onClick={()=>set({cat:c})} style={{padding:"4px 10px",border:"1.5px solid "+(ativo?"#7c3aed":"#e2e8f0"),borderRadius:20,background:ativo?"#ede9fe":"#fff",color:ativo?"#6d28d9":"#475569",fontSize:11,fontWeight:600,cursor:"pointer"}}>{c}<span onClick={ev=>{ev.stopPropagation();excluirCategoria(c);}} title="Excluir categoria" style={{marginLeft:6,color:"#dc2626",fontWeight:800}}>×</span></button>;})}</div>;})()}</div>
                         <div><label style={lblE}>Fornecedor</label>
                           <select value={n.fornId} onChange={e=>set({fornId:e.target.value})} style={inpE}>
                             <option value="">— Sem fornecedor —</option>
@@ -4759,7 +4769,7 @@ export default function App({user,onLogout}) {
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Categoria</label>
                         <input value={estoqueProdCat} onChange={e=>setEstoqueProdCat(e.target.value)} placeholder="Ex: papel, embalagem, tinta, imã..."
                           style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
-                        {(()=>{const cs=[...new Set(estoqueProdutos.map(x=>x.categoria).filter(Boolean))].sort();return cs.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>{cs.map(c=>{const ativo=estoqueProdCat===c;return <button type="button" key={c} onClick={()=>setEstoqueProdCat(c)} style={{padding:"4px 10px",border:"1.5px solid "+(ativo?"#7c3aed":"#e2e8f0"),borderRadius:20,background:ativo?"#ede9fe":"#fff",color:ativo?"#6d28d9":"#475569",fontSize:11,fontWeight:600,cursor:"pointer"}}>{c}</button>;})}</div>;})()}
+                        {(()=>{const cs=[...new Set(estoqueProdutos.map(x=>x.categoria).filter(Boolean))].sort();return cs.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>{cs.map(c=>{const ativo=estoqueProdCat===c;return <button type="button" key={c} onClick={()=>setEstoqueProdCat(c)} style={{padding:"4px 10px",border:"1.5px solid "+(ativo?"#7c3aed":"#e2e8f0"),borderRadius:20,background:ativo?"#ede9fe":"#fff",color:ativo?"#6d28d9":"#475569",fontSize:11,fontWeight:600,cursor:"pointer"}}>{c}<span onClick={ev=>{ev.stopPropagation();excluirCategoria(c);}} title="Excluir categoria" style={{marginLeft:6,color:"#dc2626",fontWeight:800}}>×</span></button>;})}</div>;})()}
                       </div>
                       <div>
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Link do produto</label>
