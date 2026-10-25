@@ -154,6 +154,10 @@ export default function App({user,onLogout}) {
   // Histórico para desfazer alterações no formulário de produto (cada "rajada" de edição vira um passo)
   const prodHist = useRef([]); const prodPrev = useRef(null); const prodUltimoPush = useRef(0); const prodRestaurando = useRef(false);
   const [prodHistN, setProdHistN] = useState(0);
+  const [massaAberto, setMassaAberto] = useState(false); // painel para remover/adicionar materiais em todas as variações
+  const [massaSel, setMassaSel] = useState([]);
+  const [massaAdd, setMassaAdd] = useState("");
+  const [massaQtd, setMassaQtd] = useState("");
   const [copiarSel, setCopiarSel] = useState(null); // {key, idx:[linhas marcadas]} ao copiar materiais de uma variação para as outras
   const [mpNovoEst, setMpNovoEst] = useState(null); // dados do item de estoque criado junto com a matéria-prima
   const [mpParaKit, setMpParaKit] = useState(false); // matéria-prima criada de dentro do formulário de kit entra no kit sozinha
@@ -198,7 +202,7 @@ export default function App({user,onLogout}) {
   const [produtoAtivo,          setProdutoAtivo]          = useState(null); // produto selecionado para ver detalhes
   const [showProdutoForm,       setShowProdutoForm]       = useState(false);
   useEffect(() => {
-    if (!showProdutoForm) { prodHist.current=[]; prodPrev.current=null; prodUltimoPush.current=0; setProdHistN(0); return; }
+    if (!showProdutoForm) { prodHist.current=[]; prodPrev.current=null; prodUltimoPush.current=0; setProdHistN(0); setMassaAberto(false); setMassaSel([]); return; }
     if (prodRestaurando.current) { prodRestaurando.current=false; prodPrev.current=prodVars; return; }
     const prev = prodPrev.current; prodPrev.current = prodVars;
     if (prev && JSON.stringify(prev)!==JSON.stringify(prodVars)) {
@@ -2729,6 +2733,36 @@ export default function App({user,onLogout}) {
           setProdVars(vs=>vs.map(v=>v.key===key?v:{...v,mps:v.mps.map(m=>(m.kitId===undefined&&m.mpId===antigo)?{...m,mpId:novoId}:m)}));
           showToast(`🔁 Trocado em ${outras.length} variações.`,"#059669");
         };
+        // ── Materiais em massa: remover/adicionar em todas as variações de uma vez ──
+        const chaveLinha = (m) => m.kitId!==undefined ? "k:"+m.kitId : "m:"+m.mpId;
+        const materiaisDoProduto = () => {
+          const mapa = new Map();
+          prodVars.forEach(v=>v.mps.filter(linhaValida).forEach(m=>{
+            const k = chaveLinha(m);
+            const nome = m.kitId!==undefined ? "🧰 "+(kits.find(x=>x.id===m.kitId)?.nome||"kit") : (materiasPrimas.find(x=>x.id===m.mpId)?.nome||"material");
+            const cur = mapa.get(k)||{k,nome,n:0}; cur.n++; mapa.set(k,cur);
+          }));
+          return [...mapa.values()].sort((a,b)=>a.nome.localeCompare(b.nome));
+        };
+        const removerEmMassa = () => {
+          if (!massaSel.length) { showToast("Marque os materiais que quer remover.","#b45309"); return; }
+          if (!window.confirm("Remover "+massaSel.length+" material(is) de TODAS as "+prodVars.length+" variações?")) return;
+          setProdVars(vs=>vs.map(v=>{ const resto=v.mps.filter(m=>!(linhaValida(m)&&massaSel.includes(chaveLinha(m)))); return {...v,mps:resto.length?resto:[{mpId:"",qtd:""}]}; }));
+          showToast("🗑️ "+massaSel.length+" material(is) removido(s) de todas as variações. Use ↩ Desfazer se foi sem querer.","#059669",5000);
+          setMassaSel([]);
+        };
+        const adicionarEmMassa = () => {
+          if (!massaAdd) { showToast("Escolha o material ou kit que quer adicionar.","#b45309"); return; }
+          if (!(Number(massaQtd)>0)) { showToast("Informe a quantidade.","#b45309"); return; }
+          const nova = massaAdd.startsWith("k:") ? {kitId:massaAdd.slice(2),mpId:"",qtd:massaQtd} : {mpId:massaAdd.slice(2),qtd:massaQtd};
+          setProdVars(vs=>vs.map(v=>{
+            const base = v.mps.filter(linhaValida);
+            const tem = base.some(m=>chaveLinha(m)===massaAdd);
+            return {...v, mps: tem ? base.map(m=>chaveLinha(m)===massaAdd?{...m,qtd:massaQtd}:m) : [...base,{...nova}]};
+          }));
+          showToast("✅ Adicionado a todas as "+prodVars.length+" variações (onde já existia, a quantidade foi atualizada).","#059669",5000);
+          setMassaAdd(""); setMassaQtd("");
+        };
         const abrirKitForm = (k=null) => {
           setEditandoKit(k); setKitNome(k?.nome||"");
           setKitItens(k&&(k.itens||[]).length?k.itens.map(i=>({mpId:i.mpId,fator:String(i.fator)})):[{mpId:"",fator:"1"}]);
@@ -3020,12 +3054,44 @@ export default function App({user,onLogout}) {
                   <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>🎛️ Variações</div>
                   <div style={{display:"flex",gap:8}}>
                     <button onClick={()=>abrirMpForm()} style={{background:"#f0fdfa",color:"#0d9488",border:"1px solid #99f6e4",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>🧱 + Nova matéria-prima</button>
+                    <button onClick={()=>setMassaAberto(v=>!v)} style={{background:massaAberto?"#7c3aed":"#f5f3ff",color:massaAberto?"#fff":"#6d28d9",border:"1px solid #ddd6fe",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>🧹 Materiais em massa</button>
                     <button onClick={desfazerProd} disabled={!prodHistN} title="Desfaz a última alteração nas variações e materiais" style={{background:prodHistN?"#fff7ed":"#f8fafc",color:prodHistN?"#c2410c":"#cbd5e1",border:"1px solid "+(prodHistN?"#fdba74":"#e2e8f0"),borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:prodHistN?"pointer":"default"}}>↩ Desfazer</button>
                     <button onClick={()=>setImpVar({fase:"inicio",itens:[],erro:""})} style={{background:"#eef2ff",color:"#4338ca",border:"1px solid #c7d2fe",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📷 Importar de print</button>
                     <button onClick={addVar} style={{background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Variação</button>
                   </div>
                 </div>
                 <div style={{fontSize:11,color:"#94a3b8",marginTop:-6}}>Ex: "9 unidades", "18 unidades com imã". Cada variação tem seu preço e suas matérias-primas.</div>
+                {massaAberto&&(()=>{
+                  const lista = materiaisDoProduto();
+                  return (
+                    <div style={{border:"1.5px solid #ddd6fe",background:"#f5f3ff",borderRadius:14,padding:"12px 14px"}}>
+                      <div style={{fontSize:12,fontWeight:800,color:"#6d28d9",marginBottom:8}}>🧹 Materiais em todas as variações</div>
+                      <div style={{fontSize:11,fontWeight:700,color:"#475569",marginBottom:4}}>1) Remover de todas as variações</div>
+                      {lista.length===0 ? <div style={{fontSize:11,color:"#94a3b8"}}>Nenhum material nas variações ainda.</div> : (
+                        <div style={{background:"#fff",border:"1px solid #e9d5ff",borderRadius:10,padding:"4px 10px",maxHeight:170,overflowY:"auto"}}>
+                          {lista.map(it=>(
+                            <label key={it.k} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",fontSize:12,cursor:"pointer",color:"#334155"}}>
+                              <input type="checkbox" checked={massaSel.includes(it.k)} onChange={e=>setMassaSel(l=>e.target.checked?[...l,it.k]:l.filter(x=>x!==it.k))} style={{width:18,height:18,accentColor:"#dc2626"}}/>
+                              <span style={{flex:1}}>{it.nome}</span>
+                              <span style={{fontSize:10,color:"#94a3b8"}}>em {it.n} variaç{it.n===1?"ão":"ões"}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      <button onClick={removerEmMassa} disabled={!massaSel.length} style={{marginTop:6,background:massaSel.length?"#dc2626":"#e2e8f0",color:massaSel.length?"#fff":"#94a3b8",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:massaSel.length?"pointer":"default"}}>🗑️ Remover {massaSel.length||""} selecionado{massaSel.length===1?"":"s"} de todas</button>
+                      <div style={{fontSize:11,fontWeight:700,color:"#475569",margin:"12px 0 4px"}}>2) Adicionar a todas as variações</div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 90px",gap:6}}>
+                        <select value={massaAdd} onChange={e=>setMassaAdd(e.target.value)} style={{width:"100%",padding:"8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,background:"#fff",boxSizing:"border-box"}}>
+                          <option value="">Escolher kit ou matéria-prima…</option>
+                          {kits.length>0&&<optgroup label="Kits">{kits.map(k=><option key={k.id} value={"k:"+k.id}>🧰 {k.nome}</option>)}</optgroup>}
+                          <optgroup label="Matérias-primas">{materiasPrimas.map(x=><option key={x.id} value={"m:"+x.id}>{x.nome}</option>)}</optgroup>
+                        </select>
+                        <input type="number" min="0" step="any" value={massaQtd} onChange={e=>setMassaQtd(e.target.value)} placeholder="qtd" style={{width:"100%",padding:"8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,boxSizing:"border-box"}}/>
+                      </div>
+                      <button onClick={adicionarEmMassa} style={{marginTop:6,background:"#7c3aed",color:"#fff",border:"none",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:"pointer"}}>➕ Adicionar a todas</button>
+                    </div>
+                  );
+                })()}
 
                 {prodVars.map((v,vi)=>{
                   const custo = custoEditor(v);
