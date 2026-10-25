@@ -164,6 +164,25 @@ export default function App({user,onLogout}) {
     if (!itens.length) { setImpVar({fase:"inicio",itens:[],erro:"Não encontrei variações nesse print."}); return; }
     setImpVar({fase:"revisar",itens,erro:""});
   };
+  // Alternativa sem IA: texto copiado da tabela (nome na 1ª coluna, preço = último valor da linha)
+  const lerTextoVariacoes = (texto) => {
+    const itens = [];
+    String(texto||"").split(/\r?\n/).forEach(linha=>{
+      const l = linha.trim(); if (!l) return;
+      const precos = [...l.matchAll(/(?:R\$\s*)?(\d{1,3}(?:\.\d{3})*,\d{1,2}|\d+(?:[.,]\d{1,2})?)(?!\d)/g)].map(m=>m[1]);
+      let corte = l.search(/\t|R\$/); if (corte<0) { const mm = l.match(/^(.*?)\s{2,}/); corte = mm ? mm[1].length : l.length; }
+      let nome = l.slice(0,corte).trim();
+      let preco = "";
+      if (corte < l.length && precos.length) {
+        const bruto = precos[precos.length-1];
+        const num = bruto.includes(",") ? Number(bruto.replace(/\./g,"").replace(",",".")) : Number(bruto);
+        if (num>0) preco = String(num);
+      }
+      if (nome && (preco || corte < l.length)) itens.push({k:itens.length, nome, preco, ok:true});
+    });
+    if (!itens.length) { setImpVar(v=>({...v,erro:"Não encontrei variações nesse texto. Copie a tabela (nome, preços) e cole aqui."})); return; }
+    setImpVar({fase:"revisar",itens,erro:""});
+  };
   useEffect(() => {
     if (!impVar || impVar.fase!=="inicio") return;
     const onPaste = (e) => { const f=[...(e.clipboardData?.files||[])].find(x=>x.type.startsWith("image/")); if (f) { e.preventDefault(); lerPrintVariacoes(f); } };
@@ -3206,6 +3225,12 @@ export default function App({user,onLogout}) {
                     <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{lerPrintVariacoes(e.target.files?.[0]);e.target.value="";}}/>
                   </label>
                   {impVar.erro&&<div style={{marginTop:10,fontSize:12,color:"#b91c1c",fontWeight:600}}>❌ {impVar.erro}</div>}
+                  <div style={{marginTop:14,paddingTop:12,borderTop:"1px solid #f1f5f9"}}>
+                    <div style={{fontSize:12,fontWeight:700,color:"#334155",marginBottom:4}}>Sem IA (instantâneo): cole o texto da tabela</div>
+                    <div style={{fontSize:11,color:"#94a3b8",marginBottom:6}}>Selecione a tabela na página, copie (Ctrl+C) e cole aqui. Uma variação por linha: nome primeiro, preço no final.</div>
+                    <textarea id="impVarTexto" rows={5} placeholder={"Modelo 5\tR$20,00\tR$12,99\nModelo 17\tR$20,00\tR$12,00"} style={{width:"100%",boxSizing:"border-box",border:"1px solid #cbd5e1",borderRadius:10,padding:8,fontSize:12,fontFamily:"inherit"}}/>
+                    <button onClick={()=>lerTextoVariacoes(document.getElementById("impVarTexto")?.value)} style={{marginTop:6,background:"#0d9488",color:"#fff",border:"none",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:700,cursor:"pointer"}}>Usar o texto colado</button>
+                  </div>
                 </>)}
                 {impVar.fase==="lendo"&&<div style={{padding:"36px 0",textAlign:"center",color:"#4338ca",fontWeight:700,fontSize:14}}>🔎 Lendo o print…</div>}
                 {impVar.fase==="revisar"&&(<>
