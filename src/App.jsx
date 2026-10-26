@@ -5572,15 +5572,15 @@ export default function App({user,onLogout}) {
               const fm = (n) => (n<0?"-":"")+"R$ "+Math.abs(Number(n||0)).toFixed(2).replace(".",",");
               const precoPorVar = {};
               produtosCalc.forEach(p=>(p.produto_variacoes||[]).forEach(v=>{ precoPorVar[v.id]={p,preco:Number(v.preco_venda)||0}; }));
-              // % (comissão, imposto, adiantamento) por unidade vendida; taxa fixa cobrada UMA vez por pedido
-              let bruto=0, pct=0, fixaPond=0, un=0;
+              // % (comissão, imposto, adiantamento) sobre cada item vendido; taxa fixa cobrada UMA vez por pedido
+              let bruto=0, un=0, comissao=0, imposto=0, adiant=0, taxaFixaMedia=0;
               (vendasMes?.por_variacao||[]).forEach(x=>{ const o=precoPorVar[x.variacao_id]; if(!o) return;
-                bruto+=x.un*o.preco; un+=x.un;
-                pct+=x.un*o.preco*(_n(o.p.taxa_plataforma_pct,0)+_n(o.p.taxa_imposto_pct,0)+_n(o.p.taxa_adiantamento_pct,0))/100;
-                fixaPond+=x.un*_n(o.p.taxa_fixa,0); });
+                const v=x.un*o.preco; bruto+=v; un+=x.un;
+                comissao+=v*_n(o.p.taxa_plataforma_pct,0)/100; imposto+=v*_n(o.p.taxa_imposto_pct,0)/100; adiant+=v*_n(o.p.taxa_adiantamento_pct,0)/100;
+                taxaFixaMedia=Math.max(taxaFixaMedia,_n(o.p.taxa_fixa,0)); });
               const nPedidos = pedidosMes?.pedidos||0;
-              const taxaFixaMedia = un>0 ? fixaPond/un : 0;
               const taxaFixaTotal = nPedidos*taxaFixaMedia;
+              const pct = comissao+imposto+adiant;
               const taxas = pct + taxaFixaTotal;
               const material = finSaidas.reduce((a,m)=>a+(Number(m.quantidade)||0)*(Number(m.estoque_produtos?.preco_unitario)||0),0);
               const fixos = custosFixos.reduce((s,c)=>s+Number(c.valor),0);
@@ -5593,8 +5593,12 @@ export default function App({user,onLogout}) {
                   <div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>Vendas dos pedidos do UpSeller (sem cancelados) pelo preço cadastrado, menos taxas, material usado e custos fixos.</div>
                   {!vendasMes ? <div style={{fontSize:12,color:"#94a3b8"}}>Carregando…</div> : (<>
                     {linha(`🛒 Vendas (${nPedidos} pedidos · ${Math.round(un)} itens)`, fm(bruto))}
-                    {linha("🧾 Taxas (comissão, imposto, adiantamento)", "− "+fm(pct), "#ef4444")}
-                    {linha(`🏷️ Taxa fixa (${fm(taxaFixaMedia)} × ${nPedidos} pedidos)`, "− "+fm(taxaFixaTotal), "#ef4444")}
+                    {linha("🧾 Total de taxas", "− "+fm(taxas), "#ef4444")}
+                    <div style={{margin:"0 0 4px 14px",paddingLeft:10,borderLeft:"2px solid #e2e8f0"}}>
+                      {[["Comissão da Shopee",comissao],["Imposto",imposto],["Taxa de adiantamento",adiant],[`Taxa fixa (${fm(taxaFixaMedia)} × ${nPedidos} pedidos)`,taxaFixaTotal]].map(([r,v])=>(
+                        <div key={r} style={{display:"flex",justifyContent:"space-between",fontSize:12,padding:"2px 0",color:"#64748b"}}><span>{r}</span><span style={{color:"#ef4444"}}>− {fm(v)}</span></div>
+                      ))}
+                    </div>
                     {linha("📦 Material usado (baixa do UpSeller)", "− "+fm(material), "#ef4444")}
                     {linha("📋 Custos fixos", "− "+fm(fixos), "#ef4444")}
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8,padding:"12px 14px",borderRadius:10,background:lucro>=0?"#d1fae5":"#fee2e2"}}>
