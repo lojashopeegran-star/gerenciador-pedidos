@@ -445,6 +445,7 @@ export default function App({user,onLogout}) {
   const [vincCarregando, setVincCarregando] = useState(false);
   const [vincBusca, setVincBusca] = useState("");
   const [projListaAberta, setProjListaAberta] = useState(false);
+  const [projMatAberto, setProjMatAberto] = useState(false);
   const [vincSo, setVincSo] = useState("pendentes");
   const [baixaInfo, setBaixaInfo] = useState(null);
   const [baixaBusy, setBaixaBusy] = useState(false);
@@ -5738,8 +5739,11 @@ export default function App({user,onLogout}) {
 
                   {/* Mix de produtos */}
                   <div style={{background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:10,padding:"12px 14px",marginBottom:12}}>
-                    <div style={{fontSize:11,fontWeight:700,color:"#0369a1",marginBottom:8}}>2) Material realmente usado (saídas do estoque em {finMes})</div>
-                    {saidasLista.length===0 ? (
+                    <button onClick={()=>setProjMatAberto(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,width:"100%",textAlign:"left",background:"none",border:"none",padding:0,marginBottom:8,fontSize:11,fontWeight:700,color:"#0369a1",cursor:"pointer"}}>
+                      <span style={{display:"inline-block",transition:"transform .15s",transform:projMatAberto?"rotate(90deg)":"none"}}>▶</span>
+                      2) Material realmente usado (saídas do estoque em {finMes}) {!projMatAberto&&saidasLista.length>0&&<span style={{fontWeight:500,color:"#64748b"}}>· {saidasLista.length} materiais · {fm(totalSaidas)} — clique para abrir</span>}
+                    </button>
+                    {!projMatAberto ? null : saidasLista.length===0 ? (
                       <div style={{fontSize:12,color:"#94a3b8"}}>Nenhuma baixa de pedidos do UpSeller neste mês. Ative a baixa e rode a retroativa em Produtos → Vincular.</div>
                     ) : (
                       <div style={{overflowX:"auto"}}>
@@ -5762,7 +5766,7 @@ export default function App({user,onLogout}) {
                         </table>
                       </div>
                     )}
-                    {semPreco>0&&<div style={{fontSize:10,color:"#f59e0b",marginTop:6}}>⚠️ {semPreco} material(is) sem preço no Estoque+ — o custo deles está contando como R$ 0,00.</div>}
+                    {projMatAberto&&semPreco>0&&<div style={{fontSize:10,color:"#f59e0b",marginTop:6}}>⚠️ {semPreco} material(is) sem preço no Estoque+ — o custo deles está contando como R$ 0,00.</div>}
                     <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",marginTop:10}}>
                       <label style={{fontSize:11,fontWeight:600,color:"#0369a1"}}>Pedidos do mês (UpSeller):</label>
                       <input type="number" min="0" value={projJa} onChange={e=>setProjJa(e.target.value)} placeholder={pedidosMes?`${jaAuto} (automático)`:"Ex: 120"} style={{...inp,width:130}} />
