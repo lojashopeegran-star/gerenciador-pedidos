@@ -5302,6 +5302,9 @@ export default function App({user,onLogout}) {
         const catInfo = (id) => CATS.find(c=>c.id===id)||{icon:"📋",label:id};
 
         const totalFixos = custosFixos.reduce((s,c)=>s+Number(c.valor),0);
+        // faturamento do mês (vendas dos pedidos vinculados pelo preço cadastrado) para mostrar o peso de cada conta
+        const fatMes = (()=>{ const pv={}; produtosCalc.forEach(pr=>(pr.produto_variacoes||[]).forEach(v=>{ pv[v.id]=Number(v.preco_venda)||0; })); return (vendasMes?.por_variacao||[]).reduce((a,x)=>a+x.un*(pv[x.variacao_id]||0),0); })();
+        const pctFat = (v) => fatMes>0 ? (Number(v)/fatMes*100).toFixed(1).replace(".",",")+"% do faturamento" : "";
         const totalMaterial = finMovimentos.reduce((s,m)=>s+(m.preco_unitario||0)*m.quantidade,0);
         const totalGeral = totalFixos + totalMaterial;
 
@@ -5484,7 +5487,7 @@ export default function App({user,onLogout}) {
                       <div key={cat.id}>
                         <div style={{fontSize:11,fontWeight:700,color:"#64748b",padding:"4px 0 2px",display:"flex",justifyContent:"space-between"}}>
                           <span>{cat.icon} {cat.label}</span>
-                          <span>R$ {subtotal.toFixed(2).replace(".",",")}</span>
+                          <span>R$ {subtotal.toFixed(2).replace(".",",")}{fatMes>0&&<span style={{fontWeight:500,color:"#94a3b8"}}> · {pctFat(subtotal)}</span>}</span>
                         </div>
                         {itens.map(c=>(
                           <div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",background:"#f8fafc",borderRadius:8,marginBottom:3}}>
@@ -5495,7 +5498,7 @@ export default function App({user,onLogout}) {
                               {c.observacoes&&<div style={{fontSize:10,color:"#94a3b8",fontStyle:"italic"}}>{c.observacoes}</div>}
                             </div>
                             <div style={{display:"flex",alignItems:"center",gap:8}}>
-                              <span style={{fontSize:13,fontWeight:700,color:"#059669"}}>R$ {Number(c.valor).toFixed(2).replace(".",",")}</span>
+                              <span style={{fontSize:13,fontWeight:700,color:"#059669",textAlign:"right"}}>R$ {Number(c.valor).toFixed(2).replace(".",",")}{fatMes>0&&<div style={{fontSize:10,fontWeight:600,color:"#64748b"}}>{pctFat(c.valor)}</div>}</span>
                               {(()=>{const pago=custosPagos.includes(c.id);return (
                                 <button onClick={()=>alternarPago(c)} title={pago?"Pago — clique para desmarcar":"Não pago — clique para marcar como pago"}
                                   style={{padding:"3px 9px",background:pago?"#d1fae5":"#fde8e8",color:pago?"#065f46":"#991b1b",border:`1.5px solid ${pago?"#6ee7b7":"#fecaca"}`,borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
@@ -5512,7 +5515,7 @@ export default function App({user,onLogout}) {
                   })}
                   <div style={{display:"flex",justifyContent:"space-between",padding:"10px 10px",background:"#d1fae5",borderRadius:8,marginTop:4}}>
                     <span style={{fontSize:13,fontWeight:700,color:"#065f46"}}>Total fixos</span>
-                    <span style={{fontSize:14,fontWeight:800,color:"#065f46"}}>R$ {totalFixos.toFixed(2).replace(".",",")}</span>
+                    <span style={{fontSize:14,fontWeight:800,color:"#065f46"}}>R$ {totalFixos.toFixed(2).replace(".",",")}{fatMes>0&&<span style={{fontSize:11,fontWeight:600}}> · {pctFat(totalFixos)}</span>}</span>
                   </div>
                   {(()=>{const pagoTot=custosFixos.filter(c=>custosPagos.includes(c.id)).reduce((s,c)=>s+Number(c.valor),0);return (
                     <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap",padding:"4px 10px",fontSize:12}}>
