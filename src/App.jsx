@@ -442,6 +442,7 @@ export default function App({user,onLogout}) {
   const [vincPend, setVincPend] = useState(null); // parte do UpSeller a vincular quando o produto novo for salvo
   const [vincCarregando, setVincCarregando] = useState(false);
   const [vincBusca, setVincBusca] = useState("");
+  const [projListaAberta, setProjListaAberta] = useState(false);
   const [vincSo, setVincSo] = useState("pendentes");
   const [baixaInfo, setBaixaInfo] = useState(null);
   const [baixaBusy, setBaixaBusy] = useState(false);
@@ -5710,8 +5711,11 @@ export default function App({user,onLogout}) {
                     )}
                   </div>
 
-                  <div style={{fontSize:11,fontWeight:700,color:"#64748b",marginBottom:6}}>3) Quanto cada venda deixa para cobrir os custos</div>
-                  {todas.length===0 ? (
+                  <button onClick={()=>setProjListaAberta(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,width:"100%",textAlign:"left",background:"none",border:"none",padding:"2px 0",marginBottom:6,fontSize:11,fontWeight:700,color:"#64748b",cursor:"pointer"}}>
+                    <span style={{display:"inline-block",transition:"transform .15s",transform:projListaAberta?"rotate(90deg)":"none"}}>▶</span>
+                    3) Quanto cada venda deixa para cobrir os custos {!projListaAberta&&todas.length>0&&<span style={{fontWeight:500,color:"#94a3b8"}}>· {todas.length} variações — clique para abrir</span>}
+                  </button>
+                  {!projListaAberta ? null : todas.length===0 ? (
                     <div style={{fontSize:12,color:"#94a3b8",padding:"8px 0 12px"}}>Cadastre produtos com preço na aba Produtos para calcular.</div>
                   ) : (
                     <div style={{overflowX:"auto",marginBottom:6}}>
