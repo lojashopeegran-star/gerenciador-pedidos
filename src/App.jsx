@@ -595,12 +595,29 @@ export default function App({user,onLogout}) {
     else setVincLista(lista||[]);
     setVincCarregando(false);
   };
-  const escolherVinculo = async (it, valor) => {
+  const escolherVinculo = async (it, valor, propagar=false) => {
     const ign = valor === "__ignorar";
     const variacaoId = ign ? null : valor;
     const r = await salvarVinculo(orgId, it.chave, it.variacao, variacaoId, ign);
     if (r.error) { showToast("❌ "+r.error,"#991b1b"); return; }
     setVincLista(l=>l.map(x=>x.chave===it.chave?{...x,variacao_id:variacaoId||null,ignorar:ign}:x));
+    // Outras variações do UpSeller sem vínculo que são a mesma variação (mesmos números/gramatura, sem palavras opostas)
+    if (propagar && variacaoId) {
+      const op = opcoesVarTop.find(o=>o.id===variacaoId);
+      const alvo = op ? op.nome.split(" — ").slice(1).join(" — ") : "";
+      const nums = (t)=>(_norm(t).match(/\d+/g)||[]).sort().join(",");
+      const tem = (t,w)=>_tokens(t).has(w);
+      const opostos = [["brilho","fosco"],["com","sem"]];
+      const parecidas = alvo ? vincLista.filter(x=>x.chave!==it.chave && !x.variacao_id && !x.ignorar
+        && nums(x.variacao)===nums(alvo) && similaridade(x.variacao,alvo)>=0.5
+        && !opostos.some(([p,q])=>(tem(alvo,p)&&tem(x.variacao,q))||(tem(alvo,q)&&tem(x.variacao,p)))) : [];
+      if (parecidas.length && window.confirm(`Achei ${parecidas.length} outra(s) variação(ões) do UpSeller sem vínculo que parecem ser a mesma:\n\n• ${parecidas.slice(0,15).map(x=>x.variacao).join("\n• ")}${parecidas.length>15?"\n• …":""}\n\nVincular todas a "${op.nome}"?`)) {
+        const ids = new Set();
+        for (const x of parecidas) { const rr = await salvarVinculo(orgId, x.chave, x.variacao, variacaoId, false); if (!rr.error) ids.add(x.chave); }
+        setVincLista(l=>l.map(x=>ids.has(x.chave)?{...x,variacao_id:variacaoId,ignorar:false}:x));
+        showToast(`✅ ${ids.size} variação(ões) a mais vinculada(s).`,"#059669");
+      }
+    }
     carregarBaixaInfo();
     carregarUps();
   };
@@ -3616,14 +3633,14 @@ export default function App({user,onLogout}) {
                         {(it.variacao_id||it.ignorar)&&<div style={{fontSize:11,color:"#047857",fontWeight:600,margin:"2px 0 0"}}>🔗 Vinculado a: {nomeVinc(it)||"(produto removido)"}</div>}
                         <div style={{fontSize:10,color:"#94a3b8",margin:"2px 0 6px"}}>{it.pedidos} pedido(s) · {it.unidades} un · último {new Date(it.ultimo).toLocaleDateString("pt-BR")}</div>
                         <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-                          <select value={it.ignorar?"__ignorar":(it.variacao_id||"")} onChange={e=>escolherVinculo(it,e.target.value)}
+                          <select value={it.ignorar?"__ignorar":(it.variacao_id||"")} onChange={e=>escolherVinculo(it,e.target.value,true)}
                             style={{flex:1,minWidth:200,padding:"7px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none",background:"#fff"}}>
                             <option value="">— Sem vínculo —</option>
                             <option value="__ignorar">🚫 Sem material (não dá baixa)</option>
                             {opcoesVar.map(o=><option key={o.id} value={o.id}>{o.nome}</option>)}
                           </select>
                           <button onClick={()=>setVincEst({it,estId:"",qtd:"1",rend:"",rendUn:"folha",qtdUn:"est"})} style={{background:"#f0fdfa",color:"#0d9488",border:"1px solid #99f6e4",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>📦 Puxar do estoque</button>
-                          {sug&&<button onClick={()=>escolherVinculo(it,sug.id)} style={{background:"#f5f3ff",color:"#6d28d9",border:"1px solid #ddd6fe",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>💡 {sug.nome}</button>}
+                          {sug&&<button onClick={()=>escolherVinculo(it,sug.id,true)} style={{background:"#f5f3ff",color:"#6d28d9",border:"1px solid #ddd6fe",borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>💡 {sug.nome}</button>}
                         </div>
                       </div>
                     );
