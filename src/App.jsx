@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, lazy, Suspense } from "react";
 const Ferramentas = lazy(() => import("./Ferramentas.jsx"));
 import { waUrl, getXLSX, PEDIDO_COLS, DEVOLUCAO_COLS, norm, parseSheet, normStatus, mesReferencia, mesLabel, corRecorrencia, formatMotivoCancelamento, isEnviado, isCancelado, isAberto, isHistorico, deadlineInfo, fmtBRL, currentMes, StatusBadge, StyledCheckbox, FeitoButton, RevisaoButton, VazioButton, ExpandCell, DropZone, Toast, RevisaoModal, FinanceGate, TabBar, TH, TD, _n, _norm, _tokens, similaridade, melhorMatch, mapUnidade, arquivoParaBase64, prepararImagemNota, fmtBRLn, quandoFmt, liquidoDe, custoMpDe } from "./helpers.jsx";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, atualizarPerdaMp, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, lerVariacoesPrint, baixaRetroativa, baixaRecalcular, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, atualizarPerdaMp, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchVendasMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, lerVariacoesPrint, baixaRetroativa, baixaRecalcular, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 export default function App({user,onLogout}) {
   const [allPedidos,    setAllPedidos]    = useState([]);
@@ -408,6 +408,7 @@ export default function App({user,onLogout}) {
   const isAdminEquipe        = membro ? membro.is_admin : true;
   const orgId                = membro?.organizacao_id || null;
   const [pedidosMes, setPedidosMes] = useState(null);
+  const [vendasMes, setVendasMes] = useState(null);
   const [plusMin, setPlusMin] = useState("");
   const [plusFornContato, setPlusFornContato] = useState("");
   const [plusFornSite, setPlusFornSite] = useState("");
@@ -470,6 +471,7 @@ export default function App({user,onLogout}) {
     fetchPagamentosCustos(user.id, orgId, finMes).then(setCustosPagos);
     fetchSaidasMes(user.id, orgId, finMes).then(setFinSaidas);
     fetchPedidosMes(finMes).then(r=>setPedidosMes(r&&!r.error?r:null));
+    fetchVendasMes(orgId, finMes).then(r=>setVendasMes(r&&!r.error?r:null));
   }, [finMes, orgId, user?.id]);
   useEffect(() => {
     if (!user || !orgId || !isAdminEquipe) return;
@@ -5561,6 +5563,40 @@ export default function App({user,onLogout}) {
                       )}
                     </>
                   )}
+                </div>
+              );
+            })()}
+
+            {/* Lucro do mês: vendas − taxas − material usado − custos fixos */}
+            {(()=>{
+              const fm = (n) => (n<0?"-":"")+"R$ "+Math.abs(Number(n||0)).toFixed(2).replace(".",",");
+              const precoPorVar = {};
+              produtosCalc.forEach(p=>(p.produto_variacoes||[]).forEach(v=>{ precoPorVar[v.id]={p,preco:Number(v.preco_venda)||0}; }));
+              let bruto=0, liquido=0, un=0;
+              (vendasMes?.por_variacao||[]).forEach(x=>{ const o=precoPorVar[x.variacao_id]; if(!o) return; bruto+=x.un*o.preco; liquido+=x.un*liquidoDe(o.p,o.preco); un+=x.un; });
+              const taxas = bruto-liquido;
+              const material = finSaidas.reduce((a,m)=>a+(Number(m.quantidade)||0)*(Number(m.estoque_produtos?.preco_unitario)||0),0);
+              const fixos = custosFixos.reduce((s,c)=>s+Number(c.valor),0);
+              const lucro = bruto - taxas - material - fixos;
+              const semVinc = Math.round(vendasMes?.sem_vinculo||0);
+              const linha = (rot,val,cor)=>(<div style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"4px 0"}}><span style={{color:"#475569"}}>{rot}</span><strong style={{color:cor||"#1e293b"}}>{val}</strong></div>);
+              return (
+                <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:2}}>💰 Lucro do mês — {finMes}</div>
+                  <div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>Vendas dos pedidos do UpSeller (sem cancelados) pelo preço cadastrado, menos taxas, material usado e custos fixos.</div>
+                  {!vendasMes ? <div style={{fontSize:12,color:"#94a3b8"}}>Carregando…</div> : (<>
+                    {linha(`🛒 Vendas (${Math.round(un)} un)`, fm(bruto))}
+                    {linha("🧾 Taxas (comissão, imposto, adiantamento, taxa fixa)", "− "+fm(taxas), "#ef4444")}
+                    {linha("📦 Material usado (baixa do UpSeller)", "− "+fm(material), "#ef4444")}
+                    {linha("📋 Custos fixos", "− "+fm(fixos), "#ef4444")}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:8,padding:"12px 14px",borderRadius:10,background:lucro>=0?"#d1fae5":"#fee2e2"}}>
+                      <span style={{fontSize:13,fontWeight:700,color:lucro>=0?"#065f46":"#991b1b"}}>{lucro>=0?"✅ Sobrou de lucro":"⚠️ Prejuízo no mês"}</span>
+                      <span style={{fontSize:22,fontWeight:800,color:lucro>=0?"#065f46":"#991b1b"}}>{fm(lucro)}</span>
+                    </div>
+                    {bruto>0&&<div style={{fontSize:11,color:"#64748b",marginTop:6}}>Margem: {(lucro/bruto*100).toFixed(1).replace(".",",")}% das vendas</div>}
+                    {semVinc>0&&<div style={{fontSize:11,color:"#b45309",marginTop:6}}>⚠️ {semVinc} unidade(s) vendida(s) sem vínculo com produto ficaram de fora das vendas. Vincule em 🔗 Vincular UpSeller para o cálculo ficar completo.</div>}
+                    <div style={{fontSize:10,color:"#94a3b8",marginTop:6}}>O material só conta os pedidos já baixados (Para imprimir / Para retirada), enquanto as vendas incluem todos os pedidos do mês não cancelados; no meio do mês o lucro tende a aparecer um pouco maior.</div>
+                  </>)}
                 </div>
               );
             })()}
