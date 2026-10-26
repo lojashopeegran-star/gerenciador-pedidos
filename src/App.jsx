@@ -5592,7 +5592,7 @@ export default function App({user,onLogout}) {
                   <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:2}}>💰 Lucro do mês — {finMes}</div>
                   <div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>Vendas dos pedidos do UpSeller (sem cancelados) pelo preço cadastrado, menos taxas, material usado e custos fixos.</div>
                   {!vendasMes ? <div style={{fontSize:12,color:"#94a3b8"}}>Carregando…</div> : (<>
-                    {linha(`🛒 Vendas (${Math.round(un)} un)`, fm(bruto))}
+                    {linha(`🛒 Vendas (${nPedidos} pedidos · ${Math.round(un)} itens)`, fm(bruto))}
                     {linha("🧾 Taxas (comissão, imposto, adiantamento)", "− "+fm(pct), "#ef4444")}
                     {linha(`🏷️ Taxa fixa (${fm(taxaFixaMedia)} × ${nPedidos} pedidos)`, "− "+fm(taxaFixaTotal), "#ef4444")}
                     {linha("📦 Material usado (baixa do UpSeller)", "− "+fm(material), "#ef4444")}
