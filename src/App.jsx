@@ -446,6 +446,7 @@ export default function App({user,onLogout}) {
   const [vincBusca, setVincBusca] = useState("");
   const [projListaAberta, setProjListaAberta] = useState(false);
   const [projMatAberto, setProjMatAberto] = useState(false);
+  const [simVals, setSimVals] = useState(["50000","100000"]); // simulador: faturamentos a testar
   const [relMat, setRelMat] = useState(null); // {meses:[], itens:{nome:{un,porMes:{mes:{qtd,custo}}}}}
   const [relMatBusy, setRelMatBusy] = useState(false);
   const [vincSo, setVincSo] = useState("pendentes");
@@ -5678,6 +5679,57 @@ export default function App({user,onLogout}) {
                     {semVinc>0&&<div style={{fontSize:11,color:"#b45309",marginTop:6}}>⚠️ {semVinc} unidade(s) vendida(s) sem vínculo com produto ficaram de fora das vendas. Vincule em 🔗 Vincular UpSeller para o cálculo ficar completo.</div>}
                     <div style={{fontSize:10,color:"#94a3b8",marginTop:6}}>O material só conta os pedidos já baixados (Para imprimir / Para retirada), enquanto as vendas incluem todos os pedidos do mês não cancelados; no meio do mês o lucro tende a aparecer um pouco maior.</div>
                   </>)}
+                </div>
+              );
+            })()}
+
+            {/* Simulador: "se eu vender X, quanto sobra" */}
+            {(()=>{
+              const fm = (n) => (n<0?"-":"")+"R$ "+Math.abs(Number(n||0)).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
+              const ticket = Number(String(projTicket).replace(",","."))||27;
+              // % efetiva de comissão+imposto+adiantamento: média real do mês (ponderada pelas vendas); se não houver vendas, a média dos produtos
+              const pv = {}; produtosCalc.forEach(pr=>(pr.produto_variacoes||[]).forEach(v=>{ pv[v.id]={p:pr,preco:Number(v.preco_venda)||0}; }));
+              let br=0, pc=0, fixaMax=0;
+              (vendasMes?.por_variacao||[]).forEach(x=>{ const o=pv[x.variacao_id]; if(!o) return; const v=x.un*o.preco; br+=v; pc+=v*(_n(o.p.taxa_plataforma_pct,0)+_n(o.p.taxa_imposto_pct,0)+_n(o.p.taxa_adiantamento_pct,0))/100; });
+              produtosCalc.forEach(pr=>{ fixaMax=Math.max(fixaMax,_n(pr.taxa_fixa,0)); });
+              const pctProd = produtosCalc.length ? Math.max(...produtosCalc.map(pr=>_n(pr.taxa_plataforma_pct,0)+_n(pr.taxa_imposto_pct,0)+_n(pr.taxa_adiantamento_pct,0)))/100 : 0.275;
+              const pctEf = br>0 ? pc/br : pctProd;
+              const nPedMes = pedidosMes?.pedidos||0;
+              const matMes = finSaidas.reduce((a,m)=>a+(Number(m.quantidade)||0)*(Number(m.estoque_produtos?.preco_unitario)||0),0);
+              const matPorPed = nPedMes>0 ? matMes/nPedMes : 0;
+              const fixos = custosFixos.reduce((s,c)=>s+Number(c.valor),0);
+              const cenarios = simVals.map(v=>{
+                const vendas = Number(String(v).replace(",","."))||0;
+                const ped = ticket>0 ? vendas/ticket : 0;
+                const taxas = vendas*pctEf, fixa = ped*fixaMax, mat = ped*matPorPed;
+                const lucro = vendas - taxas - fixa - mat - fixos;
+                return {vendas,ped,taxas,fixa,mat,lucro,margem:vendas>0?lucro/vendas*100:0};
+              });
+              const L = (rot,key,cor,neg)=>(<tr key={key} style={{borderBottom:"1px solid #f1f5f9"}}><td style={{padding:"6px 8px",color:"#475569"}}>{rot}</td>{cenarios.map((c,i)=><td key={i} style={{padding:"6px 8px",textAlign:"right",color:cor||"#1e293b"}}>{neg?"− ":""}{fm(c[key])}</td>)}</tr>);
+              return (
+                <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
+                  <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:2}}>🧮 Simulador — se eu vender X, quanto sobra?</div>
+                  <div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>Digite quanto quer vender no mês. Usa ticket médio de {fm(ticket)}, as taxas ({(pctEf*100).toFixed(1).replace(".",",")}% + {fm(fixaMax)} por pedido), o material médio por pedido ({fm(matPorPed)}) e os custos fixos do mês.</div>
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead><tr><th style={{...TH,padding:"6px 8px"}}>Vendi (R$)</th>{simVals.map((v,i)=>(
+                        <th key={i} style={{padding:"4px 6px",textAlign:"right"}}>
+                          <div style={{display:"flex",gap:4,alignItems:"center",justifyContent:"flex-end"}}>
+                            <input type="number" min="0" value={v} onChange={e=>setSimVals(a=>a.map((x,j)=>j===i?e.target.value:x))} style={{width:110,padding:"5px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,textAlign:"right",outline:"none"}} />
+                            {simVals.length>1&&<button onClick={()=>setSimVals(a=>a.filter((_,j)=>j!==i))} title="Remover" style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:14}}>×</button>}
+                          </div>
+                        </th>))}</tr></thead>
+                      <tbody>
+                        <tr style={{borderBottom:"1px solid #f1f5f9"}}><td style={{padding:"6px 8px",color:"#475569"}}>Pedidos necessários</td>{cenarios.map((c,i)=><td key={i} style={{padding:"6px 8px",textAlign:"right"}}>{Math.round(c.ped).toLocaleString("pt-BR")}</td>)}</tr>
+                        {L("Comissão + imposto + adiantamento","taxas","#ef4444",true)}
+                        {L("Taxa fixa por pedido","fixa","#ef4444",true)}
+                        {L("Material usado","mat","#ef4444",true)}
+                        <tr style={{borderBottom:"1px solid #f1f5f9"}}><td style={{padding:"6px 8px",color:"#475569"}}>Custos fixos</td>{cenarios.map((c,i)=><td key={i} style={{padding:"6px 8px",textAlign:"right",color:"#ef4444"}}>− {fm(fixos)}</td>)}</tr>
+                        <tr style={{background:"#f8fafc"}}><td style={{padding:"8px",fontWeight:800}}>💰 Sobra de lucro</td>{cenarios.map((c,i)=><td key={i} style={{padding:"8px",textAlign:"right",fontWeight:800,fontSize:14,color:c.lucro>=0?"#059669":"#dc2626"}}>{fm(c.lucro)}<div style={{fontSize:10,fontWeight:600,color:"#64748b"}}>{c.margem.toFixed(1).replace(".",",")}% das vendas</div></td>)}</tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  {simVals.length<5&&<button onClick={()=>setSimVals(a=>[...a,String((Number(a[a.length-1])||0)+50000)])} style={{marginTop:8,background:"#f1f5f9",border:"none",borderRadius:8,padding:"6px 12px",fontSize:11,fontWeight:700,color:"#475569",cursor:"pointer"}}>+ Adicionar outro valor</button>}
                 </div>
               );
             })()}
