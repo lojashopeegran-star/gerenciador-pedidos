@@ -446,6 +446,7 @@ export default function App({user,onLogout}) {
   const [vincBusca, setVincBusca] = useState("");
   const [projListaAberta, setProjListaAberta] = useState(false);
   const [projMatAberto, setProjMatAberto] = useState(false);
+  const [lucroBase, setLucroBase] = useState("ticket"); // ticket | cadastrado
   const [simVals, setSimVals] = useState(["50000","100000"]); // simulador: faturamentos a testar
   const [relMat, setRelMat] = useState(null); // {meses:[], itens:{nome:{un,porMes:{mes:{qtd,custo}}}}}
   const [relMatBusy, setRelMatBusy] = useState(false);
@@ -5650,6 +5651,12 @@ export default function App({user,onLogout}) {
                 taxaFixaMedia=Math.max(taxaFixaMedia,_n(o.p.taxa_fixa,0)); });
               const nPedidos = pedidosMes?.pedidos||0;
               const taxaFixaTotal = nPedidos*taxaFixaMedia;
+              const brutoCad = bruto;
+              const ticketL = Number(String(projTicket).replace(",","."))||0;
+              if (lucroBase==="ticket" && ticketL>0 && brutoCad>0) {
+                // vendas = pedidos × ticket médio (o que realmente costuma entrar); as taxas % acompanham na mesma proporção
+                const f = (nPedidos*ticketL)/brutoCad; bruto = nPedidos*ticketL; comissao*=f; imposto*=f; adiant*=f;
+              }
               const pct = comissao+imposto+adiant;
               const taxas = pct + taxaFixaTotal;
               const material = finSaidas.reduce((a,m)=>a+(Number(m.quantidade)||0)*(Number(m.estoque_produtos?.preco_unitario)||0),0);
@@ -5660,7 +5667,12 @@ export default function App({user,onLogout}) {
               return (
                 <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
                   <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:2}}>💰 Lucro do mês — {finMes}</div>
-                  <div style={{fontSize:11,color:"#94a3b8",marginBottom:10}}>Vendas dos pedidos do UpSeller (sem cancelados) pelo preço cadastrado, menos taxas, material usado e custos fixos.</div>
+                  <div style={{fontSize:11,color:"#94a3b8",marginBottom:6}}>Vendas dos pedidos do UpSeller (sem cancelados), menos taxas, material usado e custos fixos.</div>
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+                    {[["ticket",`Pedidos × ticket médio (${fm(ticketL)})`],["cadastrado","Pelo preço cadastrado"]].map(([k,r])=>(
+                      <button key={k} onClick={()=>setLucroBase(k)} style={{padding:"4px 10px",borderRadius:8,border:"1.5px solid "+(lucroBase===k?"#059669":"#e2e8f0"),background:lucroBase===k?"#d1fae5":"#fff",color:lucroBase===k?"#065f46":"#64748b",fontSize:11,fontWeight:700,cursor:"pointer"}}>{r}</button>
+                    ))}
+                  </div>
                   {!vendasMes ? <div style={{fontSize:12,color:"#94a3b8"}}>Carregando…</div> : (<>
                     {linha(`🛒 Vendas (${nPedidos} pedidos · ${Math.round(un)} itens)`, fm(bruto))}
                     {linha("🧾 Total de taxas", "− "+fm(taxas), "#ef4444")}
