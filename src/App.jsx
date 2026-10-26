@@ -131,6 +131,7 @@ export default function App({user,onLogout}) {
   const [projEstoque,         setProjEstoque]         = useState("");   // vazio = usa o gasto real do mês
   const [projOutros,          setProjOutros]          = useState("");
   const [projLucro,           setProjLucro]           = useState("");
+  const [projTicket,          setProjTicket]          = useState("27");
   const [projJa,              setProjJa]              = useState("");
   const [projMix,             setProjMix]             = useState({});   // {variacaoId: "%"}
   const [salvandoCusto,       setSalvandoCusto]       = useState(false);
@@ -515,7 +516,7 @@ export default function App({user,onLogout}) {
     fetchProjecao(orgId, finMes).then(r=>{
       if (!vivo) return;
       const d = r?.dados || {};
-      setProjBase(d.base||"compras"); setProjEstoque(d.estoque??""); setProjOutros(d.outros??""); setProjLucro(d.lucro??"");
+      setProjBase(d.base||"compras"); setProjEstoque(d.estoque??""); setProjOutros(d.outros??""); setProjLucro(d.lucro??""); setProjTicket(d.ticket??"27");
       setProjJa(d.ja??""); setProjMix(d.mix||{});
       setProjSalvaEm(r ? {quando:r.atualizado_em, quem:r.atualizado_por} : null);
     }).catch(()=>{});
@@ -523,7 +524,7 @@ export default function App({user,onLogout}) {
   }, [finMes, orgId, isAdminEquipe]);
   const salvarProjecaoMes = async () => {
     setSalvandoProj(true);
-    const r = await salvarProjecao(orgId, finMes, {base:projBase, estoque:projEstoque, outros:projOutros, lucro:projLucro, ja:projJa, mix:projMix}, meuNome);
+    const r = await salvarProjecao(orgId, finMes, {base:projBase, estoque:projEstoque, outros:projOutros, lucro:projLucro, ticket:projTicket, ja:projJa, mix:projMix}, meuNome);
     setSalvandoProj(false);
     if (r.error) { showToast("❌ "+r.error,"#991b1b"); return; }
     setProjSalvaEm({quando:new Date().toISOString(), quem:meuNome});
@@ -5647,7 +5648,7 @@ export default function App({user,onLogout}) {
                 vs.forEach(v=>{
                   const liq = liquidoDe(p,v.preco_venda);
                   const mp = custoMpDe(v);
-                  todas.push({id:v.id, nome:p.nome+(vs.length>1?" · "+v.nome:""), preco:Number(v.preco_venda)||0, liq, mp, contrib: liq-(projBase==="produto"?mp:(projBase==="saidas"&&matPorPedido!==null?matPorPedido:0))});
+                  todas.push({id:v.id, pct:(_n(p.taxa_plataforma_pct,0)+_n(p.taxa_imposto_pct,0)+_n(p.taxa_adiantamento_pct,0))/100, fixa:_n(p.taxa_fixa,0), nome:p.nome+(vs.length>1?" · "+v.nome:""), preco:Number(v.preco_venda)||0, liq, mp, contrib: liq-(projBase==="produto"?mp:(projBase==="saidas"&&matPorPedido!==null?matPorPedido:0))});
                 });
               });
               const validas = todas.filter(x=>x.preco>0&&x.contrib>0);
@@ -5655,8 +5656,16 @@ export default function App({user,onLogout}) {
               const algumMix = validas.some(x=>peso(x)!==null);
               const pesos = validas.map(x=>algumMix?(peso(x)||0):1);
               const soma = pesos.reduce((a,b)=>a+b,0);
-              const contribMedia = soma>0 ? validas.reduce((a,x,i)=>a+x.contrib*pesos[i],0)/soma : 0;
-              const precoMedio  = soma>0 ? validas.reduce((a,x,i)=>a+x.preco*pesos[i],0)/soma : 0;
+              const contribMix = soma>0 ? validas.reduce((a,x,i)=>a+x.contrib*pesos[i],0)/soma : 0;
+              const precoMix  = soma>0 ? validas.reduce((a,x,i)=>a+x.preco*pesos[i],0)/soma : 0;
+              // Ticket médio por PEDIDO fixo (padrão R$ 27): sobra = ticket − % de taxas − taxa fixa (por pedido) − material
+              const ticket = Number(String(projTicket).replace(",","."))||0;
+              const pctMedio = soma>0 ? validas.reduce((a,x,i)=>a+x.pct*pesos[i],0)/soma : 0;
+              const fixaPed = validas.reduce((m,x)=>Math.max(m,x.fixa),0);
+              const mpMedio = soma>0 ? validas.reduce((a,x,i)=>a+(projBase==="produto"?x.mp:(projBase==="saidas"&&matPorPedido!==null?matPorPedido:0))*pesos[i],0)/soma : 0;
+              const contribTicket = ticket*(1-pctMedio) - fixaPed - mpMedio;
+              const contribMedia = ticket>0 ? contribTicket : contribMix;
+              const precoMedio  = ticket>0 ? ticket : precoMix;
               const unidades = contribMedia>0 ? Math.ceil(meta/contribMedia) : null;
               const faturamento = unidades!==null ? unidades*precoMedio : null;
               const faltam = unidades!==null ? Math.max(0,unidades-ja) : null;
@@ -5716,6 +5725,10 @@ export default function App({user,onLogout}) {
                       <div>
                         <label style={lb}>Lucro que quero tirar (R$)</label>
                         <input type="number" min="0" step="0.01" value={projLucro} onChange={e=>setProjLucro(e.target.value)} placeholder="0,00" style={inp} />
+                      </div>
+                      <div>
+                        <label style={lb}>Ticket médio por pedido (R$) — fixo</label>
+                        <input type="number" min="0" step="0.01" value={projTicket} onChange={e=>setProjTicket(e.target.value)} placeholder="27,00" style={inp} />
                       </div>
                     </div>
                     <div style={{display:"flex",justifyContent:"space-between",marginTop:10,paddingTop:8,borderTop:"1px solid #e2e8f0",fontSize:13}}>
@@ -5802,12 +5815,12 @@ export default function App({user,onLogout}) {
                       <>
                         <div style={{fontSize:11,opacity:.85,marginBottom:6}}>Para cobrir {fm(meta)} você precisa vender no mês:</div>
                         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:12}}>
-                          <div><div style={{fontSize:22,fontWeight:800}}>{unidades}</div><div style={{fontSize:10,opacity:.85}}>unidades (≈ {(unidades/diasMes).toFixed(1)}/dia no mês todo)</div></div>
-                          <div><div style={{fontSize:22,fontWeight:800}}>{fm(faturamento)}</div><div style={{fontSize:10,opacity:.85}}>de faturamento (preço médio {fm(precoMedio)})</div></div>
+                          <div><div style={{fontSize:22,fontWeight:800}}>{unidades}</div><div style={{fontSize:10,opacity:.85}}>pedidos (≈ {(unidades/diasMes).toFixed(1)}/dia no mês todo)</div></div>
+                          <div><div style={{fontSize:22,fontWeight:800}}>{fm(faturamento)}</div><div style={{fontSize:10,opacity:.85}}>de faturamento (ticket médio {fm(precoMedio)})</div></div>
                           <div><div style={{fontSize:22,fontWeight:800}}>{fm(contribMedia)}</div><div style={{fontSize:10,opacity:.85}}>sobra média por venda</div></div>
                         </div>
                         <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid rgba(255,255,255,.25)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
-                          <label style={{fontSize:11,opacity:.9}}>Já vendi no mês (unidades):</label>
+                          <label style={{fontSize:11,opacity:.9}}>Já vendi no mês (pedidos):</label>
                           <input type="number" min="0" value={projJa} onChange={e=>setProjJa(e.target.value)} placeholder={String(jaAuto)} style={{width:90,padding:"6px 8px",border:"none",borderRadius:8,fontSize:13,outline:"none"}} />
                           {ja>0&&(
                             <span style={{fontSize:12,fontWeight:700}}>
