@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, lazy, Suspense } from "react";
+import { useState, useRef, useEffect, lazy, Suspense, Fragment } from "react";
 const Ferramentas = lazy(() => import("./Ferramentas.jsx"));
 import { waUrl, getXLSX, PEDIDO_COLS, DEVOLUCAO_COLS, norm, parseSheet, normStatus, mesReferencia, mesLabel, corRecorrencia, formatMotivoCancelamento, isEnviado, isCancelado, isAberto, isHistorico, deadlineInfo, fmtBRL, currentMes, StatusBadge, StyledCheckbox, FeitoButton, RevisaoButton, VazioButton, ExpandCell, DropZone, Toast, RevisaoModal, FinanceGate, TabBar, TH, TD, _n, _norm, _tokens, similaridade, melhorMatch, mapUnidade, arquivoParaBase64, prepararImagemNota, fmtBRLn, quandoFmt, liquidoDe, custoMpDe } from "./helpers.jsx";
 import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, atualizarPerdaMp, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchVendasMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, lerVariacoesPrint, baixaRetroativa, baixaRecalcular, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
@@ -126,7 +126,7 @@ export default function App({user,onLogout}) {
   const [custoObs,            setCustoObs]            = useState("");
   const [custoVenc,           setCustoVenc]           = useState("");
   const [custosPagos,         setCustosPagos]         = useState([]); // ids pagos no mês finMes
-  const [projBase,            setProjBase]            = useState("compras"); // compras | saidas | produto
+  const [projBase,            setProjBase]            = useState("saidas"); // compras | saidas | produto
   const [finSaidas,           setFinSaidas]           = useState([]);
   const [projEstoque,         setProjEstoque]         = useState("");   // vazio = usa o gasto real do mês
   const [projOutros,          setProjOutros]          = useState("");
@@ -517,7 +517,7 @@ export default function App({user,onLogout}) {
     fetchProjecao(orgId, finMes).then(r=>{
       if (!vivo) return;
       const d = r?.dados || {};
-      setProjBase(d.base||"compras"); setProjEstoque(d.estoque??""); setProjOutros(d.outros??""); setProjLucro(d.lucro??""); setProjTicket(d.ticket??"27");
+      setProjBase(d.base||"saidas"); setProjEstoque(d.estoque??""); setProjOutros(d.outros??""); setProjLucro(d.lucro??""); setProjTicket(d.ticket??"27");
       setProjJa(d.ja??""); setProjMix(d.mix||{});
       setProjSalvaEm(r ? {quando:r.atualizado_em, quem:r.atualizado_por} : null);
     }).catch(()=>{});
@@ -5817,12 +5817,27 @@ export default function App({user,onLogout}) {
                       <div style={{fontSize:13}}>Nenhum produto com lucro por venda positivo. Confira preços e custos na aba Produtos.</div>
                     ) : (
                       <>
-                        <div style={{fontSize:11,opacity:.85,marginBottom:6}}>Para cobrir {fm(meta)} você precisa vender no mês:</div>
+                        <div style={{fontSize:11,opacity:.85,marginBottom:6}}>Para cobrir {fm(meta)} (custos fixos{outros>0?" + outros":""}{lucroDes>0?" + lucro desejado":""}) mais as taxas e o material de cada pedido, você precisa vender no mês:</div>
                         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:12}}>
                           <div><div style={{fontSize:22,fontWeight:800}}>{unidades}</div><div style={{fontSize:10,opacity:.85}}>pedidos (≈ {(unidades/diasMes).toFixed(1)}/dia no mês todo)</div></div>
                           <div><div style={{fontSize:22,fontWeight:800}}>{fm(faturamento)}</div><div style={{fontSize:10,opacity:.85}}>de faturamento (ticket médio {fm(precoMedio)})</div></div>
                           <div><div style={{fontSize:22,fontWeight:800}}>{fm(contribMedia)}</div><div style={{fontSize:10,opacity:.85}}>sobra média por venda</div></div>
                         </div>
+                        {ticket>0&&(()=>{
+                          const tPct = ticket*pctMedio;
+                          const linhas = [["Ticket médio",ticket,false],["Comissão + imposto + adiantamento ("+(pctMedio*100).toFixed(1).replace(".",",")+"%)",-tPct,true],["Taxa fixa da Shopee",-fixaPed,true],["Material usado",-mpMedio,true]];
+                          return (
+                            <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid rgba(255,255,255,.25)",fontSize:12}}>
+                              <div style={{display:"grid",gridTemplateColumns:"1fr auto auto",gap:"3px 14px",alignItems:"baseline"}}>
+                                <div style={{opacity:.7,fontSize:10}}>Conta de cada pedido</div><div style={{opacity:.7,fontSize:10,textAlign:"right"}}>por pedido</div><div style={{opacity:.7,fontSize:10,textAlign:"right"}}>no mês ({unidades} ped.)</div>
+                                {linhas.map(([r,v])=>(<Fragment key={r}><div>{r}</div><div style={{textAlign:"right"}}>{v<0?"− ":""}{fm(Math.abs(v))}</div><div style={{textAlign:"right"}}>{v<0?"− ":""}{fm(Math.abs(v)*unidades)}</div></Fragment>))}
+                                <div style={{fontWeight:800}}>= Sobra para pagar os custos fixos{lucroDes>0?" e o lucro":""}</div><div style={{textAlign:"right",fontWeight:800}}>{fm(contribMedia)}</div><div style={{textAlign:"right",fontWeight:800}}>{fm(contribMedia*unidades)}</div>
+                                <div>− Custos fixos{outros>0?" + outros":""}</div><div></div><div style={{textAlign:"right"}}>− {fm(totalFixos+outros+(usaCompras?estoqueVal:0))}</div>
+                                <div style={{fontWeight:800}}>= Lucro no mês</div><div></div><div style={{textAlign:"right",fontWeight:800}}>{fm(contribMedia*unidades-(totalFixos+outros+(usaCompras?estoqueVal:0)))}</div>
+                              </div>
+                            </div>
+                          );
+                        })()}
                         <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid rgba(255,255,255,.25)",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
                           <label style={{fontSize:11,opacity:.9}}>Já vendi no mês (pedidos):</label>
                           <input type="number" min="0" value={projJa} onChange={e=>setProjJa(e.target.value)} placeholder={String(jaAuto)} style={{width:90,padding:"6px 8px",border:"none",borderRadius:8,fontSize:13,outline:"none"}} />
