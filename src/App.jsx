@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, lazy, Suspense, Fragment } from "react";
 const Ferramentas = lazy(() => import("./Ferramentas.jsx"));
 import { waUrl, getXLSX, PEDIDO_COLS, DEVOLUCAO_COLS, norm, parseSheet, normStatus, mesReferencia, mesLabel, corRecorrencia, formatMotivoCancelamento, isEnviado, isCancelado, isAberto, isHistorico, deadlineInfo, fmtBRL, currentMes, StatusBadge, StyledCheckbox, FeitoButton, RevisaoButton, VazioButton, ExpandCell, DropZone, Toast, RevisaoModal, FinanceGate, TabBar, TH, TD, _n, _norm, _tokens, similaridade, melhorMatch, mapUnidade, arquivoParaBase64, prepararImagemNota, fmtBRLn, quandoFmt, liquidoDe, custoMpDe } from "./helpers.jsx";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, atualizarPerdaMp, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchVendasMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, lerVariacoesPrint, baixaRetroativa, baixaRecalcular, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, atualizarPerdaMp, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchSaidasTodas, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchVendasMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, lerVariacoesPrint, baixaRetroativa, baixaRecalcular, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 export default function App({user,onLogout}) {
   const [allPedidos,    setAllPedidos]    = useState([]);
@@ -446,6 +446,8 @@ export default function App({user,onLogout}) {
   const [vincBusca, setVincBusca] = useState("");
   const [projListaAberta, setProjListaAberta] = useState(false);
   const [projMatAberto, setProjMatAberto] = useState(false);
+  const [relMat, setRelMat] = useState(null); // {meses:[], itens:{nome:{un,porMes:{mes:{qtd,custo}}}}}
+  const [relMatBusy, setRelMatBusy] = useState(false);
   const [vincSo, setVincSo] = useState("pendentes");
   const [baixaInfo, setBaixaInfo] = useState(null);
   const [baixaBusy, setBaixaBusy] = useState(false);
@@ -530,6 +532,34 @@ export default function App({user,onLogout}) {
     if (r.error) { showToast("❌ "+r.error,"#991b1b"); return; }
     setProjSalvaEm({quando:new Date().toISOString(), quem:meuNome});
     showToast("💾 Projeção de "+finMes+" salva!","#059669");
+  };
+  const abrirRelatorioMaterial = async () => {
+    if (relMat) { setRelMat(null); return; }
+    setRelMatBusy(true);
+    const r = await fetchSaidasTodas(user.id, orgId);
+    setRelMatBusy(false);
+    if (r?.error) { showToast("❌ "+r.error,"#991b1b"); return; }
+    const itens = {}; const mesesSet = new Set();
+    r.forEach(m=>{
+      const d = new Date(m.criado_em); const mes = d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0");
+      mesesSet.add(mes);
+      const nome = m.estoque_produtos?.nome||"(material removido)";
+      const it = itens[nome] || (itens[nome]={un:m.estoque_produtos?.unidade||"",pr:Number(m.estoque_produtos?.preco_unitario)||0,porMes:{}});
+      const c = it.porMes[mes] || (it.porMes[mes]={qtd:0,custo:0});
+      const q = Number(m.quantidade)||0; c.qtd+=q; c.custo+=q*it.pr;
+    });
+    setRelMat({meses:[...mesesSet].sort(), itens});
+  };
+  const baixarRelatorioMaterial = async () => {
+    if (!relMat) return;
+    const R2 = (n)=>Math.round((Number(n)||0)*100)/100;
+    const resumo = relMat.meses.map(mes=>({Mês:mes,"Material usado (R$)":R2(Object.values(relMat.itens).reduce((a,it)=>a+(it.porMes[mes]?.custo||0),0))}));
+    const porMat = [];
+    Object.entries(relMat.itens).sort((a,b)=>a[0].localeCompare(b[0])).forEach(([nome,it])=>relMat.meses.forEach(mes=>{ const c=it.porMes[mes]; if(c&&(c.qtd||c.custo)) porMat.push({Mês:mes,Material:nome,Quantidade:R2(c.qtd*1000)/1000,Unidade:it.un,"Preço unit. (R$)":R2(it.pr),"Custo (R$)":R2(c.custo)}); }));
+    const XL = await getXLSX(); const wb = XL.utils.book_new();
+    XL.utils.book_append_sheet(wb, XL.utils.json_to_sheet(resumo.length?resumo:[{"(vazio)":"Nenhum registro"}]), "Total por mês");
+    XL.utils.book_append_sheet(wb, XL.utils.json_to_sheet(porMat.length?porMat:[{"(vazio)":"Nenhum registro"}]), "Por material e mês");
+    XL.writeFile(wb, "material_usado_todos_os_meses.xlsx");
   };
   const exportarContador = async () => {
     const R2 = (n)=>Math.round((Number(n)||0)*100)/100;
@@ -5545,7 +5575,41 @@ export default function App({user,onLogout}) {
               const totalCusto = lista.reduce((a,x)=>a+x.custo,0);
               return (
                 <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
-                  <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:4}}>📤 Material usado em {finMes}</div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap",marginBottom:4}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#1e293b"}}>📤 Material usado em {finMes}</div>
+                    <button onClick={abrirRelatorioMaterial} disabled={relMatBusy} style={{background:relMat?"#e0f2fe":"#0369a1",color:relMat?"#0369a1":"#fff",border:"none",borderRadius:8,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>{relMatBusy?"Carregando…":relMat?"Fechar relatório":"📊 Relatório de todos os meses"}</button>
+                  </div>
+                  {relMat&&(()=>{
+                    const fmr = (n)=>"R$ "+Number(n||0).toFixed(2).replace(".",",");
+                    const fqr = (n)=>Number(Number(n).toFixed(3)).toString().replace(".",",");
+                    const nomes = Object.keys(relMat.itens).sort((a,b)=>a.localeCompare(b));
+                    const totMes = relMat.meses.map(mes=>nomes.reduce((a,n)=>a+(relMat.itens[n].porMes[mes]?.custo||0),0));
+                    return (
+                      <div style={{background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:10,padding:"10px 12px",marginBottom:12}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:8}}>
+                          <span style={{fontSize:12,fontWeight:700,color:"#0369a1"}}>Todos os meses · quantidade e custo de cada material</span>
+                          <button onClick={baixarRelatorioMaterial} style={{background:"#059669",color:"#fff",border:"none",borderRadius:8,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>⬇ Baixar Excel</button>
+                        </div>
+                        {relMat.meses.length===0 ? <div style={{fontSize:12,color:"#94a3b8"}}>Nenhuma baixa de pedidos registrada ainda.</div> : (
+                          <div style={{overflowX:"auto"}}>
+                            <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                              <thead><tr><th style={{...TH,padding:"5px 8px"}}>Material</th>{relMat.meses.map(m=><th key={m} style={{...TH,padding:"5px 8px",textAlign:"right"}}>{m}</th>)}</tr></thead>
+                              <tbody>
+                                {nomes.map(n=>(
+                                  <tr key={n} style={{borderBottom:"1px solid #e0f2fe"}}>
+                                    <td style={{padding:"5px 8px",fontWeight:600}}>{n}</td>
+                                    {relMat.meses.map(m=>{ const c=relMat.itens[n].porMes[m]; return <td key={m} style={{padding:"5px 8px",textAlign:"right",whiteSpace:"nowrap"}}>{c?<>{fqr(c.qtd)} {relMat.itens[n].un}<div style={{fontSize:10,color:"#0369a1"}}>{fmr(c.custo)}</div></>:"—"}</td>; })}
+                                  </tr>
+                                ))}
+                                <tr style={{background:"#e0f2fe",fontWeight:800}}><td style={{padding:"6px 8px"}}>Total do mês</td>{totMes.map((t,i)=><td key={i} style={{padding:"6px 8px",textAlign:"right",color:"#0369a1"}}>{fmr(t)}</td>)}</tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                        <div style={{fontSize:10,color:"#94a3b8",marginTop:6}}>Custo = quantidade × preço atual do material no Estoque+.</div>
+                      </div>
+                    );
+                  })()}
                   <div style={{fontSize:11,color:"#94a3b8",marginBottom:12}}>Material consumido pelos pedidos do UpSeller já vinculados (baixa automática e retroativa). Saídas manuais do estoque não entram aqui.</div>
                   {lista.length===0 ? (
                     <div style={{textAlign:"center",padding:"16px 0",color:"#94a3b8",fontSize:12}}>Nenhuma baixa de pedidos do UpSeller neste mês. Ative a baixa e rode a retroativa em Produtos → Vincular.</div>

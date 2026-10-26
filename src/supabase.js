@@ -874,6 +874,23 @@ export async function fetchSaidasMes(userId, orgId, mes) {
   return (data || []).filter(dePedido).map(m => m.tipo === 'entrada' ? { ...m, quantidade: -Number(m.quantidade) } : m)
 }
 
+// Material usado de TODOS os meses (mesma regra do mês: só baixa de pedidos do UpSeller e estornos), paginado
+export async function fetchSaidasTodas(userId, orgId) {
+  const dePedido = m => /^(Baixa autom|Baixa retroativa|Estorno)/.test(String(m.motivo || ''))
+  const out = []
+  for (let from = 0; ; from += 1000) {
+    let q = supabase.from('estoque_movimentos')
+      .select('criado_em, tipo, quantidade, motivo, estoque_produtos(nome, unidade, preco_unitario)')
+      .or('tipo.eq.saida,and(tipo.eq.entrada,motivo.like.Estorno%)')
+    q = orgId ? q.eq('organizacao_id', orgId) : q.eq('user_id', userId)
+    const { data, error } = await q.order('criado_em', { ascending: true }).range(from, from + 999)
+    if (error) { console.error('fetchSaidasTodas error:', error.message); return { error: error.message } }
+    out.push(...(data || []))
+    if (!data || data.length < 1000) break
+  }
+  return out.filter(dePedido).map(m => m.tipo === 'entrada' ? { ...m, quantidade: -Number(m.quantidade) } : m)
+}
+
 // ─── Histórico de operações e desfazer ───────────────────────────────────────
 
 export const pick = (o, cols) => Object.fromEntries(cols.filter(c => o && c in o).map(c => [c, o[c]]))
