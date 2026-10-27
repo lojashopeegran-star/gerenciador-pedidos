@@ -1185,6 +1185,11 @@ export async function fetchVendasMes(orgId, mes) {
   return error ? { error: error.message } : data
 }
 
+export async function fetchPedidosValorMaterial(orgId, mes) {
+  const { data, error } = await supabase.rpc('pedidos_valor_material', { p_org: orgId, p_mes: mes || null })
+  return error ? { error: error.message } : (data || [])
+}
+
 export async function fetchVariacoesUpseller(orgId) {
   const { data, error } = await supabase.rpc('componentes_upseller', { p_org: orgId })
   return error ? { error: error.message } : (data || [])

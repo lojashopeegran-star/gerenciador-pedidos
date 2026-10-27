@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, lazy, Suspense, Fragment } from "react";
 const Ferramentas = lazy(() => import("./Ferramentas.jsx"));
 import { waUrl, getXLSX, PEDIDO_COLS, DEVOLUCAO_COLS, norm, parseSheet, normStatus, mesReferencia, mesLabel, corRecorrencia, formatMotivoCancelamento, isEnviado, isCancelado, isAberto, isHistorico, deadlineInfo, fmtBRL, currentMes, StatusBadge, StyledCheckbox, FeitoButton, RevisaoButton, VazioButton, ExpandCell, DropZone, Toast, RevisaoModal, FinanceGate, TabBar, TH, TD, _n, _norm, _tokens, similaridade, melhorMatch, mapUnidade, arquivoParaBase64, prepararImagemNota, fmtBRLn, quandoFmt, liquidoDe, custoMpDe } from "./helpers.jsx";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, atualizarPerdaMp, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchSaidasTodas, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchVendasMes, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, lerVariacoesPrint, baixaRetroativa, baixaRecalcular, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, atualizarPerdaMp, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchSaidasTodas, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchVendasMes, fetchPedidosValorMaterial, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, lerVariacoesPrint, baixaRetroativa, baixaRecalcular, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 export default function App({user,onLogout}) {
   const [allPedidos,    setAllPedidos]    = useState([]);
@@ -447,6 +447,10 @@ export default function App({user,onLogout}) {
   const [projListaAberta, setProjListaAberta] = useState(false);
   const [projMatAberto, setProjMatAberto] = useState(false);
   const [lucroBase, setLucroBase] = useState("ticket"); // ticket | cadastrado
+  const [mil, setMil] = useState(null); // {pedidos:[...], escopo}
+  const [milAberto, setMilAberto] = useState(false);
+  const [milEscopo, setMilEscopo] = useState("mes"); // mes | todos
+  const [milBusy, setMilBusy] = useState(false);
   const [simVals, setSimVals] = useState(["50000","100000"]); // simulador: faturamentos a testar
   const [relMat, setRelMat] = useState(null); // {meses:[], itens:{nome:{un,porMes:{mes:{qtd,custo}}}}}
   const [relMatBusy, setRelMatBusy] = useState(false);
@@ -562,6 +566,38 @@ export default function App({user,onLogout}) {
     XL.utils.book_append_sheet(wb, XL.utils.json_to_sheet(resumo.length?resumo:[{"(vazio)":"Nenhum registro"}]), "Total por mês");
     XL.utils.book_append_sheet(wb, XL.utils.json_to_sheet(porMat.length?porMat:[{"(vazio)":"Nenhum registro"}]), "Por material e mês");
     XL.writeFile(wb, "material_usado_todos_os_meses.xlsx");
+  };
+  const carregarMil = async (escopo) => {
+    setMilBusy(true);
+    const r = await fetchPedidosValorMaterial(orgId, escopo==="mes" ? finMes : null);
+    setMilBusy(false);
+    if (r?.error) { showToast("❌ "+r.error,"#991b1b"); return; }
+    setMil({pedidos:r, escopo});
+  };
+  useEffect(() => {
+    if (!milAberto || !orgId || !isAdminEquipe) return;
+    carregarMil(milEscopo);
+  }, [milAberto, milEscopo, finMes, orgId]);
+  // agrupa os pedidos em blocos de R$ 1.000 de vendas: o pedido que faz o bloco bater 1.000 fecha o bloco
+  const blocosMil = (pedidos, passo=1000) => {
+    const blocos = []; let cum = 0, atual = null;
+    pedidos.forEach(o=>{
+      if (!(o.valor>0)) return;
+      if (!atual) { atual = {n:blocos.length+1, ini:o.data, fim:o.data, pedidos:0, vendas:0, taxaPct:0, taxaFixa:0, material:0, semBaixa:0}; }
+      atual.pedidos++; atual.vendas+=Number(o.valor); atual.taxaPct+=Number(o.taxa_pct); atual.taxaFixa+=Number(o.taxa_fixa); atual.material+=Number(o.material); atual.fim=o.data; if(!o.baixado) atual.semBaixa++;
+      cum += Number(o.valor);
+      if (atual.vendas >= passo) { atual.completo=true; blocos.push(atual); atual=null; cum=0; }
+    });
+    if (atual) { atual.completo=false; blocos.push(atual); }
+    return blocos;
+  };
+  const baixarMil = async () => {
+    if (!mil) return;
+    const R2 = (n)=>Math.round((Number(n)||0)*100)/100;
+    const rows = blocosMil(mil.pedidos).map(b=>({"Bloco":b.n,"De":new Date(b.ini).toLocaleDateString("pt-BR"),"Até":new Date(b.fim).toLocaleDateString("pt-BR"),"Pedidos":b.pedidos,"Vendas (R$)":R2(b.vendas),"Comissão+imposto+adiantamento (R$)":R2(b.taxaPct),"Taxa fixa (R$)":R2(b.taxaFixa),"Material (R$)":R2(b.material),"Sobra (R$)":R2(b.vendas-b.taxaPct-b.taxaFixa-b.material),"Fechado":b.completo?"Sim":"Em andamento"}));
+    const XL = await getXLSX(); const wb = XL.utils.book_new();
+    XL.utils.book_append_sheet(wb, XL.utils.json_to_sheet(rows.length?rows:[{"(vazio)":"Nenhum registro"}]), "A cada R$ 1000");
+    XL.writeFile(wb, `registro_a_cada_1000_${mil.escopo==="mes"?finMes:"todos"}.xlsx`);
   };
   const exportarContador = async () => {
     const R2 = (n)=>Math.round((Number(n)||0)*100)/100;
@@ -5690,6 +5726,69 @@ export default function App({user,onLogout}) {
                     {bruto>0&&<div style={{fontSize:11,color:"#64748b",marginTop:6}}>Margem: {(lucro/bruto*100).toFixed(1).replace(".",",")}% das vendas</div>}
                     {semVinc>0&&<div style={{fontSize:11,color:"#b45309",marginTop:6}}>⚠️ {semVinc} unidade(s) vendida(s) sem vínculo com produto ficaram de fora das vendas. Vincule em 🔗 Vincular UpSeller para o cálculo ficar completo.</div>}
                     <div style={{fontSize:10,color:"#94a3b8",marginTop:6}}>O material só conta os pedidos já baixados (Para imprimir / Para retirada), enquanto as vendas incluem todos os pedidos do mês não cancelados; no meio do mês o lucro tende a aparecer um pouco maior.</div>
+                  </>)}
+                </div>
+              );
+            })()}
+
+            {/* Registro a cada R$ 1.000 em pedidos */}
+            {(()=>{
+              const fm = (n) => (n<0?"-":"")+"R$ "+Math.abs(Number(n||0)).toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
+              const dt = (d)=>new Date(d).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
+              const blocos = mil ? blocosMil(mil.pedidos) : [];
+              const fechados = blocos.filter(b=>b.completo);
+              const soma = (k)=>fechados.reduce((a,b)=>a+b[k],0);
+              const nF = fechados.length;
+              const sobra = (b)=>b.vendas-b.taxaPct-b.taxaFixa-b.material;
+              const semVinc = mil ? mil.pedidos.filter(o=>o.sem_vinculo||!(o.valor>0)).length : 0;
+              const th = {...TH,padding:"5px 8px",textAlign:"right",whiteSpace:"nowrap"};
+              const td = {padding:"5px 8px",textAlign:"right",whiteSpace:"nowrap"};
+              return (
+                <div style={{background:"#fff",borderRadius:14,padding:"16px 18px",boxShadow:"0 1px 3px rgba(0,0,0,0.07)",marginBottom:20}}>
+                  <button onClick={()=>setMilAberto(v=>!v)} style={{display:"flex",alignItems:"center",gap:6,width:"100%",textAlign:"left",background:"none",border:"none",padding:0,fontSize:13,fontWeight:700,color:"#1e293b",cursor:"pointer"}}>
+                    <span style={{display:"inline-block",transition:"transform .15s",transform:milAberto?"rotate(90deg)":"none"}}>▶</span>
+                    📈 Registro a cada R$ 1.000 em pedidos {!milAberto&&<span style={{fontWeight:500,color:"#94a3b8",fontSize:11}}>· clique para abrir</span>}
+                  </button>
+                  {milAberto&&(<>
+                    <div style={{fontSize:11,color:"#94a3b8",margin:"4px 0 8px"}}>Os pedidos do UpSeller (sem cancelados) são somados em ordem de data. Cada vez que as vendas batem R$ 1.000, o sistema fecha um bloco e calcula o material gasto, as taxas e quanto sobrou. Sobra = vendas − comissão/imposto/adiantamento − taxa fixa − material (antes dos custos fixos).</div>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:10}}>
+                      {[["mes",`Só ${finMes}`],["todos","Todos os meses"]].map(([k,r])=>(
+                        <button key={k} onClick={()=>setMilEscopo(k)} style={{padding:"4px 10px",borderRadius:8,border:"1.5px solid "+(milEscopo===k?"#0369a1":"#e2e8f0"),background:milEscopo===k?"#e0f2fe":"#fff",color:milEscopo===k?"#0369a1":"#64748b",fontSize:11,fontWeight:700,cursor:"pointer"}}>{r}</button>
+                      ))}
+                      {mil&&blocos.length>0&&<button onClick={baixarMil} style={{marginLeft:"auto",background:"#059669",color:"#fff",border:"none",borderRadius:8,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"}}>⬇ Baixar Excel</button>}
+                    </div>
+                    {milBusy||!mil ? <div style={{fontSize:12,color:"#94a3b8"}}>Carregando…</div> : blocos.length===0 ? <div style={{fontSize:12,color:"#94a3b8"}}>Nenhum pedido com valor neste período.</div> : (<>
+                      {nF>0&&(
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:8,marginBottom:10}}>
+                          {[["Sobra média a cada R$ 1.000",fm(soma("vendas")>0?(soma("vendas")-soma("taxaPct")-soma("taxaFixa")-soma("material"))/nF:0),"#059669","#d1fae5"],
+                            ["Material médio",fm(soma("material")/nF),"#0369a1","#e0f2fe"],
+                            ["Taxas médias (comissão+imposto+adiant.)",fm(soma("taxaPct")/nF),"#b45309","#fef3c7"],
+                            ["Taxa fixa média",fm(soma("taxaFixa")/nF),"#b45309","#fef3c7"]].map(([r,v,c,bg])=>(
+                            <div key={r} style={{background:bg,borderRadius:10,padding:"8px 12px"}}><div style={{fontSize:10,color:c,fontWeight:600}}>{r}</div><div style={{fontSize:16,fontWeight:800,color:c}}>{v}</div></div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{overflowX:"auto",maxHeight:420,overflowY:"auto"}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                          <thead><tr><th style={{...th,textAlign:"left"}}>Bloco</th><th style={th}>Pedidos</th><th style={th}>Vendas</th><th style={th}>Comissão+imposto+adiant.</th><th style={th}>Taxa fixa</th><th style={th}>Material</th><th style={th}>Sobra</th><th style={th}>% sobra</th></tr></thead>
+                          <tbody>
+                            {blocos.map(b=>(
+                              <tr key={b.n} style={{borderBottom:"1px solid #f1f5f9",opacity:b.completo?1:0.6}}>
+                                <td style={{...td,textAlign:"left"}}><strong>#{b.n}</strong> <span style={{color:"#94a3b8",fontSize:10}}>{dt(b.ini)}–{dt(b.fim)}{!b.completo&&" · em andamento"}</span></td>
+                                <td style={td}>{b.pedidos}</td>
+                                <td style={td}>{fm(b.vendas)}</td>
+                                <td style={{...td,color:"#b45309"}}>{fm(b.taxaPct)}</td>
+                                <td style={{...td,color:"#b45309"}}>{fm(b.taxaFixa)}</td>
+                                <td style={{...td,color:"#0369a1"}}>{fm(b.material)}{b.semBaixa>0&&<span title={`${b.semBaixa} pedido(s) ainda sem baixa de material`} style={{color:"#f59e0b"}}> ⚠</span>}</td>
+                                <td style={{...td,fontWeight:800,color:sobra(b)>=0?"#059669":"#dc2626"}}>{fm(sobra(b))}</td>
+                                <td style={td}>{b.vendas>0?(sobra(b)/b.vendas*100).toFixed(1).replace(".",",")+"%":"—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div style={{fontSize:10,color:"#94a3b8",marginTop:6}}>Valor dos pedidos = preço cadastrado das variações vinculadas. Material = o que saiu na baixa de cada pedido (⚠ = pedido sem baixa ainda). {semVinc>0&&`${semVinc} pedido(s) sem vínculo/preço ficaram de fora dos blocos.`}</div>
+                    </>)}
                   </>)}
                 </div>
               );
