@@ -4958,7 +4958,7 @@ export default function App({user,onLogout}) {
                   const real = Number(String(plusMovQtd).replace(",","."));
                   if (plusMovQtd===""||isNaN(real)||real<0) { showToast("❌ Informe a quantidade real (0 ou mais).","#991b1b"); return; }
                   const atual = Number(pm?.quantidade_atual)||0;
-                  const diff = Math.round((real-atual)*1000)/1000;
+                  const diff = Math.round((real-atual)*1000000)/1000000;
                   if (diff===0) { showToast("A quantidade já está certa. Nada a ajustar.","#64748b"); setPlusMov(null); return; }
                   setPlusMovBusy(true);
                   const motivoAj = `Ajuste de contagem (de ${atual} para ${real})${plusMovMotivo?" — "+plusMovMotivo:""}`;
