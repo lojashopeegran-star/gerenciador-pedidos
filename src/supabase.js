@@ -569,7 +569,7 @@ export async function registrarMovimentoEstoque(userId, orgId, membroNome, movim
 
   const delta = movimento.tipo === 'entrada' ? quantidade : -quantidade
   const novoSaldo = Number(prod.quantidade_atual) + delta
-  if (novoSaldo < 0) return { error: 'Estoque insuficiente para saída' }
+  if (novoSaldo < 0) return { error: `Estoque insuficiente para saída (saldo atual: ${Number(Number(prod.quantidade_atual).toFixed(4))}). Para corrigir o saldo use o botão ✏️ (quantidade real) no Estoque+.` }
 
   // Atualiza saldo
   await supabase.from('estoque_produtos')
