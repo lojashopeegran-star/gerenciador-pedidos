@@ -173,6 +173,7 @@ export default function App({user,onLogout}) {
   const [plusCatNovo, setPlusCatNovo] = useState(false);
   const [prodTabAbertas, setProdTabAbertas] = useState({}); // cards de produto com a tabela de variações expandida
   const [plusSel, setPlusSel] = useState([]);
+  const [plusQtdPed, setPlusQtdPed] = useState({}); // quantidade a pedir por material selecionado (id -> texto)
   // lista suspensa de categorias já usadas (+ nova) e um único × para excluir a categoria escolhida
   const seletorCategoria = (valor, setValor, novo, setNovo, estiloInput) => {
     const cs = [...new Set(estoqueProdutos.map(x=>x.categoria).filter(Boolean))].sort();
@@ -4686,8 +4687,11 @@ export default function App({user,onLogout}) {
                 const sel = estoqueProdutos.filter(x=>plusSel.includes(x.id));
                 const grupos = {};
                 sel.forEach(x=>{ const k=x.fornecedor_id||"__sem"; (grupos[k]=grupos[k]||[]).push(x); });
+                const faltaDe = (x)=>Math.max(0,(Number(x.quantidade_minima)||0)-(Number(x.quantidade_atual)||0));
+                // quantidade a pedir: a que você digitou; senão o que falta para o mínimo; senão (acima do mínimo) sem quantidade
+                const qtdPedir = (x)=>{ const d=plusQtdPed[x.id]; if(d!==undefined&&d!=="") { const n=Number(String(d).replace(",",".")); return n>0?n:0; } return faltaDe(x); };
                 const msgPara = (itens) => {
-                  const linhas = itens.map(x=>{ const faltam=Math.max(0,(Number(x.quantidade_minima)||0)-(Number(x.quantidade_atual)||0)); const un=x.unidade||"un"; return faltam>0?`• ${Number(faltam.toFixed(3))} ${un} de *${x.nome}*`:`• *${x.nome}*`; }).join("\n");
+                  const linhas = itens.map(x=>{ const q=qtdPedir(x); const un=x.unidade||"un"; return q>0?`• ${Number(q.toFixed(3))} ${un} de *${x.nome}*`:`• *${x.nome}*`; }).join("\n");
                   return `Oi, tudo bem?\n\nPreciso repor o seguinte:\n${linhas}\n\nPode me passar disponibilidade, preço e prazo para entrega? Obrigado!`;
                 };
                 const chip = (on)=>({padding:"6px 10px",border:"1.5px solid "+(on?"#7c3aed":"#e2e8f0"),borderRadius:20,background:on?"#ede9fe":"#fff",color:on?"#6d28d9":"#475569",fontSize:12,fontWeight:600,cursor:"pointer"});
@@ -4720,7 +4724,16 @@ export default function App({user,onLogout}) {
                             <div key={fid} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,flexWrap:"wrap",padding:"6px 0",borderTop:"1px solid #dcfce7"}}>
                               <div style={{fontSize:12,color:"#1e293b",minWidth:0}}>
                                 <strong>{fo?fo.nome:"Sem fornecedor"}</strong> · {itens.length} item(ns)
-                                <div style={{fontSize:10,color:"#64748b"}}>{itens.map(x=>x.nome).join(", ")}</div>
+                                <div style={{display:"flex",flexDirection:"column",gap:3,marginTop:4}}>
+                                  {itens.map(x=>(
+                                    <div key={x.id} style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",fontSize:11,color:"#475569"}}>
+                                      <span style={{minWidth:0}}>{x.nome} <span style={{color:"#94a3b8"}}>(tem {String(Number(Number(x.quantidade_atual).toFixed(3))).replace(".",",")} {x.unidade})</span></span>
+                                      <input type="number" min="0" step="any" value={plusQtdPed[x.id]??""} onChange={e=>setPlusQtdPed(m=>({...m,[x.id]:e.target.value}))} placeholder={faltaDe(x)>0?String(Number(faltaDe(x).toFixed(3))):"qtd"} style={{width:64,padding:"3px 6px",border:"1.5px solid #bbf7d0",borderRadius:6,fontSize:11,outline:"none"}} />
+                                      <span style={{color:"#94a3b8"}}>{x.unidade}</span>
+                                    </div>
+                                  ))}
+                                  <div style={{fontSize:10,color:"#94a3b8"}}>Todos os selecionados vão na mensagem. Sem quantidade, vai só o nome (ou o que falta para o mínimo).</div>
+                                </div>
                               </div>
                               {url
                                 ? <a href={url} target="_blank" rel="noreferrer" style={{background:"#25d366",color:"#fff",borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap"}}>📲 Pedir tudo no WhatsApp</a>
