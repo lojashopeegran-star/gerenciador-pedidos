@@ -446,7 +446,7 @@ export default function App({user,onLogout}) {
   const [vincBusca, setVincBusca] = useState("");
   const [projListaAberta, setProjListaAberta] = useState(false);
   const [projMatAberto, setProjMatAberto] = useState(false);
-  const [lucroBase, setLucroBase] = useState("ticket"); // ticket | cadastrado | real
+  const [lucroBase, setLucroBase] = useState("cadastrado"); // ticket | cadastrado | real
   const [vendasReais, setVendasReais] = useState(""); // vendas válidas do relatório do UpSeller (R$), opcional
   const [mil, setMil] = useState(null); // {pedidos:[...], escopo}
   const [milAberto, setMilAberto] = useState(false);
