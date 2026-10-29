@@ -4753,6 +4753,7 @@ export default function App({user,onLogout}) {
                         <div style={{display:"flex",gap:4}}>
                           <button onClick={()=>{setPlusMov({id:p.id,tipo:"entrada"});setPlusMovQtd("");setPlusMovMotivo("");}} title="Adicionar quantidade (entrada)" style={{background:"#059669",color:"#fff",border:"none",borderRadius:6,padding:"4px 9px",fontSize:12,fontWeight:700,cursor:"pointer"}}>＋</button>
                           <button onClick={()=>{setPlusMov({id:p.id,tipo:"saida"});setPlusMovQtd("");setPlusMovMotivo("");}} title="Registrar saída" style={{background:"#f59e0b",color:"#fff",border:"none",borderRadius:6,padding:"4px 9px",fontSize:12,fontWeight:700,cursor:"pointer"}}>－</button>
+                          <button onClick={()=>{setPlusMov({id:p.id,tipo:"ajuste"});setPlusMovQtd("");setPlusMovMotivo("");}} title="Ajustar para a quantidade real (contagem)" style={{background:"#6366f1",color:"#fff",border:"none",borderRadius:6,padding:"4px 9px",fontSize:12,fontWeight:700,cursor:"pointer"}}>✏️</button>
                         </div>
                       </div>
                       {p.categoria&&<div style={{display:"inline-block",background:"#f1f5f9",borderRadius:20,padding:"1px 8px",fontSize:10,color:"#64748b",marginBottom:6}}>{p.categoria}</div>}
@@ -4937,8 +4938,28 @@ export default function App({user,onLogout}) {
             {/* Modal: lançamento rápido de entrada/saída */}
             {plusMov&&(()=>{
               const pm = estoqueProdutos.find(x=>x.id===plusMov.id);
+              const ajuste = plusMov.tipo==="ajuste";
               const ent = plusMov.tipo==="entrada";
               const salvarPlusMov = async () => {
+                if (ajuste) {
+                  const real = Number(String(plusMovQtd).replace(",","."));
+                  if (plusMovQtd===""||isNaN(real)||real<0) { showToast("❌ Informe a quantidade real (0 ou mais).","#991b1b"); return; }
+                  const atual = Number(pm?.quantidade_atual)||0;
+                  const diff = Math.round((real-atual)*1000)/1000;
+                  if (diff===0) { showToast("A quantidade já está certa. Nada a ajustar.","#64748b"); setPlusMov(null); return; }
+                  setPlusMovBusy(true);
+                  const motivoAj = `Ajuste de contagem (de ${atual} para ${real})${plusMovMotivo?" — "+plusMovMotivo:""}`;
+                  // ajuste não é compra: sem preço/fornecedor, para não entrar no gasto de material do Financeiro
+                  const res = await registrarMovimentoEstoque(user.id, orgId, meuNome, {produto_id:plusMov.id, tipo:diff>0?"entrada":"saida", quantidade:Math.abs(diff), motivo:motivoAj, preco_unitario:null, fornecedor_id:null});
+                  setPlusMovBusy(false);
+                  if (res.error) { showToast("❌ "+res.error,"#991b1b"); return; }
+                  if (res.movimento) logOp({tipo:"estoque",acao:"criar",descricao:`Ajuste de contagem: ${pm?.nome||"material"} de ${atual} para ${real} ${pm?.unidade||""}`,tabela:"estoque_movimentos",registro_id:res.movimento.id,depois:{...pick(res.movimento,COLS_MOV)}});
+                  setPlusMov(null);
+                  fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
+                  fetchMovimentosEstoque(user.id, orgId, null, 100).then(setEstoqueMovimentos);
+                  showToast(`✏️ Estoque atualizado para ${real} ${pm?.unidade||""}.`,"#6366f1");
+                  return;
+                }
                 const q = Number(String(plusMovQtd).replace(",","."));
                 if (!(q>0)) { showToast("❌ Informe a quantidade.","#991b1b"); return; }
                 const saldo = Number(pm?.quantidade_atual)||0;
@@ -4957,16 +4978,18 @@ export default function App({user,onLogout}) {
               return (
                 <div onClick={()=>setPlusMov(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
                   <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,padding:24,width:"100%",maxWidth:380,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
-                    <h3 style={{margin:"0 0 4px",fontSize:15,fontWeight:700}}>{ent?"📥 Adicionar ao estoque":"📤 Registrar saída"}</h3>
+                    <h3 style={{margin:"0 0 4px",fontSize:15,fontWeight:700}}>{ajuste?"✏️ Atualizar quantidade real":ent?"📥 Adicionar ao estoque":"📤 Registrar saída"}</h3>
                     <p style={{margin:"0 0 12px",fontSize:12,color:"#64748b"}}>{pm?.nome} · saldo atual: <strong>{String(Number(Number(pm?.quantidade_atual).toFixed(3))).replace(".",",")} {pm?.unidade}</strong></p>
-                    <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Quantidade ({pm?.unidade}) *</label>
+                    <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>{ajuste?`Quantidade REAL que tem agora (${pm?.unidade}) *`:`Quantidade (${pm?.unidade}) *`}</label>
                     <input autoFocus type="number" min="0" step="any" value={plusMovQtd} onChange={e=>setPlusMovQtd(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")salvarPlusMov();}} placeholder="Ex: 5" style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:14,outline:"none",boxSizing:"border-box",marginBottom:10}} />
                     <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Motivo (opcional)</label>
-                    <input value={plusMovMotivo} onChange={e=>setPlusMovMotivo(e.target.value)} placeholder={ent?"Ex: compra, reposição":"Ex: uso, perda"} style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                    <input value={plusMovMotivo} onChange={e=>setPlusMovMotivo(e.target.value)} placeholder={ajuste?"Ex: contagem do dia":ent?"Ex: compra, reposição":"Ex: uso, perda"} style={{width:"100%",padding:"10px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                    {ajuste&&plusMovQtd!==""&&!isNaN(Number(String(plusMovQtd).replace(",",".")))&&(()=>{ const d=Math.round((Number(String(plusMovQtd).replace(",","."))-(Number(pm?.quantidade_atual)||0))*1000)/1000; return <div style={{fontSize:12,fontWeight:700,marginTop:8,color:d===0?"#64748b":d>0?"#059669":"#b45309"}}>{d===0?"Já está com essa quantidade.":`O sistema vai registrar ${d>0?"+":"−"}${String(Math.abs(d)).replace(".",",")} ${pm?.unidade||""} (de ${String(Number(Number(pm?.quantidade_atual).toFixed(3))).replace(".",",")} para ${String(Number(String(plusMovQtd).replace(",","."))).replace(".",",")}).`}</div>; })()}
+                    {ajuste&&<div style={{fontSize:10,color:"#94a3b8",marginTop:6}}>Ajuste de contagem não conta como compra nem como material usado: só corrige o saldo.</div>}
                     {ent&&<div style={{fontSize:10,color:"#94a3b8",marginTop:6}}>A compra entra no gasto do mês com o preço e fornecedor cadastrados no material.</div>}
                     <div style={{display:"flex",gap:10,marginTop:16}}>
                       <button onClick={()=>setPlusMov(null)} style={{flex:1,padding:"10px 0",border:"1px solid #e2e8f0",borderRadius:10,background:"#f8fafc",color:"#64748b",fontSize:13,cursor:"pointer"}}>Cancelar</button>
-                      <button onClick={salvarPlusMov} disabled={plusMovBusy} style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:ent?"#059669":"#f59e0b",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>{plusMovBusy?"Salvando...":"Confirmar"}</button>
+                      <button onClick={salvarPlusMov} disabled={plusMovBusy} style={{flex:2,padding:"10px 0",border:"none",borderRadius:10,background:ajuste?"#6366f1":ent?"#059669":"#f59e0b",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>{plusMovBusy?"Salvando...":"Confirmar"}</button>
                     </div>
                   </div>
                 </div>
