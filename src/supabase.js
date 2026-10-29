@@ -840,6 +840,30 @@ export async function atualizarEstoqueProdutoPlus(produtoId, campos) {
   return error ? { error: error.message } : { success: true }
 }
 
+// ─── Histórico de preço de compra dos materiais ─────────────────────────────
+export async function registrarHistoricoPreco(orgId, produtoId, anterior, novo, membroNome) {
+  const pct = Number(anterior) > 0 ? ((Number(novo) - Number(anterior)) / Number(anterior)) * 100 : null
+  const { error } = await supabase.from('estoque_precos_historico').insert({
+    organizacao_id: orgId, produto_id: produtoId,
+    preco_anterior: anterior == null ? null : Number(anterior), preco_novo: Number(novo),
+    variacao_pct: pct == null ? null : Math.round(pct * 100) / 100, registrado_por: membroNome || '',
+  })
+  return error ? { error: error.message } : { success: true }
+}
+
+export async function fetchHistoricoPreco(orgId, produtoId) {
+  let q = supabase.from('estoque_precos_historico').select('*').eq('organizacao_id', orgId)
+  if (produtoId) q = q.eq('produto_id', produtoId)
+  const { data, error } = await q.order('criado_em', { ascending: false }).limit(200)
+  return error ? { error: error.message } : (data || [])
+}
+
+// Mantém o custo das matérias-primas ligadas a este material igual ao novo preço de compra
+export async function atualizarCustoMpsPorEstoque(estoqueId, novoPreco) {
+  const { data, error } = await supabase.from('materias_primas').update({ custo_unidade_compra: Number(novoPreco) || 0 }).eq('estoque_produto_id', estoqueId).select('id')
+  return error ? { error: error.message } : { count: (data || []).length }
+}
+
 // ─── Movimentos com preço ─────────────────────────────────────────────────────
 
 export async function fetchMovimentosComPreco(userId, orgId, mes) {

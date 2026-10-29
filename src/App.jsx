@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, lazy, Suspense, Fragment } from "react";
 const Ferramentas = lazy(() => import("./Ferramentas.jsx"));
 import { waUrl, getXLSX, PEDIDO_COLS, DEVOLUCAO_COLS, norm, parseSheet, normStatus, mesReferencia, mesLabel, corRecorrencia, formatMotivoCancelamento, isEnviado, isCancelado, isAberto, isHistorico, deadlineInfo, fmtBRL, currentMes, StatusBadge, StyledCheckbox, FeitoButton, RevisaoButton, VazioButton, ExpandCell, DropZone, Toast, RevisaoModal, FinanceGate, TabBar, TH, TD, _n, _norm, _tokens, similaridade, melhorMatch, mapUnidade, arquivoParaBase64, prepararImagemNota, fmtBRLn, quandoFmt, liquidoDe, custoMpDe } from "./helpers.jsx";
-import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, atualizarPerdaMp, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchSaidasTodas, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchVendasMes, fetchPedidosValorMaterial, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, lerVariacoesPrint, baixaRetroativa, baixaRecalcular, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
+import { supabase, fetchPedidos, upsertPedidos, updatePedidoStatus, fetchDevolucoes, upsertDevolucoes, fetchFaturamento, upsertFaturamento, deleteAllPedidos, restaurarPedidos, contarPedidosArquivados, deleteAllDevolucoes, deleteAllFaturamento, fetchConfig, saveConfig, fetchMembro, fetchOrganizacao, fetchMembrosDaOrganizacao, criarFuncionario, atualizarPermissoesMembro, removerMembro, fetchProdutividade, resetPassword, removerFuncionarioCompleto, registrarAuditoria, fetchAuditoria, fetchGoogleCalendarStatus, desconectarGoogleCalendar, fetchAlarmeHorarios, salvarAlarmeHorarios, fetchEstoqueProdutos, salvarEstoqueProduto, excluirEstoqueProduto, registrarMovimentoEstoque, fetchMovimentosEstoque, fetchProdutos, salvarProduto, excluirProduto, salvarMateriaPrima, excluirMateriaPrima, fetchMateriasPrimas, salvarMateriaPrimaLib, atualizarPerdaMp, excluirMateriaPrimaLib, salvarProdutoCompleto, fetchFornecedores, salvarFornecedor, excluirFornecedor, fetchEstoquePlusConfig, salvarEstoquePlusPin, atualizarEstoqueProdutoPlus, fetchMovimentosComPreco, registrarHistoricoPreco, fetchHistoricoPreco, atualizarCustoMpsPorEstoque, fetchCustosFixos, salvarCustoFixo, excluirCustoFixo, fetchPagamentosCustos, marcarCustoPago, fetchSaidasMes, fetchSaidasTodas, fetchConsumoRecente, fetchProjecao, salvarProjecao, fetchKits, salvarKit, excluirKit, fetchPedidosMes, fetchVendasMes, fetchPedidosValorMaterial, fetchPedidosUpseller, fetchVariacoesUpseller, fetchVinculos, salvarVinculo, fetchBaixaResumo, ativarBaixa, processarBaixa, registrarOperacao, desfazerMovimentoEstoque, fetchSyncUpseller, fetchBackups, lerVariacoesPrint, baixaRetroativa, baixaRecalcular, fetchOperacoes, desfazerOperacoes, pick, snapProduto, COLS_ESTOQUE_PROD, COLS_FORNECEDOR, COLS_CUSTO, COLS_MP, COLS_MOV, lerNotaFiscal, notaJaLancada, chamarClaudeFinanceiro, fetchChatFinanceiro, salvarMensagemChat, limparChatFinanceiro } from "./supabase.js";
 
 export default function App({user,onLogout}) {
   const [allPedidos,    setAllPedidos]    = useState([]);
@@ -173,6 +173,8 @@ export default function App({user,onLogout}) {
   const [plusCatNovo, setPlusCatNovo] = useState(false);
   const [prodTabAbertas, setProdTabAbertas] = useState({}); // cards de produto com a tabela de variações expandida
   const [plusSel, setPlusSel] = useState([]);
+  const [plusHist, setPlusHist] = useState(null); // {id, lista|null} histórico de preço do material aberto
+  const [plusImpacto, setPlusImpacto] = useState(null); // impacto do novo preço no lucro dos produtos da Shopee
   const [plusQtdPed, setPlusQtdPed] = useState({}); // quantidade a pedir por material selecionado (id -> texto)
   // lista suspensa de categorias já usadas (+ nova) e um único × para excluir a categoria escolhida
   const seletorCategoria = (valor, setValor, novo, setNovo, estiloInput) => {
@@ -4599,6 +4601,31 @@ export default function App({user,onLogout}) {
           logOp({tipo:"estoque",acao:"editar",descricao:"Preço/fornecedor atualizado: "+(prodPlusAntes?.nome||"material"),tabela:"estoque_produtos",registro_id:estoqueProdPlusId,antes:pick(prodPlusAntes,["preco_unitario","fornecedor_id","unidade","link_produto","alternativas","rendimento","unidade_uso","observacoes","categoria","quantidade_minima"]),depois:camposPlus});
           fetchEstoqueProdutos(user.id, orgId).then(setEstoqueProdutos);
           showToast(aplicados?`✅ Salvo e copiado para mais ${aplicados} material(is)!`:"✅ Informações salvas!","#059669");
+          // mudou o preço de compra: registra no histórico, atualiza o custo dos produtos ligados e mostra o impacto no lucro
+          const precoAnt = Number(prodPlusAntes?.preco_unitario)||0, precoNov = Number(camposPlus.preco_unitario)||0;
+          if (precoNov>0 && precoNov!==precoAnt) {
+            const idMat = estoqueProdPlusId;
+            registrarHistoricoPreco(orgId, idMat, precoAnt>0?precoAnt:null, precoNov, meuNome);
+            const antes = produtosCalc;
+            const rm = await atualizarCustoMpsPorEstoque(idMat, precoNov);
+            if (!rm.error && precoAnt>0) {
+              const depois = await fetchProdutos(user.id, orgId);
+              setProdutosCalc(depois);
+              fetchMateriasPrimas(user.id, orgId).then(setMateriasPrimas);
+              const usa = (v)=>(v.produto_materias_primas||[]).some(l=>l.materias_primas?.estoque_produto_id===idMat);
+              const custoPerda = (v)=>(v.produto_materias_primas||[]).reduce((a,l)=>{ const m=l.materias_primas||l; const un=Number(m.qtd_por_unidade_compra)>0?Number(m.custo_unidade_compra)/Number(m.qtd_por_unidade_compra):0; return a+un*Number(l.qtd_usada_por_produto||0)*(1+(Number(m.perda_pct)||0)/100); },0);
+              const linhas = [];
+              depois.forEach(pr=>(pr.produto_variacoes||[]).forEach(v=>{
+                if (!usa(v)) return;
+                const preco = Number(v.preco_venda)||0; if (!(preco>0)) return;
+                const pa = antes.find(x=>x.id===pr.id), va = (pa?.produto_variacoes||[]).find(x=>x.id===v.id); if (!va) return;
+                const lA = liquidoDe(pr,preco)-custoPerda(va), lD = liquidoDe(pr,preco)-custoPerda(v);
+                linhas.push({nome:pr.nome+(v.nome?" · "+v.nome:""), preco, lA, lD, mA:lA/preco*100, mD:lD/preco*100});
+              }));
+              linhas.sort((a,b)=>(a.mD-a.mA)-(b.mD-b.mA));
+              if (linhas.length) setPlusImpacto({nome:prodPlusAntes?.nome||"material", de:precoAnt, para:precoNov, linhas});
+            }
+          }
         };
 
         // totais do mês
@@ -4948,6 +4975,39 @@ export default function App({user,onLogout}) {
               </div>
             )}
 
+            {plusImpacto&&(()=>{
+              const fm=(n)=>(n<0?"-":"")+"R$ "+Math.abs(n).toFixed(2).replace(".",",");
+              const pc=(plusImpacto.para-plusImpacto.de)/plusImpacto.de*100;
+              const mediaDif = plusImpacto.linhas.reduce((a,x)=>a+(x.mD-x.mA),0)/plusImpacto.linhas.length;
+              const negativos = plusImpacto.linhas.filter(x=>x.lD<0).length;
+              return (
+                <div onClick={()=>setPlusImpacto(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+                  <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,padding:22,width:"100%",maxWidth:620,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+                    <h3 style={{margin:"0 0 2px",fontSize:15,fontWeight:700}}>📊 Impacto no lucro dos produtos</h3>
+                    <p style={{margin:"0 0 10px",fontSize:12,color:"#64748b"}}><strong>{plusImpacto.nome}</strong>: R$ {plusImpacto.de.toFixed(2).replace(".",",")} → R$ {plusImpacto.para.toFixed(2).replace(".",",")} (<strong style={{color:pc>0?"#dc2626":"#059669"}}>{pc>0?"▲ +":"▼ "}{pc.toFixed(1).replace(".",",")}%</strong>). O custo desses produtos já foi atualizado.</p>
+                    <div style={{background:mediaDif<0?"#fef2f2":"#f0fdf4",borderRadius:10,padding:"8px 12px",marginBottom:10,fontSize:12,fontWeight:700,color:mediaDif<0?"#991b1b":"#166534"}}>Margem média dos {plusImpacto.linhas.length} produtos afetados: {mediaDif>0?"+":""}{mediaDif.toFixed(1).replace(".",",")} pontos percentuais{negativos>0?` · ⚠️ ${negativos} ficaram com prejuízo por venda`:""}</div>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead><tr><th style={{...TH,padding:"5px 8px",textAlign:"left"}}>Produto / variação</th><th style={{...TH,padding:"5px 8px",textAlign:"right"}}>Preço</th><th style={{...TH,padding:"5px 8px",textAlign:"right"}}>Lucro por venda</th><th style={{...TH,padding:"5px 8px",textAlign:"right"}}>% que ganha</th></tr></thead>
+                        <tbody>
+                          {plusImpacto.linhas.map((x,i)=>(
+                            <tr key={i} style={{borderBottom:"1px solid #f1f5f9"}}>
+                              <td style={{padding:"5px 8px",fontWeight:600}}>{x.nome}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right"}}>{fm(x.preco)}</td>
+                              <td style={{padding:"5px 8px",textAlign:"right",whiteSpace:"nowrap"}}>{fm(x.lA)} → <strong style={{color:x.lD<0?"#dc2626":"#1e293b"}}>{fm(x.lD)}</strong></td>
+                              <td style={{padding:"5px 8px",textAlign:"right",whiteSpace:"nowrap"}}>{x.mA.toFixed(1).replace(".",",")}% → <strong style={{color:x.mD<x.mA?"#dc2626":"#059669"}}>{x.mD.toFixed(1).replace(".",",")}%</strong></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div style={{fontSize:10,color:"#94a3b8",marginTop:8}}>Lucro por venda = preço − comissão, imposto, adiantamento, taxa fixa e custo do material (com a perda %). % que ganha = lucro ÷ preço.</div>
+                    <button onClick={()=>setPlusImpacto(null)} style={{marginTop:12,width:"100%",padding:"10px 0",border:"none",borderRadius:10,background:"#7c3aed",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>Entendi</button>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Modal: lançamento rápido de entrada/saída */}
             {plusMov&&(()=>{
               const pm = estoqueProdutos.find(x=>x.id===plusMov.id);
@@ -5028,6 +5088,20 @@ export default function App({user,onLogout}) {
                         <label style={{fontSize:11,fontWeight:600,color:"#64748b",display:"block",marginBottom:3}}>Preço de compra por {prod?.unidade||"un"} (R$)</label>
                         <input type="number" min="0" step="0.01" value={estoqueProdPreco} onChange={e=>setEstoqueProdPreco(e.target.value)} placeholder="Ex: 0,80"
                           style={{width:"100%",padding:"9px 12px",border:"1.5px solid #e2e8f0",borderRadius:10,fontSize:13,outline:"none",boxSizing:"border-box"}} />
+                        {(()=>{ const ant=Number(prod?.preco_unitario)||0, nov=Number(estoqueProdPreco)||0; if(!(ant>0)||!(nov>0)||nov===ant) return ant>0?<div style={{fontSize:10,color:"#94a3b8",marginTop:4}}>Preço cadastrado hoje: R$ {ant.toFixed(2).replace(".",",")}</div>:null;
+                          const pc=(nov-ant)/ant*100, sobe=pc>0;
+                          return <div style={{fontSize:12,fontWeight:700,marginTop:5,color:sobe?"#dc2626":"#059669"}}>{sobe?"▲":"▼"} {Math.abs(pc).toFixed(1).replace(".",",")}% {sobe?"mais caro":"mais barato"} que o cadastrado (R$ {ant.toFixed(2).replace(".",",")} → R$ {nov.toFixed(2).replace(".",",")})</div>; })()}
+                        {prod&&<button type="button" onClick={async()=>{ if(plusHist?.id===prod.id){setPlusHist(null);return;} setPlusHist({id:prod.id,lista:null}); const l=await fetchHistoricoPreco(orgId,prod.id); setPlusHist({id:prod.id,lista:Array.isArray(l)?l:[]}); }} style={{background:"none",border:"none",color:"#7c3aed",fontSize:11,fontWeight:700,cursor:"pointer",padding:"4px 0 0"}}>{plusHist?.id===prod.id?"▾ Esconder histórico de preços":"📈 Ver histórico de preços"}</button>}
+                        {plusHist?.id===prod?.id&&(
+                          <div style={{marginTop:6,background:"#faf5ff",border:"1px solid #e9d5ff",borderRadius:10,padding:"8px 10px",maxHeight:160,overflowY:"auto"}}>
+                            {plusHist.lista===null?<div style={{fontSize:11,color:"#94a3b8"}}>Carregando…</div>:plusHist.lista.length===0?<div style={{fontSize:11,color:"#94a3b8"}}>Nenhuma alteração de preço registrada ainda. A partir de agora, cada mudança fica aqui.</div>:plusHist.lista.map(h=>(
+                              <div key={h.id} style={{display:"flex",justifyContent:"space-between",gap:8,fontSize:11,padding:"3px 0",borderBottom:"1px solid #f3e8ff"}}>
+                                <span style={{color:"#64748b"}}>{new Date(h.criado_em).toLocaleDateString("pt-BR")}{h.registrado_por?" · "+h.registrado_por:""}</span>
+                                <span>{h.preco_anterior!=null?"R$ "+Number(h.preco_anterior).toFixed(2).replace(".",",")+" → ":""}<strong>R$ {Number(h.preco_novo).toFixed(2).replace(".",",")}</strong>{h.variacao_pct!=null&&<strong style={{color:h.variacao_pct>0?"#dc2626":"#059669",marginLeft:6}}>{h.variacao_pct>0?"▲":"▼"}{Math.abs(h.variacao_pct).toFixed(1).replace(".",",")}%</strong>}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div>
                         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
