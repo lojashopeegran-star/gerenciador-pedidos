@@ -446,7 +446,8 @@ export default function App({user,onLogout}) {
   const [vincBusca, setVincBusca] = useState("");
   const [projListaAberta, setProjListaAberta] = useState(false);
   const [projMatAberto, setProjMatAberto] = useState(false);
-  const [lucroBase, setLucroBase] = useState("ticket"); // ticket | cadastrado
+  const [lucroBase, setLucroBase] = useState("ticket"); // ticket | cadastrado | real
+  const [vendasReais, setVendasReais] = useState(""); // vendas válidas do relatório do UpSeller (R$), opcional
   const [mil, setMil] = useState(null); // {pedidos:[...], escopo}
   const [milAberto, setMilAberto] = useState(false);
   const [milEscopo, setMilEscopo] = useState("mes"); // mes | todos
@@ -525,7 +526,7 @@ export default function App({user,onLogout}) {
     fetchProjecao(orgId, finMes).then(r=>{
       if (!vivo) return;
       const d = r?.dados || {};
-      setProjBase(d.base||"saidas"); setProjEstoque(d.estoque??""); setProjOutros(d.outros??""); setProjLucro(d.lucro??""); setProjTicket(d.ticket??"27");
+      setProjBase(d.base||"saidas"); setProjEstoque(d.estoque??""); setProjOutros(d.outros??""); setProjLucro(d.lucro??""); setProjTicket(d.ticket??"27"); setVendasReais(d.vendasReais??""); if(d.vendasReais) setLucroBase("real");
       setProjJa(d.ja??""); setProjMix(d.mix||{});
       setProjSalvaEm(r ? {quando:r.atualizado_em, quem:r.atualizado_por} : null);
     }).catch(()=>{});
@@ -533,7 +534,7 @@ export default function App({user,onLogout}) {
   }, [finMes, orgId, isAdminEquipe]);
   const salvarProjecaoMes = async () => {
     setSalvandoProj(true);
-    const r = await salvarProjecao(orgId, finMes, {base:projBase, estoque:projEstoque, outros:projOutros, lucro:projLucro, ticket:projTicket, ja:projJa, mix:projMix}, meuNome);
+    const r = await salvarProjecao(orgId, finMes, {base:projBase, estoque:projEstoque, outros:projOutros, lucro:projLucro, ticket:projTicket, vendasReais, ja:projJa, mix:projMix}, meuNome);
     setSalvandoProj(false);
     if (r.error) { showToast("❌ "+r.error,"#991b1b"); return; }
     setProjSalvaEm({quando:new Date().toISOString(), quem:meuNome});
@@ -5689,7 +5690,10 @@ export default function App({user,onLogout}) {
               const taxaFixaTotal = nPedidos*taxaFixaMedia;
               const brutoCad = bruto;
               const ticketL = Number(String(projTicket).replace(",","."))||0;
-              if (lucroBase==="ticket" && ticketL>0 && brutoCad>0) {
+              const vReal = Number(String(vendasReais).replace(/\./g,"").replace(",","."))||0;
+              if (lucroBase==="real" && vReal>0 && brutoCad>0) {
+                const f = vReal/brutoCad; bruto = vReal; comissao*=f; imposto*=f; adiant*=f;
+              } else if (lucroBase==="ticket" && ticketL>0 && brutoCad>0) {
                 // vendas = pedidos × ticket médio (o que realmente costuma entrar); as taxas % acompanham na mesma proporção
                 const f = (nPedidos*ticketL)/brutoCad; bruto = nPedidos*ticketL; comissao*=f; imposto*=f; adiant*=f;
               }
@@ -5705,10 +5709,17 @@ export default function App({user,onLogout}) {
                   <div style={{fontSize:13,fontWeight:700,color:"#1e293b",marginBottom:2}}>💰 Lucro do mês — {finMes}</div>
                   <div style={{fontSize:11,color:"#94a3b8",marginBottom:6}}>Vendas dos pedidos do UpSeller (sem cancelados), menos taxas, material usado e custos fixos.</div>
                   <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
-                    {[["ticket",`Pedidos × ticket médio (${fm(ticketL)})`],["cadastrado","Pelo preço cadastrado"]].map(([k,r])=>(
+                    {[["real","Vendas reais do UpSeller"],["ticket",`Pedidos × ticket médio (${fm(ticketL)})`],["cadastrado","Pelo preço cadastrado"]].map(([k,r])=>(
                       <button key={k} onClick={()=>setLucroBase(k)} style={{padding:"4px 10px",borderRadius:8,border:"1.5px solid "+(lucroBase===k?"#059669":"#e2e8f0"),background:lucroBase===k?"#d1fae5":"#fff",color:lucroBase===k?"#065f46":"#64748b",fontSize:11,fontWeight:700,cursor:"pointer"}}>{r}</button>
                     ))}
                   </div>
+                  {lucroBase==="real"&&(
+                    <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",marginBottom:10}}>
+                      <label style={{fontSize:11,fontWeight:600,color:"#64748b"}}>Vendas válidas do relatório do UpSeller (R$):</label>
+                      <input value={vendasReais} onChange={e=>setVendasReais(e.target.value)} placeholder="Ex: 92057,24" style={{width:140,padding:"5px 8px",border:"1.5px solid #e2e8f0",borderRadius:8,fontSize:12,outline:"none"}} />
+                      <span style={{fontSize:10,color:"#94a3b8"}}>{Number(String(vendasReais).replace(/\./g,"").replace(",","."))>0?"Cadastrado: "+fm(brutoCad)+" · salve em 💾 Salvar projeção":"Digite o valor do UpSeller (Relatórios de Vendas → Vendas Válidas)"}</span>
+                    </div>
+                  )}
                   {!vendasMes ? <div style={{fontSize:12,color:"#94a3b8"}}>Carregando…</div> : (<>
                     {linha(`🛒 Vendas (${nPedidos} pedidos · ${Math.round(un)} itens)`, fm(bruto))}
                     {linha("🧾 Total de taxas", "− "+fm(taxas), "#ef4444")}
