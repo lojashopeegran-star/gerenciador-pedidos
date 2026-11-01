@@ -173,6 +173,8 @@ export default function App({user,onLogout}) {
   const [plusCatNovo, setPlusCatNovo] = useState(false);
   const [prodTabAbertas, setProdTabAbertas] = useState({}); // cards de produto com a tabela de variações expandida
   const [plusSel, setPlusSel] = useState([]);
+  // quantidade legível: até 2 casas (3 se for menor que 1), sem lixo de ponto flutuante, vírgula brasileira
+  const fmtQtd = (n) => { const v=Number(n)||0; const d=Math.abs(v)<1?3:2; return String(Number(v.toFixed(d))).replace(".",","); };
   const [plusHist, setPlusHist] = useState(null); // {id, lista|null} histórico de preço do material aberto
   const [plusImpacto, setPlusImpacto] = useState(null); // impacto do novo preço no lucro dos produtos da Shopee
   const [plusQtdPed, setPlusQtdPed] = useState({}); // quantidade a pedir por material selecionado (id -> texto)
@@ -4117,7 +4119,7 @@ export default function App({user,onLogout}) {
         const abrirFormEditar = (p) => {
           setEditandoProduto(p);
           setEstoqueProdNome(p.nome); setEstoqueProdUnidade(p.unidade);
-          setEstoqueProdQtd(String(p.quantidade_atual)); setEstoqueProdMin(String(p.quantidade_minima));
+          setEstoqueProdQtd(String(Number((Number(p.quantidade_atual)||0).toFixed(4)))); setEstoqueProdMin(String(p.quantidade_minima));
           setShowEstoqueForm(true);
         };
         const salvarProduto = async () => {
@@ -4233,9 +4235,9 @@ export default function App({user,onLogout}) {
                     {baixo(p)&&<span style={{position:"absolute",top:10,right:12,background:"#f59e0b",color:"#fff",borderRadius:20,padding:"2px 9px",fontSize:10,fontWeight:700}}>⚠️ Baixo</span>}
                     <div style={{fontSize:15,fontWeight:700,color:"#1e293b",marginBottom:4,paddingRight:60}}>{p.nome}</div>
                     <div style={{display:"flex",alignItems:"baseline",gap:6,marginBottom:10}}>
-                      <span style={{fontSize:32,fontWeight:800,color:baixo(p)?"#f59e0b":"#0d9488",lineHeight:1}}>{p.quantidade_atual}</span>
+                      <span title={String(p.quantidade_atual)} style={{fontSize:fmtQtd(p.quantidade_atual).length>7?22:fmtQtd(p.quantidade_atual).length>5?26:32,fontWeight:800,color:baixo(p)?"#f59e0b":"#0d9488",lineHeight:1,whiteSpace:"nowrap"}}>{fmtQtd(p.quantidade_atual)}</span>
                       <span style={{fontSize:13,color:"#64748b"}}>{p.unidade}</span>
-                      <span style={{fontSize:11,color:"#94a3b8",marginLeft:4}}>mín: {p.quantidade_minima}</span>
+                      <span style={{fontSize:11,color:"#94a3b8",marginLeft:4}}>mín: {fmtQtd(p.quantidade_minima)}</span>
                     </div>
                     <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
                       <button onClick={()=>abrirMov(p.id,"entrada")} style={{flex:1,padding:"6px 10px",background:"#d1fae5",color:"#065f46",border:"none",borderRadius:8,fontSize:11,fontWeight:700,cursor:"pointer"}}>📥 Entrada</button>
@@ -4401,7 +4403,7 @@ export default function App({user,onLogout}) {
                 <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
                   <div style={{background:"#fff",borderRadius:20,padding:28,width:"100%",maxWidth:400,boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
                     <h3 style={{margin:"0 0 6px",fontSize:16,fontWeight:700,color:"#1e293b"}}>{movTipo==="entrada"?"📥 Registrar Entrada":"📤 Registrar Saída"}</h3>
-                    <p style={{margin:"0 0 16px",fontSize:12,color:"#64748b"}}>{prod?.nome} · saldo atual: <strong>{prod?.quantidade_atual} {prod?.unidade}</strong></p>
+                    <p style={{margin:"0 0 16px",fontSize:12,color:"#64748b"}}>{prod?.nome} · saldo atual: <strong>{fmtQtd(prod?.quantidade_atual)} {prod?.unidade}</strong></p>
                     <div style={{display:"flex",gap:8,marginBottom:14}}>
                       {["entrada","saida"].map(t=>(
                         <button key={t} onClick={()=>setMovTipo(t)}
