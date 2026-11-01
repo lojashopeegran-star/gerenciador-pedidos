@@ -4620,7 +4620,11 @@ export default function App({user,onLogout}) {
                 const preco = Number(v.preco_venda)||0; if (!(preco>0)) return;
                 const pa = antes.find(x=>x.id===pr.id), va = (pa?.produto_variacoes||[]).find(x=>x.id===v.id); if (!va) return;
                 const lA = liquidoDe(pr,preco)-custoPerda(va), lD = liquidoDe(pr,preco)-custoPerda(v);
-                linhas.push({nome:pr.nome+(v.nome?" · "+v.nome:""), preco, lA, lD, mA:lA/preco*100, mD:lD/preco*100});
+                const pctT=(_n(pr.taxa_plataforma_pct,0)+_n(pr.taxa_imposto_pct,0)+_n(pr.taxa_adiantamento_pct,0))/100, fixaT=_n(pr.taxa_fixa,0), cD=custoPerda(v), mAf=lA/preco;
+                // preço que mantém a MESMA margem % (lucro ÷ preço) e o que mantém o MESMO lucro em R$, com o custo novo
+                const pMargem = (1-pctT-mAf)>0.01 ? (fixaT+cD)/(1-pctT-mAf) : null;
+                const pLucro = (1-pctT)>0.01 ? (lA+fixaT+cD)/(1-pctT) : null;
+                linhas.push({nome:pr.nome+(v.nome?" · "+v.nome:""), preco, lA, lD, mA:lA/preco*100, mD:lD/preco*100, pMargem, pLucro});
               }));
               linhas.sort((a,b)=>(a.mD-a.mA)-(b.mD-b.mA));
               if (linhas.length) setPlusImpacto({nome:prodPlusAntes?.nome||"material", de:precoAnt, para:precoNov, linhas});
@@ -4982,13 +4986,13 @@ export default function App({user,onLogout}) {
               const negativos = plusImpacto.linhas.filter(x=>x.lD<0).length;
               return (
                 <div onClick={()=>setPlusImpacto(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:10001,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-                  <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,padding:22,width:"100%",maxWidth:620,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
+                  <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:20,padding:22,width:"100%",maxWidth:860,maxHeight:"90vh",overflowY:"auto",boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
                     <h3 style={{margin:"0 0 2px",fontSize:15,fontWeight:700}}>📊 Impacto no lucro dos produtos</h3>
                     <p style={{margin:"0 0 10px",fontSize:12,color:"#64748b"}}><strong>{plusImpacto.nome}</strong>: R$ {plusImpacto.de.toFixed(2).replace(".",",")} → R$ {plusImpacto.para.toFixed(2).replace(".",",")} (<strong style={{color:pc>0?"#dc2626":"#059669"}}>{pc>0?"▲ +":"▼ "}{pc.toFixed(1).replace(".",",")}%</strong>). O custo desses produtos já foi atualizado.</p>
                     <div style={{background:mediaDif<0?"#fef2f2":"#f0fdf4",borderRadius:10,padding:"8px 12px",marginBottom:10,fontSize:12,fontWeight:700,color:mediaDif<0?"#991b1b":"#166534"}}>Margem média dos {plusImpacto.linhas.length} produtos afetados: {mediaDif>0?"+":""}{mediaDif.toFixed(1).replace(".",",")} pontos percentuais{negativos>0?` · ⚠️ ${negativos} ficaram com prejuízo por venda`:""}</div>
                     <div style={{overflowX:"auto"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                        <thead><tr><th style={{...TH,padding:"5px 8px",textAlign:"left"}}>Produto / variação</th><th style={{...TH,padding:"5px 8px",textAlign:"right"}}>Preço</th><th style={{...TH,padding:"5px 8px",textAlign:"right"}}>Lucro por venda</th><th style={{...TH,padding:"5px 8px",textAlign:"right"}}>% que ganha</th></tr></thead>
+                        <thead><tr><th style={{...TH,padding:"5px 8px",textAlign:"left"}}>Produto / variação</th><th style={{...TH,padding:"5px 8px",textAlign:"right"}}>Preço</th><th style={{...TH,padding:"5px 8px",textAlign:"right"}}>Lucro por venda</th><th style={{...TH,padding:"5px 8px",textAlign:"right"}}>% que ganha</th><th style={{...TH,padding:"5px 8px",textAlign:"right",color:"#6d28d9"}}>Preço p/ manter a margem %</th><th style={{...TH,padding:"5px 8px",textAlign:"right",color:"#6d28d9"}}>Preço p/ manter o lucro R$</th></tr></thead>
                         <tbody>
                           {plusImpacto.linhas.map((x,i)=>(
                             <tr key={i} style={{borderBottom:"1px solid #f1f5f9"}}>
@@ -4996,12 +5000,13 @@ export default function App({user,onLogout}) {
                               <td style={{padding:"5px 8px",textAlign:"right"}}>{fm(x.preco)}</td>
                               <td style={{padding:"5px 8px",textAlign:"right",whiteSpace:"nowrap"}}>{fm(x.lA)} → <strong style={{color:x.lD<0?"#dc2626":"#1e293b"}}>{fm(x.lD)}</strong></td>
                               <td style={{padding:"5px 8px",textAlign:"right",whiteSpace:"nowrap"}}>{x.mA.toFixed(1).replace(".",",")}% → <strong style={{color:x.mD<x.mA?"#dc2626":"#059669"}}>{x.mD.toFixed(1).replace(".",",")}%</strong></td>
+                              {[x.pMargem,x.pLucro].map((pn,k)=>{ const v=pn==null?null:Math.ceil(pn*100)/100; return <td key={k} style={{padding:"5px 8px",textAlign:"right",whiteSpace:"nowrap",background:"#faf5ff"}}>{v==null?"—":<><strong style={{color:"#6d28d9"}}>{fm(v)}</strong><div style={{fontSize:10,color:v>x.preco?"#dc2626":"#059669"}}>{v>=x.preco?"+":"−"}{fm(Math.abs(v-x.preco))} ({v>=x.preco?"+":"−"}{Math.abs((v-x.preco)/x.preco*100).toFixed(1).replace(".",",")}%)</div></>}</td>; })}
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
-                    <div style={{fontSize:10,color:"#94a3b8",marginTop:8}}>Lucro por venda = preço − comissão, imposto, adiantamento, taxa fixa e custo do material (com a perda %). % que ganha = lucro ÷ preço.</div>
+                    <div style={{fontSize:10,color:"#94a3b8",marginTop:8}}>Lucro por venda = preço − comissão, imposto, adiantamento, taxa fixa e custo do material (com a perda %). % que ganha = lucro ÷ preço. <strong>Preço p/ manter a margem %</strong>: quanto cobrar para continuar ganhando a mesma % de antes. <strong>Manter o lucro R$</strong>: para continuar ganhando os mesmos reais por venda. Os dois já descontam as taxas da Shopee sobre o preço novo.</div>
                     <button onClick={()=>setPlusImpacto(null)} style={{marginTop:12,width:"100%",padding:"10px 0",border:"none",borderRadius:10,background:"#7c3aed",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>Entendi</button>
                   </div>
                 </div>
