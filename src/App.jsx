@@ -4623,11 +4623,11 @@ export default function App({user,onLogout}) {
                 const preco = Number(v.preco_venda)||0; if (!(preco>0)) return;
                 const pa = antes.find(x=>x.id===pr.id), va = (pa?.produto_variacoes||[]).find(x=>x.id===v.id); if (!va) return;
                 const lA = liquidoDe(pr,preco)-custoPerda(va), lD = liquidoDe(pr,preco)-custoPerda(v);
-                const pctT=(_n(pr.taxa_plataforma_pct,0)+_n(pr.taxa_imposto_pct,0)+_n(pr.taxa_adiantamento_pct,0))/100, fixaT=_n(pr.taxa_fixa,0), cD=custoPerda(v), mkA=(preco-lA)>0?lA/(preco-lA):null;
+                const pctT=(_n(pr.taxa_plataforma_pct,0)+_n(pr.taxa_imposto_pct,0)+_n(pr.taxa_adiantamento_pct,0))/100, fixaT=_n(pr.taxa_fixa,0), cD=custoPerda(v), cA=custoPerda(va), mkA=cA>0?lA/cA:null;
                 // preço que mantém a MESMA margem % (lucro ÷ preço) e o que mantém o MESMO lucro em R$, com o custo novo
-                const pMargem = (mkA!=null && (1-(1+mkA)*pctT)>0.01) ? (1+mkA)*(fixaT+cD)/(1-(1+mkA)*pctT) : null;   // mantém o mesmo lucro % SOBRE O CUSTO (custo = material + taxas)
+                const pMargem = (mkA!=null && (1-pctT)>0.01) ? (fixaT+cD*(1+mkA))/(1-pctT) : null;   // mantém o mesmo lucro % SOBRE O CUSTO DO MATERIAL
                 const pLucro = (1-pctT)>0.01 ? (lA+fixaT+cD)/(1-pctT) : null;
-                linhas.push({nome:pr.nome+(v.nome?" · "+v.nome:""), preco, lA, lD, mA:(preco-lA)>0?lA/(preco-lA)*100:0, mD:(preco-lD)>0?lD/(preco-lD)*100:0, pMargem, pLucro});
+                linhas.push({nome:pr.nome+(v.nome?" · "+v.nome:""), preco, lA, lD, mA:cA>0?lA/cA*100:0, mD:cD>0?lD/cD*100:0, pMargem, pLucro});
               }));
               linhas.sort((a,b)=>(a.mD-a.mA)-(b.mD-b.mA));
               if (linhas.length) {
@@ -5034,7 +5034,7 @@ export default function App({user,onLogout}) {
                         </tbody>
                       </table>
                     </div>
-                    <div style={{fontSize:10,color:"#94a3b8",marginTop:8}}>Lucro por venda = preço − comissão, imposto, adiantamento, taxa fixa e custo do material (com a perda %). % que ganha = lucro ÷ custo (custo = material + comissão, imposto, adiantamento e taxa fixa). <strong>Preço p/ manter o % sobre o custo</strong>: quanto cobrar para continuar ganhando a mesma % de antes. <strong>Manter o lucro R$</strong>: para continuar ganhando os mesmos reais por venda. Os dois já descontam as taxas da Shopee sobre o preço novo.</div>
+                    <div style={{fontSize:10,color:"#94a3b8",marginTop:8}}>Lucro por venda = preço − comissão, imposto, adiantamento, taxa fixa e custo do material (com a perda %). % que ganha = lucro ÷ custo do material (folhas, tinta, embalagem etc., com a perda %) × 100. <strong>Preço p/ manter o % sobre o custo</strong>: quanto cobrar para continuar ganhando a mesma % de antes. <strong>Manter o lucro R$</strong>: para continuar ganhando os mesmos reais por venda. Os dois já descontam as taxas da Shopee sobre o preço novo.</div>
                     <button onClick={()=>setPlusImpacto(null)} style={{marginTop:12,width:"100%",padding:"10px 0",border:"none",borderRadius:10,background:"#7c3aed",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>Entendi</button>
                   </div>
                 </div>
