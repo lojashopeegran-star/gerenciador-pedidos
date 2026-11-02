@@ -4623,11 +4623,11 @@ export default function App({user,onLogout}) {
                 const preco = Number(v.preco_venda)||0; if (!(preco>0)) return;
                 const pa = antes.find(x=>x.id===pr.id), va = (pa?.produto_variacoes||[]).find(x=>x.id===v.id); if (!va) return;
                 const lA = liquidoDe(pr,preco)-custoPerda(va), lD = liquidoDe(pr,preco)-custoPerda(v);
-                const pctT=(_n(pr.taxa_plataforma_pct,0)+_n(pr.taxa_imposto_pct,0)+_n(pr.taxa_adiantamento_pct,0))/100, fixaT=_n(pr.taxa_fixa,0), cD=custoPerda(v), mAf=lA/preco;
+                const pctT=(_n(pr.taxa_plataforma_pct,0)+_n(pr.taxa_imposto_pct,0)+_n(pr.taxa_adiantamento_pct,0))/100, fixaT=_n(pr.taxa_fixa,0), cD=custoPerda(v), mkA=(preco-lA)>0?lA/(preco-lA):null;
                 // preço que mantém a MESMA margem % (lucro ÷ preço) e o que mantém o MESMO lucro em R$, com o custo novo
-                const pMargem = (1-pctT-mAf)>0.01 ? (fixaT+cD)/(1-pctT-mAf) : null;
+                const pMargem = (mkA!=null && (1-(1+mkA)*pctT)>0.01) ? (1+mkA)*(fixaT+cD)/(1-(1+mkA)*pctT) : null;   // mantém o mesmo lucro % SOBRE O CUSTO (custo = material + taxas)
                 const pLucro = (1-pctT)>0.01 ? (lA+fixaT+cD)/(1-pctT) : null;
-                linhas.push({nome:pr.nome+(v.nome?" · "+v.nome:""), preco, lA, lD, mA:lA/preco*100, mD:lD/preco*100, pMargem, pLucro});
+                linhas.push({nome:pr.nome+(v.nome?" · "+v.nome:""), preco, lA, lD, mA:(preco-lA)>0?lA/(preco-lA)*100:0, mD:(preco-lD)>0?lD/(preco-lD)*100:0, pMargem, pLucro});
               }));
               linhas.sort((a,b)=>(a.mD-a.mA)-(b.mD-b.mA));
               if (linhas.length) {
@@ -5020,7 +5020,7 @@ export default function App({user,onLogout}) {
                     <div style={{background:mediaDif<0?"#fef2f2":"#f0fdf4",borderRadius:10,padding:"8px 12px",marginBottom:10,fontSize:12,fontWeight:700,color:mediaDif<0?"#991b1b":"#166534"}}>Margem média dos {plusImpacto.linhas.length} produtos afetados: {mediaDif>0?"+":""}{mediaDif.toFixed(1).replace(".",",")} pontos percentuais{negativos>0?` · ⚠️ ${negativos} ficaram com prejuízo por venda`:""}</div>
                     <div style={{overflowX:"auto"}}>
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                        <thead><tr><th style={{...TH,padding:"5px 8px",textAlign:"left"}}>Produto / variação</th><th style={{...TH,padding:"5px 8px",textAlign:"right"}}>Preço</th><th style={{...TH,padding:"5px 8px",textAlign:"right"}}>Lucro por venda</th><th style={{...TH,padding:"5px 8px",textAlign:"right"}}>% que ganha</th><th style={{...TH,padding:"5px 8px",textAlign:"right",color:"#6d28d9"}}>Preço p/ manter a margem %</th><th style={{...TH,padding:"5px 8px",textAlign:"right",color:"#6d28d9"}}>Preço p/ manter o lucro R$</th></tr></thead>
+                        <thead><tr><th style={{...TH,padding:"5px 8px",textAlign:"left"}}>Produto / variação</th><th style={{...TH,padding:"5px 8px",textAlign:"right"}}>Preço</th><th style={{...TH,padding:"5px 8px",textAlign:"right"}}>Lucro por venda</th><th style={{...TH,padding:"5px 8px",textAlign:"right"}}>% que ganha</th><th style={{...TH,padding:"5px 8px",textAlign:"right",color:"#6d28d9"}}>Preço p/ manter o % sobre o custo</th><th style={{...TH,padding:"5px 8px",textAlign:"right",color:"#6d28d9"}}>Preço p/ manter o lucro R$</th></tr></thead>
                         <tbody>
                           {plusImpacto.linhas.map((x,i)=>(
                             <tr key={i} style={{borderBottom:"1px solid #f1f5f9"}}>
@@ -5034,7 +5034,7 @@ export default function App({user,onLogout}) {
                         </tbody>
                       </table>
                     </div>
-                    <div style={{fontSize:10,color:"#94a3b8",marginTop:8}}>Lucro por venda = preço − comissão, imposto, adiantamento, taxa fixa e custo do material (com a perda %). % que ganha = lucro ÷ preço. <strong>Preço p/ manter a margem %</strong>: quanto cobrar para continuar ganhando a mesma % de antes. <strong>Manter o lucro R$</strong>: para continuar ganhando os mesmos reais por venda. Os dois já descontam as taxas da Shopee sobre o preço novo.</div>
+                    <div style={{fontSize:10,color:"#94a3b8",marginTop:8}}>Lucro por venda = preço − comissão, imposto, adiantamento, taxa fixa e custo do material (com a perda %). % que ganha = lucro ÷ custo (custo = material + comissão, imposto, adiantamento e taxa fixa). <strong>Preço p/ manter o % sobre o custo</strong>: quanto cobrar para continuar ganhando a mesma % de antes. <strong>Manter o lucro R$</strong>: para continuar ganhando os mesmos reais por venda. Os dois já descontam as taxas da Shopee sobre o preço novo.</div>
                     <button onClick={()=>setPlusImpacto(null)} style={{marginTop:12,width:"100%",padding:"10px 0",border:"none",borderRadius:10,background:"#7c3aed",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer"}}>Entendi</button>
                   </div>
                 </div>
