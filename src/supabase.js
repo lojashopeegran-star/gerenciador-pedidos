@@ -858,6 +858,25 @@ export async function fetchHistoricoPreco(orgId, produtoId) {
   return error ? { error: error.message } : (data || [])
 }
 
+// Guarda a tabela de impacto de cada reajuste de preço (snapshot do momento), para consultar depois
+export async function salvarImpactoReajuste(orgId, produtoId, nome, anterior, novo, linhas, membroNome) {
+  const { error } = await supabase.from('estoque_impactos_reajuste').insert({
+    organizacao_id: orgId, produto_id: produtoId || null, material_nome: nome || '',
+    preco_anterior: anterior == null ? null : Number(anterior), preco_novo: Number(novo), linhas: linhas || [], registrado_por: membroNome || '',
+  })
+  return error ? { error: error.message } : { success: true }
+}
+
+export async function fetchImpactosReajuste(orgId) {
+  const { data, error } = await supabase.from('estoque_impactos_reajuste').select('*').eq('organizacao_id', orgId).order('criado_em', { ascending: false }).limit(200)
+  return error ? { error: error.message } : (data || [])
+}
+
+export async function excluirImpactoReajuste(id) {
+  const { error } = await supabase.from('estoque_impactos_reajuste').delete().eq('id', id)
+  return error ? { error: error.message } : { success: true }
+}
+
 // Mantém o custo das matérias-primas ligadas a este material igual ao novo preço de compra
 export async function atualizarCustoMpsPorEstoque(estoqueId, novoPreco) {
   const { data, error } = await supabase.from('materias_primas').update({ custo_unidade_compra: Number(novoPreco) || 0 }).eq('estoque_produto_id', estoqueId).select('id')
