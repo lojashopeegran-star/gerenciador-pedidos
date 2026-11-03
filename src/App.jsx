@@ -175,6 +175,7 @@ export default function App({user,onLogout}) {
   const [plusSel, setPlusSel] = useState([]);
   // quantidade legível: até 2 casas (3 se for menor que 1), sem lixo de ponto flutuante, vírgula brasileira
   const fmtQtd = (n) => { const v=Number(n)||0; const d=Math.abs(v)<1?3:2; return String(Number(v.toFixed(d))).replace(".",","); };
+  const [repAjuste, setRepAjuste] = useState({pontos:"", cupom:""}); // simulador de preço na tela do produto: + pontos de retorno e cupom %
   const [plusImpLista, setPlusImpLista] = useState(null); // {lista|null} histórico de impactos de reajustes
   const [plusHist, setPlusHist] = useState(null); // {id, lista|null} histórico de preço do material aberto
   const [plusImpacto, setPlusImpacto] = useState(null); // impacto do novo preço no lucro dos produtos da Shopee
@@ -3957,6 +3958,31 @@ export default function App({user,onLogout}) {
                 </div>
               </div>
 
+              {(()=>{
+                const pts = num(String(repAjuste.pontos).replace(",","."),0), cup = Math.min(num(String(repAjuste.cupom).replace(",","."),0),90);
+                const inpS = {width:"100%",padding:"8px 10px",border:"1.5px solid #ddd6fe",borderRadius:10,fontSize:14,fontWeight:700,outline:"none",boxSizing:"border-box"};
+                return (
+                  <div style={{background:"#faf5ff",border:"1.5px solid #e9d5ff",borderRadius:14,padding:"14px 16px",marginBottom:14}}>
+                    <div style={{fontSize:13,fontWeight:800,color:"#6d28d9",marginBottom:2}}>🎯 Simulador de preço</div>
+                    <div style={{fontSize:11,color:"#64748b",marginBottom:10}}>Digite quanto quer ganhar a mais e/ou o cupom que você oferece. Cada variação mostra abaixo o preço de venda sugerido (as taxas já são descontadas).</div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                      <div>
+                        <label style={{fontSize:10,fontWeight:700,color:"#64748b",display:"block",marginBottom:3}}>+ pontos no retorno s/ custo</label>
+                        <input inputMode="decimal" value={repAjuste.pontos} onChange={e=>setRepAjuste(x=>({...x,pontos:e.target.value}))} placeholder="Ex: 10" style={inpS}/>
+                      </div>
+                      <div>
+                        <label style={{fontSize:10,fontWeight:700,color:"#64748b",display:"block",marginBottom:3}}>Cupom oferecido (%)</label>
+                        <input inputMode="decimal" value={repAjuste.cupom} onChange={e=>setRepAjuste(x=>({...x,cupom:e.target.value}))} placeholder="Ex: 5" style={inpS}/>
+                      </div>
+                    </div>
+                    {(pts>0||cup>0)&&<div style={{fontSize:11,color:"#6d28d9",marginTop:8}}>
+                      {pts>0&&<>Retorno desejado: <strong>retorno atual + {pts}%</strong>. </>}
+                      {cup>0&&<>O cliente paga o preço sugerido menos <strong>{cup}%</strong> de cupom, e o valor final fica igual ao que a conta pede.</>}
+                    </div>}
+                  </div>
+                );
+              })()}
+
               {vars.map(v=>{
                 const custo = custoVar(v);
                 const liq = liquidoVar(p,v);
@@ -3986,6 +4012,33 @@ export default function App({user,onLogout}) {
                         </div>
                       ))}
                     </div>
+                    {(()=>{
+                      const pts = num(String(repAjuste.pontos).replace(",","."),0), cup = Math.min(num(String(repAjuste.cupom).replace(",","."),0),90);
+                      if (!(pts>0||cup>0)) return null;
+                      const preco = Number(v.preco_venda)||0, pctT = pctTaxas(p)/100, fixa = num(p.taxa_fixa,0);
+                      if (!(custo>0) || !(preco>0) || (1-pctT)<=0.01) return null;
+                      const retAtual = marg!=null?marg:0;
+                      // preço FINAL (depois do cupom) que dá o retorno desejado; depois sobe o preço de tabela para o cupom cair nele
+                      const retAlvo = retAtual + pts;
+                      const precoFinal = (fixa + custo*(1+retAlvo/100))/(1-pctT);
+                      const tabela = cup>0 ? precoFinal/(1-cup/100) : precoFinal;
+                      const exato = Math.ceil(tabela*100)/100;
+                      const arred = Math.ceil(tabela+0.01)-0.01;
+                      const difR = arred-preco;
+                      return (
+                        <div style={{background:"#faf5ff",border:"1px dashed #c4b5fd",borderRadius:10,padding:"10px 12px",marginBottom:12,display:"flex",flexWrap:"wrap",gap:14,alignItems:"center"}}>
+                          <div>
+                            <div style={{fontSize:10,fontWeight:700,color:"#6d28d9"}}>Preço de venda sugerido</div>
+                            <div style={{fontSize:20,fontWeight:800,color:"#6d28d9"}}>{fmtR(arred)}</div>
+                            <div style={{fontSize:10,color:"#64748b"}}>{difR>=0?"+":"-"}{fmtR(Math.abs(difR))} ({preco>0?(difR>=0?"+":"-")+Math.abs(difR/preco*100).toFixed(1).replace(".",",")+"%":""}) sobre o atual · exato {fmtR(exato)}</div>
+                          </div>
+                          <div style={{fontSize:11,color:"#475569",lineHeight:1.5}}>
+                            {cup>0&&<div>Com cupom de {cup}%: cliente paga <strong>{fmtR(arred*(1-cup/100))}</strong></div>}
+                            <div>Retorno s/ custo: {fmtM(retAtual)} → <strong>{fmtM(((arred*(1-cup/100))*(1-pctT)-fixa-custo)/custo*100)}</strong></div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                     {linhas.length===0 ? (
                       <div style={{textAlign:"center",padding:"12px 0",color:"#94a3b8",fontSize:12}}>Nenhuma matéria-prima vinculada. Clique em ✏️ Editar produto.</div>
                     ) : (
