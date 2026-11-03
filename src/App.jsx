@@ -2809,14 +2809,14 @@ export default function App({user,onLogout}) {
         const pctTaxas = (p) => num(p.taxa_plataforma_pct,0)+num(p.taxa_imposto_pct,0)+num(p.taxa_adiantamento_pct,0);
         const liquidoPreco = (p,preco) => Number(preco||0)*(1-pctTaxas(p)/100) - num(p.taxa_fixa,0);
         const liquidoVar = (p,v) => liquidoPreco(p, v.preco_venda);
-        const margemDe = (liquido,custo) => custo>0 ? (liquido/custo)*100 : null;
+        const margemDe = (liquido,custo) => custo>0 ? ((liquido-custo)/custo)*100 : null;   // lucro ÷ custo (liquido = o que sobra do preço depois das taxas)
         const margemVar = (p,v) => margemDe(liquidoVar(p,v), custoVar(v));
         const margemMedia = (p) => {
           const ms = (p.produto_variacoes||[]).map(v=>margemVar(p,v)).filter(m=>m!==null);
           return ms.length ? ms.reduce((a,b)=>a+b,0)/ms.length : null;
         };
-        const corMargem = (m) => m===null?"#94a3b8":m>=100?"#059669":m>=50?"#f59e0b":"#ef4444";
-        const bgMargem = (m) => m===null?"#f8fafc":m>=100?"#d1fae5":m>=50?"#fffbeb":"#fde8e8";
+        const corMargem = (m) => m===null?"#94a3b8":m>=60?"#059669":m>=30?"#f59e0b":"#ef4444";
+        const bgMargem = (m) => m===null?"#f8fafc":m>=60?"#d1fae5":m>=30?"#fffbeb":"#fde8e8";
         const fmtM = (m) => m===null?"—":Math.round(m)+"%";
         // Margem sobre o preço de venda: quanto do preço vira lucro (depois de taxas e custo)
         const margemPreco = (p,v) => { const pr=Number(v.preco_venda)||0; return pr>0 ? ((liquidoVar(p,v)-custoVar(v))/pr)*100 : null; };
@@ -3969,7 +3969,7 @@ export default function App({user,onLogout}) {
                       <div style={{fontSize:14,fontWeight:800,color:"#1e293b"}}>🎛️ {v.nome}</div>
                       <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                         <span title="Quanto do preço de venda vira lucro" style={{fontSize:12,fontWeight:800,color:corMP(margemPreco(p,v)),background:"#f1f5f9",borderRadius:8,padding:"3px 10px"}}>Margem s/ preço {fmtM(margemPreco(p,v))}</span>
-                        <span title="Valor recebido ÷ custo" style={{fontSize:12,fontWeight:800,color:corMargem(marg),background:bgMargem(marg),borderRadius:8,padding:"3px 10px"}}>Retorno s/ custo {fmtM(marg)}</span>
+                        <span title="Lucro (depois das taxas e do custo) ÷ custo de produção" style={{fontSize:12,fontWeight:800,color:corMargem(marg),background:bgMargem(marg),borderRadius:8,padding:"3px 10px"}}>Retorno s/ custo {fmtM(marg)}</span>
                       </div>
                     </div>
                     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(130px,1fr))",gap:10,marginBottom:12}}>
